@@ -1,4 +1,5 @@
 use arboard::Clipboard;
+use enigo::{Enigo, Key, KeyboardControllable};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -15,6 +16,7 @@ struct ClipboardHistoryPayload {
 #[derive(Clone, Default)]
 struct ClipboardState {
     items: Arc<Mutex<Vec<String>>>,
+    selected_index: Arc<Mutex<usize>>,
 }
 
 #[tauri::command]
@@ -24,6 +26,64 @@ fn get_clipboard_history(state: tauri::State<'_, ClipboardState>) -> Vec<String>
     }
 
     Vec::new()
+}
+
+#[tauri::command]
+fn set_selected_history_index(index: usize, state: tauri::State<'_, ClipboardState>) {
+    if let Ok(mut selected_index) = state.selected_index.lock() {
+        *selected_index = index;
+    }
+}
+
+#[tauri::command]
+fn bring_history_window_to_front(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_focusable(false);
+        let _ = window.set_always_on_top(true);
+        let _ = window.unminimize();
+        let _ = window.show();
+    }
+}
+
+#[tauri::command]
+fn paste_selected_history_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ClipboardState>,
+) -> Result<(), String> {
+    let selected_index = state
+        .selected_index
+        .lock()
+        .map_err(|_| "failed to lock selected index".to_string())
+        .map(|selected| *selected)?;
+
+    let selected_item = state
+        .items
+        .lock()
+        .map_err(|_| "failed to lock clipboard history".to_string())
+        .and_then(|items| {
+            items
+                .get(selected_index)
+                .cloned()
+                .ok_or_else(|| "no selected history item".to_string())
+        })?;
+
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard
+        .set_text(selected_item)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    thread::sleep(Duration::from_millis(30));
+
+    // Simulate Ctrl+V so the previously focused app receives the selected history text.
+    let mut enigo = Enigo::new();
+    enigo.key_down(Key::Control);
+    enigo.key_click(Key::Layout('v'));
+    enigo.key_up(Key::Control);
+
+    Ok(())
 }
 
 fn push_history_item(state: &ClipboardState, value: String) -> Option<Vec<String>> {
@@ -85,11 +145,7 @@ fn register_show_window_shortcut(app: &tauri::AppHandle) {
     if let Err(error) = app
         .global_shortcut()
         .on_shortcut(shortcut, move |_app, _shortcut, _event| {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
+        bring_history_window_to_front(app_handle.clone());
     }) {
         eprintln!("failed to register global shortcut: {error}");
     }
@@ -108,12 +164,19 @@ pub fn run() {
             start_clipboard_watcher(app.handle().clone(), clipboard_state.clone());
 
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focusable(false);
+                let _ = window.set_always_on_top(true);
                 let _ = window.hide();
             }
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_clipboard_history])
+        .invoke_handler(tauri::generate_handler![
+            get_clipboard_history,
+            set_selected_history_index,
+            paste_selected_history_item,
+            bring_history_window_to_front
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

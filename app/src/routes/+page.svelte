@@ -5,12 +5,61 @@
 
   /** @type {string[]} */
   let history = $state([]);
+  let selectedIndex = $state(0);
 
   /** @type {(() => void) | null} */
   let unsubscribe = null;
 
   async function loadHistory() {
     history = await invoke("get_clipboard_history");
+    if (selectedIndex >= history.length) {
+      selectedIndex = Math.max(0, history.length - 1);
+    }
+    await invoke("set_selected_history_index", { index: selectedIndex });
+  }
+
+  async function bringToFront() {
+    await invoke("bring_history_window_to_front");
+  }
+
+  /**
+   * @param {number} index
+   */
+  async function selectIndex(index) {
+    selectedIndex = index;
+    await invoke("set_selected_history_index", { index });
+  }
+
+  async function pasteSelected() {
+    await invoke("paste_selected_history_item");
+  }
+
+  /**
+   * @param {KeyboardEvent} event
+   */
+  async function onKeydown(event) {
+    if (history.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const next = Math.min(history.length - 1, selectedIndex + 1);
+      await selectIndex(next);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = Math.max(0, selectedIndex - 1);
+      await selectIndex(next);
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      await pasteSelected();
+    }
   }
 
   onMount(() => {
@@ -26,6 +75,9 @@
         const payload = event.payload;
         if (payload && typeof payload === "object" && Array.isArray(payload.items)) {
           history = payload.items;
+          if (selectedIndex >= history.length) {
+            selectedIndex = Math.max(0, history.length - 1);
+          }
         }
       });
     })();
@@ -39,6 +91,8 @@
   });
 </script>
 
+<svelte:window onkeydown={onKeydown} onclick={bringToFront} />
+
 <main class="container">
   <header>
     <h1>Clipboard History</h1>
@@ -50,9 +104,16 @@
   {:else}
     <ul class="history-list">
       {#each history as item, index (item + index)}
-        <li class="history-item">
-          <span class="index">{index + 1}.</span>
-          <pre>{item}</pre>
+        <li class="history-item" class:selected={index === selectedIndex}>
+          <button
+            type="button"
+            class="history-button"
+            onclick={() => selectIndex(index)}
+            ondblclick={pasteSelected}
+          >
+            <span class="index">{index + 1}.</span>
+            <pre>{item}</pre>
+          </button>
         </li>
       {/each}
     </ul>
@@ -99,13 +160,28 @@
   }
 
   .history-item {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .history-item.selected {
+    border-color: #396cd8;
+    box-shadow: 0 0 0 1px #396cd8;
+  }
+
+  .history-button {
+    width: 100%;
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+    text-align: left;
+    border: 0;
+    background: transparent;
     padding: 0.6rem 0.8rem;
-    background: #fff;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
   }
 
   .index {
@@ -140,6 +216,11 @@
     .history-item {
       border-color: #4f4f4f;
       background: #343434;
+    }
+
+    .history-item.selected {
+      border-color: #6ea8ff;
+      box-shadow: 0 0 0 1px #6ea8ff;
     }
   }
 </style>
