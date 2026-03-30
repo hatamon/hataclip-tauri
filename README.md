@@ -26,6 +26,22 @@ PowerShell から実行:
 ./scripts/build-windows.ps1
 ```
 
+## 静的コード解析
+
+`app` ディレクトリで実行:
+
+```powershell
+cd app
+npm run lint
+```
+
+個別実行:
+
+- `npm run lint:eslint` (`.js/.svelte` の ESLint)
+- `npm run lint:types` (Svelte/TypeScript の型チェック)
+- `npm run lint:rust` (`src-tauri` の clippy)
+- `npm run format:check` (Prettier チェック)
+
 ## 次にやること（確認）
 
 次のステップとして、Tauri アプリの雛形（`package.json`、`src-tauri`、`tauri` コマンド用の設定）を作って、このビルド環境で実際に `tauri build` が走る状態にします。
