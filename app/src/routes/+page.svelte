@@ -9,8 +9,6 @@
 
   /** @type {(() => void) | null} */
   let unsubscribe = null;
-  /** @type {(() => void) | null} */
-  let unsubscribeSelection = null;
 
   async function loadHistory() {
     history = await invoke("get_clipboard_history");
@@ -36,6 +34,10 @@
     await invoke("paste_selected_history_item");
   }
 
+  async function closeHistoryWindow() {
+    await invoke("hide_history_window");
+  }
+
   /**
    * @param {KeyboardEvent} event
    */
@@ -44,14 +46,14 @@
       return;
     }
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "j") {
       event.preventDefault();
       const next = Math.min(history.length - 1, selectedIndex + 1);
       await selectIndex(next);
       return;
     }
 
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || event.key === "k") {
       event.preventDefault();
       const next = Math.max(0, selectedIndex - 1);
       await selectIndex(next);
@@ -61,6 +63,12 @@
     if (event.key === "Enter") {
       event.preventDefault();
       await pasteSelected();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      await closeHistoryWindow();
     }
   }
 
@@ -82,22 +90,12 @@
           }
         }
       });
-
-      unsubscribeSelection = await listen("history-selection-changed", (event) => {
-        const payload = event.payload;
-        if (payload && typeof payload === "object" && Number.isInteger(payload.selectedIndex)) {
-          selectedIndex = payload.selectedIndex;
-        }
-      });
     })();
 
     return () => {
       disposed = true;
       if (unsubscribe) {
         unsubscribe();
-      }
-      if (unsubscribeSelection) {
-        unsubscribeSelection();
       }
     };
   });

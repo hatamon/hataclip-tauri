@@ -9,6 +9,8 @@ use std::thread;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,16 +18,11 @@ struct ClipboardHistoryPayload {
     items: Vec<String>,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SelectedIndexPayload {
-    selected_index: usize,
-}
-
 #[derive(Clone, Default)]
 struct ClipboardState {
     items: Arc<Mutex<Vec<String>>>,
     selected_index: Arc<Mutex<usize>>,
+    previous_foreground_window: Arc<Mutex<isize>>,
 }
 
 #[tauri::command]
@@ -45,12 +42,36 @@ fn set_selected_history_index(index: usize, state: tauri::State<'_, ClipboardSta
 }
 
 #[tauri::command]
-fn bring_history_window_to_front(app: tauri::AppHandle) {
+fn bring_history_window_to_front(app: tauri::AppHandle, state: tauri::State<'_, ClipboardState>) {
+    bring_history_window_to_front_impl(&app, &state);
+}
+
+#[tauri::command]
+fn hide_history_window(app: tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_focusable(false);
+        let _ = window.hide();
+    }
+}
+
+fn bring_history_window_to_front_impl(app: &tauri::AppHandle, state: &ClipboardState) {
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            if let (Ok(hwnd), Some(foreground)) = (window.hwnd(), get_foreground_window_handle()) {
+                let current_window = hwnd.0 as isize;
+                if foreground != current_window {
+                    let _ = state.previous_foreground_window.lock().map(|mut saved| {
+                        *saved = foreground;
+                    });
+                }
+            }
+        }
+
+        let _ = window.set_focusable(true);
         let _ = window.set_always_on_top(true);
         let _ = window.unminimize();
         let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
@@ -60,36 +81,6 @@ fn paste_selected_history_item(
     state: tauri::State<'_, ClipboardState>,
 ) -> Result<(), String> {
     paste_selected_history_item_impl(&app, &state)
-}
-
-fn is_history_window_visible(app: &tauri::AppHandle) -> bool {
-    app.get_webview_window("main")
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false)
-}
-
-fn move_selected_index(app: &tauri::AppHandle, state: &ClipboardState, delta: isize) {
-    let len = state.items.lock().map(|items| items.len()).unwrap_or(0);
-    if len == 0 {
-        return;
-    }
-
-    let updated = state
-        .selected_index
-        .lock()
-        .map(|mut selected| {
-            let next = (*selected as isize + delta).clamp(0, (len - 1) as isize) as usize;
-            *selected = next;
-            next
-        })
-        .ok();
-
-    if let Some(selected_index) = updated {
-        let _ = app.emit(
-            "history-selection-changed",
-            SelectedIndexPayload { selected_index },
-        );
-    }
 }
 
 fn paste_selected_history_item_impl(
@@ -121,7 +112,8 @@ fn paste_selected_history_item_impl(
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
-    thread::sleep(Duration::from_millis(30));
+    restore_previous_foreground_window(state);
+    thread::sleep(Duration::from_millis(60));
 
     // Simulate Ctrl+V so the previously focused app receives the selected history text.
     if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
@@ -133,6 +125,39 @@ fn paste_selected_history_item_impl(
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn get_foreground_window_handle() -> Option<isize> {
+    // SAFETY: Calling Win32 API to read current foreground window handle.
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+    Some(hwnd as isize)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_foreground_window_handle() -> Option<isize> {
+    None
+}
+
+fn restore_previous_foreground_window(state: &ClipboardState) {
+    #[cfg(target_os = "windows")]
+    {
+        let saved = state
+            .previous_foreground_window
+            .lock()
+            .ok()
+            .map(|value| *value)
+            .unwrap_or(0);
+        if saved != 0 {
+            // SAFETY: Uses a handle previously observed from GetForegroundWindow.
+            unsafe {
+                let _ = SetForegroundWindow(saved as _);
+            }
+        }
+    }
 }
 
 fn push_history_item(state: &ClipboardState, value: String) -> Option<Vec<String>> {
@@ -187,81 +212,16 @@ fn start_clipboard_watcher(app: tauri::AppHandle, state: ClipboardState) {
     });
 }
 
-fn register_show_window_shortcut(app: &tauri::AppHandle) {
+fn register_show_window_shortcut(app: &tauri::AppHandle, state: ClipboardState) {
     let shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Digit7);
     let app_handle = app.clone();
 
     if let Err(error) = app
         .global_shortcut()
         .on_shortcut(shortcut, move |_app, _shortcut, _event| {
-        bring_history_window_to_front(app_handle.clone());
+        bring_history_window_to_front_impl(&app_handle, &state);
     }) {
         eprintln!("failed to register global shortcut: {error}");
-    }
-}
-
-fn register_paste_shortcut(app: &tauri::AppHandle, state: ClipboardState) {
-    let shortcut = Shortcut::new(None, Code::Enter);
-    let app_handle = app.clone();
-
-    if let Err(error) = app
-        .global_shortcut()
-        .on_shortcut(shortcut, move |_app, _shortcut, _event| {
-            if !is_history_window_visible(&app_handle) {
-                return;
-            }
-
-            if let Err(paste_error) = paste_selected_history_item_impl(&app_handle, &state) {
-                eprintln!("failed to paste selected history item: {paste_error}");
-            }
-        })
-    {
-        eprintln!("failed to register enter shortcut: {error}");
-    }
-}
-
-fn register_vim_shortcuts(app: &tauri::AppHandle, state: ClipboardState) {
-    let app_j = app.clone();
-    let state_j = state.clone();
-    if let Err(error) = app
-        .global_shortcut()
-        .on_shortcut(Shortcut::new(None, Code::KeyJ), move |_app, _shortcut, _event| {
-            if !is_history_window_visible(&app_j) {
-                return;
-            }
-            move_selected_index(&app_j, &state_j, 1);
-        })
-    {
-        eprintln!("failed to register j shortcut: {error}");
-    }
-
-    let app_k = app.clone();
-    let state_k = state.clone();
-    if let Err(error) = app
-        .global_shortcut()
-        .on_shortcut(Shortcut::new(None, Code::KeyK), move |_app, _shortcut, _event| {
-            if !is_history_window_visible(&app_k) {
-                return;
-            }
-            move_selected_index(&app_k, &state_k, -1);
-        })
-    {
-        eprintln!("failed to register k shortcut: {error}");
-    }
-
-    let app_esc = app.clone();
-    if let Err(error) = app.global_shortcut().on_shortcut(
-        Shortcut::new(None, Code::Escape),
-        move |_app, _shortcut, _event| {
-            if !is_history_window_visible(&app_esc) {
-                return;
-            }
-            if let Some(window) = app_esc.get_webview_window("main") {
-                let _ = window.hide();
-            }
-        },
-    ) {
-        eprintln!("failed to register esc shortcut: {error}");
     }
 }
 
@@ -274,13 +234,11 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            register_show_window_shortcut(app.handle());
-            register_paste_shortcut(app.handle(), clipboard_state.clone());
-            register_vim_shortcuts(app.handle(), clipboard_state.clone());
+            register_show_window_shortcut(app.handle(), clipboard_state.clone());
             start_clipboard_watcher(app.handle().clone(), clipboard_state.clone());
 
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focusable(false);
+                let _ = window.set_focusable(true);
                 let _ = window.set_always_on_top(true);
                 let _ = window.hide();
             }
@@ -291,7 +249,8 @@ pub fn run() {
             get_clipboard_history,
             set_selected_history_index,
             paste_selected_history_item,
-            bring_history_window_to_front
+            bring_history_window_to_front,
+            hide_history_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
