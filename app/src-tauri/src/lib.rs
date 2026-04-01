@@ -1,5 +1,8 @@
 use arboard::Clipboard;
-use enigo::{Enigo, Key, KeyboardControllable};
+use enigo::{
+    Direction::{Click, Press, Release},
+    Enigo, Key, Keyboard, Settings,
+};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,6 +14,12 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 #[serde(rename_all = "camelCase")]
 struct ClipboardHistoryPayload {
     items: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectedIndexPayload {
+    selected_index: usize,
 }
 
 #[derive(Clone, Default)]
@@ -50,6 +59,43 @@ fn paste_selected_history_item(
     app: tauri::AppHandle,
     state: tauri::State<'_, ClipboardState>,
 ) -> Result<(), String> {
+    paste_selected_history_item_impl(&app, &state)
+}
+
+fn is_history_window_visible(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false)
+}
+
+fn move_selected_index(app: &tauri::AppHandle, state: &ClipboardState, delta: isize) {
+    let len = state.items.lock().map(|items| items.len()).unwrap_or(0);
+    if len == 0 {
+        return;
+    }
+
+    let updated = state
+        .selected_index
+        .lock()
+        .map(|mut selected| {
+            let next = (*selected as isize + delta).clamp(0, (len - 1) as isize) as usize;
+            *selected = next;
+            next
+        })
+        .ok();
+
+    if let Some(selected_index) = updated {
+        let _ = app.emit(
+            "history-selection-changed",
+            SelectedIndexPayload { selected_index },
+        );
+    }
+}
+
+fn paste_selected_history_item_impl(
+    app: &tauri::AppHandle,
+    state: &ClipboardState,
+) -> Result<(), String> {
     let selected_index = state
         .selected_index
         .lock()
@@ -78,10 +124,13 @@ fn paste_selected_history_item(
     thread::sleep(Duration::from_millis(30));
 
     // Simulate Ctrl+V so the previously focused app receives the selected history text.
-    let mut enigo = Enigo::new();
-    enigo.key_down(Key::Control);
-    enigo.key_click(Key::Layout('v'));
-    enigo.key_up(Key::Control);
+    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+        let _ = enigo.key(Key::Control, Press);
+        let _ = enigo.key(Key::Unicode('v'), Click);
+        let _ = enigo.key(Key::Control, Release);
+    } else {
+        return Err("failed to initialize keyboard input backend".to_string());
+    }
 
     Ok(())
 }
@@ -151,6 +200,71 @@ fn register_show_window_shortcut(app: &tauri::AppHandle) {
     }
 }
 
+fn register_paste_shortcut(app: &tauri::AppHandle, state: ClipboardState) {
+    let shortcut = Shortcut::new(None, Code::Enter);
+    let app_handle = app.clone();
+
+    if let Err(error) = app
+        .global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, _event| {
+            if !is_history_window_visible(&app_handle) {
+                return;
+            }
+
+            if let Err(paste_error) = paste_selected_history_item_impl(&app_handle, &state) {
+                eprintln!("failed to paste selected history item: {paste_error}");
+            }
+        })
+    {
+        eprintln!("failed to register enter shortcut: {error}");
+    }
+}
+
+fn register_vim_shortcuts(app: &tauri::AppHandle, state: ClipboardState) {
+    let app_j = app.clone();
+    let state_j = state.clone();
+    if let Err(error) = app
+        .global_shortcut()
+        .on_shortcut(Shortcut::new(None, Code::KeyJ), move |_app, _shortcut, _event| {
+            if !is_history_window_visible(&app_j) {
+                return;
+            }
+            move_selected_index(&app_j, &state_j, 1);
+        })
+    {
+        eprintln!("failed to register j shortcut: {error}");
+    }
+
+    let app_k = app.clone();
+    let state_k = state.clone();
+    if let Err(error) = app
+        .global_shortcut()
+        .on_shortcut(Shortcut::new(None, Code::KeyK), move |_app, _shortcut, _event| {
+            if !is_history_window_visible(&app_k) {
+                return;
+            }
+            move_selected_index(&app_k, &state_k, -1);
+        })
+    {
+        eprintln!("failed to register k shortcut: {error}");
+    }
+
+    let app_esc = app.clone();
+    if let Err(error) = app.global_shortcut().on_shortcut(
+        Shortcut::new(None, Code::Escape),
+        move |_app, _shortcut, _event| {
+            if !is_history_window_visible(&app_esc) {
+                return;
+            }
+            if let Some(window) = app_esc.get_webview_window("main") {
+                let _ = window.hide();
+            }
+        },
+    ) {
+        eprintln!("failed to register esc shortcut: {error}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let clipboard_state = ClipboardState::default();
@@ -161,6 +275,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             register_show_window_shortcut(app.handle());
+            register_paste_shortcut(app.handle(), clipboard_state.clone());
+            register_vim_shortcuts(app.handle(), clipboard_state.clone());
             start_clipboard_watcher(app.handle().clone(), clipboard_state.clone());
 
             if let Some(window) = app.get_webview_window("main") {

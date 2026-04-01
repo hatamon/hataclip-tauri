@@ -9,6 +9,8 @@
 
   /** @type {(() => void) | null} */
   let unsubscribe = null;
+  /** @type {(() => void) | null} */
+  let unsubscribeSelection = null;
 
   async function loadHistory() {
     history = await invoke("get_clipboard_history");
@@ -80,12 +82,22 @@
           }
         }
       });
+
+      unsubscribeSelection = await listen("history-selection-changed", (event) => {
+        const payload = event.payload;
+        if (payload && typeof payload === "object" && Number.isInteger(payload.selectedIndex)) {
+          selectedIndex = payload.selectedIndex;
+        }
+      });
     })();
 
     return () => {
       disposed = true;
       if (unsubscribe) {
         unsubscribe();
+      }
+      if (unsubscribeSelection) {
+        unsubscribeSelection();
       }
     };
   });
@@ -97,6 +109,7 @@
   <header>
     <h1>Clipboard History</h1>
     <p class="hint">Press <kbd>Ctrl</kbd> + <kbd>7</kbd> to show this window.</p>
+    <p class="hint">Default Vim-like keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>Enter</kbd> paste, <kbd>Esc</kbd> close.</p>
   </header>
 
   {#if history.length === 0}
