@@ -1,47 +1,40 @@
-<script>
+<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
+  import { isClipboardHistoryPayload } from "$lib/types";
 
-  /** @type {string[]} */
-  let history = $state([]);
+  let history = $state<string[]>([]);
   let selectedIndex = $state(0);
 
-  /** @type {(() => void) | null} */
-  let unsubscribe = null;
+  let unsubscribe: (() => void) | null = null;
 
-  async function loadHistory() {
-    history = await invoke("get_clipboard_history");
+  async function loadHistory(): Promise<void> {
+    history = await invoke<string[]>("get_clipboard_history");
     if (selectedIndex >= history.length) {
       selectedIndex = Math.max(0, history.length - 1);
     }
     await invoke("set_selected_history_index", { index: selectedIndex });
   }
 
-  async function bringToFront() {
+  async function bringToFront(): Promise<void> {
     await invoke("bring_history_window_to_front");
   }
 
-  /**
-   * @param {number} index
-   */
-  async function selectIndex(index) {
+  async function selectIndex(index: number): Promise<void> {
     selectedIndex = index;
     await invoke("set_selected_history_index", { index });
   }
 
-  async function pasteSelected() {
+  async function pasteSelected(): Promise<void> {
     await invoke("paste_selected_history_item");
   }
 
-  async function closeHistoryWindow() {
+  async function closeHistoryWindow(): Promise<void> {
     await invoke("hide_history_window");
   }
 
-  /**
-   * @param {KeyboardEvent} event
-   */
-  async function onKeydown(event) {
+  async function onKeydown(event: KeyboardEvent): Promise<void> {
     if (history.length === 0) {
       return;
     }
@@ -83,7 +76,7 @@
 
       unsubscribe = await listen("clipboard-history-updated", (event) => {
         const payload = event.payload;
-        if (payload && typeof payload === "object" && Array.isArray(payload.items)) {
+        if (isClipboardHistoryPayload(payload)) {
           history = payload.items;
           if (selectedIndex >= history.length) {
             selectedIndex = Math.max(0, history.length - 1);
