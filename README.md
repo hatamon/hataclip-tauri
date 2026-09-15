@@ -6,12 +6,24 @@ Windows / Ubuntu 向けのテキスト専用クリップボードピッカー。
 
 ## clone 直後のビルド
 
+Ubuntu:
+
 ```bash
 git clone <this-repo>
 cd hataclip-tauri
 docker compose run --rm test
 docker compose run --rm linux-build
 docker compose run --rm windows-build
+```
+
+Windows（PowerShell 7）:
+
+```powershell
+git clone <this-repo>
+cd hataclip-tauri
+./scripts/test.ps1
+./scripts/build-linux.ps1
+./scripts/build-windows.ps1
 ```
 
 初回はイメージの構築で時間がかかる。
