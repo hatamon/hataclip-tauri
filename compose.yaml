@@ -1,0 +1,37 @@
+services:
+  linux-build:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    working_dir: /app
+    command: ["bash", "scripts/build-linux.sh"]
+
+  windows-build:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    working_dir: /app
+    command: ["bash", "scripts/build-windows.sh"]
+
+  test:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    working_dir: /app
+    command: ["bash", "scripts/test.sh"]
+
+volumes:
+  cargo-registry:
+  cargo-git:
