@@ -4,7 +4,10 @@ cd /app
 npm ci
 npm run tauri -- build --target x86_64-pc-windows-gnu --no-bundle
 mkdir -p dist/windows
-cp src-tauri/target/x86_64-pc-windows-gnu/release/hataclip.exe dist/windows/hataclip.exe
+if ! cp src-tauri/target/x86_64-pc-windows-gnu/release/hataclip.exe dist/windows/hataclip.exe; then
+  echo "failed to write dist/windows/hataclip.exe; close hataclip.exe if it is running" >&2
+  exit 1
+fi
 cp src-tauri/target/x86_64-pc-windows-gnu/release/WebView2Loader.dll dist/windows/WebView2Loader.dll
 
 copy_dll() {

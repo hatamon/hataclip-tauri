@@ -2,4 +2,5 @@
 #Requires -Version 7
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
+Get-Process hataclip -ErrorAction SilentlyContinue | Stop-Process -Force
 docker compose run --rm windows-build
