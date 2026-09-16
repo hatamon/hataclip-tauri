@@ -1,18 +1,23 @@
 mod actions;
 mod clipboard;
 mod platform;
+mod settings;
 mod shortcuts;
 mod store;
 mod tray;
 
 use platform::Point;
+use settings::{Settings, Shortcuts};
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{new_id, Item, Store};
-use tauri::{Emitter, Manager, PhysicalPosition, Position, WebviewWindow};
+use tauri::{
+    Emitter, Manager, PhysicalPosition, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 pub(crate) struct AppState {
     store: Mutex<Store>,
+    settings: Mutex<Settings>,
     foreground: Mutex<Option<platform::Foreground>>,
     last_position: Mutex<Option<Point>>,
 }
@@ -40,6 +45,31 @@ fn update_item(
 #[tauri::command]
 fn hide_picker(app: tauri::AppHandle) {
     hide_window(&app);
+}
+
+#[tauri::command]
+fn get_shortcuts(state: tauri::State<'_, AppState>) -> Shortcuts {
+    state.settings.lock().expect("settings").shortcuts().clone()
+}
+
+#[tauri::command]
+fn set_shortcuts(
+    register: String,
+    show: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let next = Shortcuts { register, show };
+    let previous = state.settings.lock().expect("settings").shortcuts().clone();
+    if next == previous {
+        return Ok(());
+    }
+    if let Err(error) = shortcuts::apply(&app, &next) {
+        let _ = shortcuts::apply(&app, &previous);
+        return Err(error);
+    }
+    state.settings.lock().expect("settings").set_shortcuts(next);
+    Ok(())
 }
 
 #[tauri::command]
@@ -74,6 +104,20 @@ fn hide_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+}
+
+pub(crate) fn open_settings(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
+        .title("hataclip 設定")
+        .inner_size(340.0, 260.0)
+        .resizable(false)
+        .build();
 }
 
 fn insert_item(state: &AppState, text: String) {
@@ -141,16 +185,18 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("app data dir");
             let store = Store::load(dir.join("items.json"));
+            let settings = Settings::load(dir.join("settings.json"));
+            let shortcuts = settings.shortcuts().clone();
             app.manage(AppState {
                 store: Mutex::new(store),
+                settings: Mutex::new(settings),
                 foreground: Mutex::new(None),
                 last_position: Mutex::new(None),
             });
             tray::setup(app)?;
-            if let Err(error) = shortcuts::register(app.handle()) {
+            if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {
                 eprintln!("failed to register global shortcuts: {error}");
-                let state = app.state::<AppState>();
-                show_picker(app.handle(), &state);
+                open_settings(app.handle());
             } else if let Some(window) = app.get_webview_window("main") {
                 let _ = window.hide();
             }
@@ -161,7 +207,9 @@ pub fn run() {
             delete_item,
             update_item,
             hide_picker,
-            paste_item
+            paste_item,
+            get_shortcuts,
+            set_shortcuts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

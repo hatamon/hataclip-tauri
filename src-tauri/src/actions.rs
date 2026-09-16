@@ -1,16 +1,32 @@
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::Shortcut;
 
-#[derive(Clone, Copy)]
-pub enum Action {
-    Register,
-    Show,
+pub fn parse(value: &str) -> Result<Shortcut, String> {
+    let shortcut: Shortcut = value
+        .parse()
+        .map_err(|_| format!("使えないキー: {value}"))?;
+    if shortcut.mods.is_empty() {
+        return Err(format!("修飾キーが要る: {value}"));
+    }
+    Ok(shortcut)
 }
 
-pub fn shortcut(action: Action) -> Shortcut {
-    match action {
-        Action::Register => {
-            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyY)
-        }
-        Action::Show => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_modifier_combinations() {
+        assert!(parse("Control+Digit4").is_ok());
+        assert!(parse("Control+Shift+KeyY").is_ok());
+    }
+
+    #[test]
+    fn rejects_shortcut_without_modifier() {
+        assert!(parse("Digit4").is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_key() {
+        assert!(parse("Control+Nope").is_err());
     }
 }
