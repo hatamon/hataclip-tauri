@@ -1,12 +1,13 @@
-use crate::{show_picker, AppState};
+use crate::{open_settings, show_picker, AppState};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, Manager};
 
 pub fn setup(app: &App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &settings, &quit])?;
 
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
@@ -17,6 +18,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
                 let state = app.state::<AppState>();
                 show_picker(app, &state);
             }
+            "settings" => open_settings(app),
             "quit" => app.exit(0),
             _ => {}
         })
