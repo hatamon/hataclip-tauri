@@ -20,6 +20,7 @@
   let query = $state("");
   let pending = $state("");
   let searchEl = $state<HTMLInputElement | undefined>(undefined);
+  let listEl = $state<HTMLUListElement | undefined>(undefined);
   let editText = $state("");
   let editTags = $state<string[]>([]);
   let tagDraft = $state("");
@@ -53,6 +54,13 @@
     if (mode === "search") {
       queueMicrotask(() => searchEl?.focus());
     }
+  });
+
+  $effect(() => {
+    if (filtered.length === 0) {
+      return;
+    }
+    listEl?.children[selected]?.scrollIntoView({ block: "nearest" });
   });
 
   function currentItem(): Item | undefined {
@@ -335,7 +343,7 @@
         </ul>
       {/if}
     {/if}
-    <ul class="list">
+    <ul class="list" bind:this={listEl}>
       {#each filtered as item, index (item.id)}
         <li class:active={index === selected}>
           <button
