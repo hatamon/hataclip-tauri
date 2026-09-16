@@ -3,6 +3,7 @@ mod clipboard;
 mod platform;
 mod shortcuts;
 mod store;
+mod tray;
 
 use platform::Point;
 use std::sync::Mutex;
@@ -145,6 +146,7 @@ pub fn run() {
                 foreground: Mutex::new(None),
                 last_position: Mutex::new(None),
             });
+            tray::setup(app)?;
             if let Err(error) = shortcuts::register(app.handle()) {
                 eprintln!("failed to register global shortcuts: {error}");
                 let state = app.state::<AppState>();
