@@ -142,23 +142,26 @@
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       mode = "normal";
       pending = "";
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
+      event.stopPropagation();
       void pasteSelected();
       return;
     }
     if (event.key === "Tab" && searchSuggestions.length > 0) {
       event.preventDefault();
+      event.stopPropagation();
       query = applyTagCompletion(query, searchSuggestions[0]);
     }
   }
 
   function onDocumentKeydown(event: KeyboardEvent) {
-    if (event.isComposing) {
+    if (event.isComposing || event.defaultPrevented) {
       return;
     }
     if (mode === "search") {
