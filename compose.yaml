@@ -1,26 +1,31 @@
+x-build-env: &build-env
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  volumes:
+    # ビルド中に書き込みが集中する場所は、遅いバインドマウントから外す。
+    - .:/app
+    - node-modules:/app/node_modules
+    - svelte-kit:/app/.svelte-kit
+    - cargo-target:/app/src-tauri/target
+    - cargo-registry:/usr/local/cargo/registry
+    - cargo-git:/usr/local/cargo/git
+    - npm-cache:/root/.npm
+  working_dir: /app
+
 services:
   windows-build:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    volumes:
-      - .:/app
-      - cargo-registry:/usr/local/cargo/registry
-      - cargo-git:/usr/local/cargo/git
-    working_dir: /app
+    <<: *build-env
     command: ["bash", "scripts/build-windows.sh"]
 
   test:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    volumes:
-      - .:/app
-      - cargo-registry:/usr/local/cargo/registry
-      - cargo-git:/usr/local/cargo/git
-    working_dir: /app
+    <<: *build-env
     command: ["bash", "scripts/test.sh"]
 
 volumes:
+  node-modules:
+  svelte-kit:
+  cargo-target:
   cargo-registry:
   cargo-git:
+  npm-cache:

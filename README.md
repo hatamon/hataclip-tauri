@@ -24,6 +24,12 @@ cd hataclip-tauri
 
 初回はイメージの構築で時間がかかる。
 
+`node_modules` と `.svelte-kit`、`src-tauri/target` は Docker のボリュームに置く。バインドマウント越しの書き込みが遅いため。ホスト側にこれらは増えないので、作り直したいときはボリュームを消す:
+
+```bash
+docker compose down -v
+```
+
 ## 成果物
 
 `dist/windows/hataclip.exe` と、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
