@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd /app
-npm ci
+bash scripts/install-deps.sh
 npm run tauri -- build --target x86_64-pc-windows-gnu --no-bundle
 mkdir -p dist/windows
 if ! cp src-tauri/target/x86_64-pc-windows-gnu/release/hataclip.exe dist/windows/hataclip.exe; then
