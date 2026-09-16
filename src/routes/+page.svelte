@@ -437,10 +437,14 @@
   }
 
   .text {
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
     overflow: hidden;
-    text-overflow: ellipsis;
     max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .item-tags,
