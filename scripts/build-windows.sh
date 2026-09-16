@@ -5,6 +5,7 @@ npm ci
 npm run tauri -- build --target x86_64-pc-windows-gnu --no-bundle
 mkdir -p dist/windows
 cp src-tauri/target/x86_64-pc-windows-gnu/release/hataclip.exe dist/windows/hataclip.exe
+cp src-tauri/target/x86_64-pc-windows-gnu/release/WebView2Loader.dll dist/windows/WebView2Loader.dll
 
 copy_dll() {
   local name="$1"

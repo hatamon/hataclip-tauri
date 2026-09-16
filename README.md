@@ -26,7 +26,7 @@ cd hataclip-tauri
 
 ## 成果物
 
-`dist/windows/hataclip.exe` と、同じフォルダの `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
+`dist/windows/hataclip.exe` と、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
 
 インストーラ（`.msi` など）は出さない。
 
