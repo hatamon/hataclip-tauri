@@ -1,18 +1,15 @@
 # hataclip
 
-Windows / Ubuntu 向けのテキスト専用クリップボードピッカー。常時監視はしない。
+Windows 向けのテキスト専用クリップボードピッカー。常時監視はしない。
 
-ホストに入れるのは **Docker だけ**。Rust / Node / GTK の開発パッケージは不要。
+ホストに入れるのは **Docker だけ**。Rust / Node の開発パッケージは不要。成果物は Windows の `exe` のみ。
 
 ## clone 直後のビルド
-
-Ubuntu:
 
 ```bash
 git clone <this-repo>
 cd hataclip-tauri
 docker compose run --rm test
-docker compose run --rm linux-build
 docker compose run --rm windows-build
 ```
 
@@ -22,7 +19,6 @@ Windows（PowerShell 7）:
 git clone <this-repo>
 cd hataclip-tauri
 ./scripts/test.ps1
-./scripts/build-linux.ps1
 ./scripts/build-windows.ps1
 ```
 
@@ -30,22 +26,13 @@ cd hataclip-tauri
 
 ## 成果物
 
-| OS | パス |
-| --- | --- |
-| Ubuntu | `dist/linux/hataclip` |
-| Windows | `dist/windows/hataclip.exe` と、同じフォルダの `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll` |
+`dist/windows/hataclip.exe` と、同じフォルダの `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
 
 インストーラ（`.msi` など）は出さない。
 
 ## 実行
 
-Ubuntu:
-
-```bash
-./dist/linux/hataclip
-```
-
-Windows（`dist/windows` ごとコピーしてから）:
+`dist/windows` ごとコピーしてから:
 
 ```powershell
 .\dist\windows\hataclip.exe
@@ -61,13 +48,4 @@ Windows（`dist/windows` ごとコピーしてから）:
 
 ## 実行時ランタイムが無いとき
 
-ビルド用の `-dev` パッケージは入れない。動かすのに足りないときだけ。
-
-**Windows:** [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) を入れる。Windows 10/11 には大体入っている。
-
-**Ubuntu:**
-
-```bash
-sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
-```
+[WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) を入れる。Windows 10/11 には大体入っている。

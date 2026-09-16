@@ -1,17 +1,16 @@
 mod actions;
 mod clipboard;
 mod platform;
+mod shortcuts;
 mod store;
 
-use actions::Action;
 use platform::Point;
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{new_id, Item, Store};
 use tauri::{Emitter, Manager, PhysicalPosition, Position, WebviewWindow};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-struct AppState {
+pub(crate) struct AppState {
     store: Mutex<Store>,
     foreground: Mutex<Option<platform::Foreground>>,
     last_position: Mutex<Option<Point>>,
@@ -85,7 +84,7 @@ fn insert_item(state: &AppState, text: String) {
     state.store.lock().expect("store").insert(item);
 }
 
-fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
+pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
     let Some(text) = clipboard::read_clipboard_text() else {
         return;
     };
@@ -94,7 +93,7 @@ fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
     let _ = app.emit("items-changed", items);
 }
 
-fn show_picker(app: &tauri::AppHandle, state: &AppState) {
+pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -134,29 +133,6 @@ fn fallback_center(window: &WebviewWindow) -> Option<Point> {
     })
 }
 
-fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let register_shortcut = actions::shortcut(Action::Register);
-    let show_shortcut = actions::shortcut(Action::Show);
-    let handle = app.clone();
-    app.global_shortcut()
-        .on_shortcut(register_shortcut, move |app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            let state = app.state::<AppState>();
-            register_from_clipboard(app, &state);
-        })?;
-    app.global_shortcut()
-        .on_shortcut(show_shortcut, move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            let state = handle.state::<AppState>();
-            show_picker(&handle, &state);
-        })?;
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -169,10 +145,11 @@ pub fn run() {
                 foreground: Mutex::new(None),
                 last_position: Mutex::new(None),
             });
-            if let Err(error) = register_shortcuts(app.handle()) {
+            if let Err(error) = shortcuts::register(app.handle()) {
                 eprintln!("failed to register global shortcuts: {error}");
-            }
-            if let Some(window) = app.get_webview_window("main") {
+                let state = app.state::<AppState>();
+                show_picker(app.handle(), &state);
+            } else if let Some(window) = app.get_webview_window("main") {
                 let _ = window.hide();
             }
             Ok(())

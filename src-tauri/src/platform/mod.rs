@@ -8,14 +8,9 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{anchor_position, capture_foreground, restore_foreground, Foreground};
 
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(target_os = "linux")]
-pub use linux::{anchor_position, capture_foreground, restore_foreground, Foreground};
-
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(windows))]
 mod unsupported;
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(windows))]
 pub use unsupported::{anchor_position, capture_foreground, restore_foreground, Foreground};
 
 #[derive(Clone, Copy)]
