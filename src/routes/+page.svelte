@@ -161,6 +161,12 @@
       void pasteSelected();
       return;
     }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      move(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
     if (event.key === "Tab" && searchSuggestions.length > 0) {
       event.preventDefault();
       event.stopPropagation();
@@ -203,13 +209,13 @@
       pending = "";
       return;
     }
-    if (event.key === "j") {
+    if (event.key === "j" || event.key === "ArrowDown") {
       event.preventDefault();
       pending = "";
       move(1);
       return;
     }
-    if (event.key === "k") {
+    if (event.key === "k" || event.key === "ArrowUp") {
       event.preventDefault();
       pending = "";
       move(-1);
