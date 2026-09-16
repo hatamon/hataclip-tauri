@@ -147,7 +147,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
     let position = platform::anchor_position()
         .or_else(|| *state.last_position.lock().expect("last_position"))
         .or_else(|| fallback_center(&window));
-    if let Some(position) = position {
+    if let Some(position) = position.map(|point| clamp_to_screen(&window, point)) {
         *state.last_position.lock().expect("last_position") = Some(position);
         let _ = window.set_position(Position::Physical(PhysicalPosition::new(
             position.x,
@@ -170,12 +170,35 @@ fn fallback_center(window: &WebviewWindow) -> Option<Point> {
         .ok()
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten())?;
-    let pos = monitor.position();
-    let size = monitor.size();
+    let size = window.outer_size().ok()?;
+    let area = monitor.work_area();
     Some(Point {
-        x: pos.x + (size.width as i32 / 2) - 180,
-        y: pos.y + (size.height as i32 / 2) + 40,
+        x: area.position.x + (area.size.width as i32 - size.width as i32) / 2,
+        y: area.position.y + (area.size.height as i32 - size.height as i32) / 2,
     })
+}
+
+fn clamp_to_screen(window: &WebviewWindow, point: Point) -> Point {
+    let Ok(size) = window.outer_size() else {
+        return point;
+    };
+    let monitor = window
+        .monitor_from_point(point.x as f64, point.y as f64)
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return point;
+    };
+    let area = monitor.work_area();
+    let left = area.position.x;
+    let top = area.position.y;
+    let right = (left + area.size.width as i32 - size.width as i32).max(left);
+    let bottom = (top + area.size.height as i32 - size.height as i32).max(top);
+    Point {
+        x: point.x.clamp(left, right),
+        y: point.y.clamp(top, bottom),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
