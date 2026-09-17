@@ -43,8 +43,8 @@ fn update_item(
 }
 
 #[tauri::command]
-fn hide_picker(app: tauri::AppHandle) {
-    hide_window(&app);
+fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    hide_window(&app, &state);
 }
 
 #[tauri::command]
@@ -87,7 +87,7 @@ fn paste_item(id: String, app: tauri::AppHandle, state: tauri::State<'_, AppStat
 
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str) {
     let _ = clipboard::write_clipboard_text(text);
-    hide_window(app);
+    hide_window(app, state);
     let foreground = state.foreground.lock().expect("foreground").take();
     let restored = match foreground {
         Some(foreground) => platform::restore_foreground(&foreground),
@@ -100,9 +100,19 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str) {
     let _ = platform::simulate_paste();
 }
 
-fn hide_window(app: &tauri::AppHandle) {
+fn hide_window(app: &tauri::AppHandle, state: &AppState) {
     if let Some(window) = app.get_webview_window("main") {
+        remember_position(&window, state);
         let _ = window.hide();
+    }
+}
+
+fn remember_position(window: &WebviewWindow, state: &AppState) {
+    if let Ok(position) = window.outer_position() {
+        *state.last_position.lock().expect("last_position") = Some(Point {
+            x: position.x,
+            y: position.y,
+        });
     }
 }
 
@@ -144,8 +154,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
     };
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
 
-    let position = platform::anchor_position()
-        .or_else(|| *state.last_position.lock().expect("last_position"))
+    let position = (*state.last_position.lock().expect("last_position"))
         .or_else(|| fallback_center(&window));
     if let Some(position) = position.map(|point| clamp_to_screen(&window, point)) {
         *state.last_position.lock().expect("last_position") = Some(position);

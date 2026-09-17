@@ -278,6 +278,7 @@
 </script>
 
 <div class="picker">
+  <div class="drag" data-tauri-drag-region></div>
   {#if mode === "editing"}
     <div class="edit">
       <textarea bind:value={editText} rows="6"></textarea>
@@ -394,6 +395,28 @@
     border: 1px solid #3a3a3a;
   }
 
+  .drag {
+    height: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #151515;
+    border-bottom: 1px solid #333;
+    cursor: grab;
+    app-region: drag;
+    -webkit-app-region: drag;
+  }
+
+  .drag::after {
+    content: "";
+    width: 36px;
+    height: 3px;
+    border-radius: 2px;
+    background: #666;
+    pointer-events: none;
+  }
+
   .search,
   textarea,
   .tags input {
@@ -468,7 +491,8 @@
   .edit {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
   }
 
   .tags {

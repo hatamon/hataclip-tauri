@@ -1,11 +1,5 @@
-use super::Point;
-
 #[derive(Clone, Copy)]
 pub struct Foreground;
-
-pub fn anchor_position() -> Option<Point> {
-    None
-}
 
 pub fn capture_foreground() -> Option<Foreground> {
     None

@@ -6,12 +6,12 @@ use enigo::{
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{anchor_position, capture_foreground, restore_foreground, Foreground};
+pub use windows::{capture_foreground, restore_foreground, Foreground};
 
 #[cfg(not(windows))]
 mod unsupported;
 #[cfg(not(windows))]
-pub use unsupported::{anchor_position, capture_foreground, restore_foreground, Foreground};
+pub use unsupported::{capture_foreground, restore_foreground, Foreground};
 
 #[derive(Clone, Copy)]
 pub struct Point {
