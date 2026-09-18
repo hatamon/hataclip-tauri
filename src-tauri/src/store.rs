@@ -36,7 +36,22 @@ impl Store {
     }
 
     pub fn insert(&mut self, item: Item) {
-        self.items.insert(0, item);
+        if let Some(index) = self
+            .items
+            .iter()
+            .position(|existing| existing.text == item.text)
+        {
+            let existing = self.items.remove(index);
+            self.items.insert(0, existing);
+            self.save();
+            return;
+        }
+        self.insert_at(0, item);
+    }
+
+    pub fn insert_at(&mut self, index: usize, item: Item) {
+        let index = index.min(self.items.len());
+        self.items.insert(index, item);
         if self.items.len() > MAX_ITEMS {
             self.items.truncate(MAX_ITEMS);
         }
@@ -150,6 +165,57 @@ mod tests {
 
         let reloaded = Store::load(path.clone());
         assert!(reloaded.list().is_empty());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn insert_promotes_same_text_to_front() {
+        let path = temp_path("promote");
+        let _ = fs::remove_file(&path);
+        let mut store = Store::load(path.clone());
+        store.insert(Item {
+            id: "a".into(),
+            text: "first".into(),
+            tags: vec!["old".into()],
+        });
+        store.insert(Item {
+            id: "b".into(),
+            text: "second".into(),
+            tags: Vec::new(),
+        });
+        store.insert(Item {
+            id: "c".into(),
+            text: "first".into(),
+            tags: Vec::new(),
+        });
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[0].id, "a");
+        assert_eq!(store.list()[0].tags, vec!["old"]);
+        assert_eq!(store.list()[1].id, "b");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn insert_at_puts_copy_without_dedup() {
+        let path = temp_path("at");
+        let _ = fs::remove_file(&path);
+        let mut store = Store::load(path.clone());
+        store.insert(Item {
+            id: "a".into(),
+            text: "same".into(),
+            tags: Vec::new(),
+        });
+        store.insert_at(
+            1,
+            Item {
+                id: "b".into(),
+                text: "same".into(),
+                tags: Vec::new(),
+            },
+        );
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[0].id, "a");
+        assert_eq!(store.list()[1].id, "b");
         let _ = fs::remove_file(path);
     }
 
