@@ -518,8 +518,9 @@
     background: transparent;
     color: inherit;
     text-align: left;
-    padding: 8px 10px;
+    padding: 2px 8px;
     font: inherit;
+    line-height: 1.25;
     cursor: pointer;
   }
 
