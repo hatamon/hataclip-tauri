@@ -33,6 +33,26 @@ fn delete_item(id: String, state: tauri::State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
+fn put_item(
+    text: String,
+    tags: Vec<String>,
+    index: usize,
+    state: tauri::State<'_, AppState>,
+) -> Item {
+    let item = Item {
+        id: new_id(),
+        text,
+        tags,
+    };
+    state
+        .store
+        .lock()
+        .expect("store")
+        .insert_at(index, item.clone());
+    item
+}
+
+#[tauri::command]
 fn update_item(
     id: String,
     text: String,
@@ -237,6 +257,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_items,
             delete_item,
+            put_item,
             update_item,
             hide_picker,
             paste_item,

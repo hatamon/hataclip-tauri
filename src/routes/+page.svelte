@@ -25,6 +25,7 @@
   let editTags = $state<string[]>([]);
   let tagDraft = $state("");
   let editingId = $state<string | null>(null);
+  let yanked = $state<Item | null>(null);
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
@@ -84,8 +85,42 @@
     if (!item) {
       return;
     }
+    yankItem(item);
     await invoke("delete_item", { id: item.id });
     items = items.filter((entry) => entry.id !== item.id);
+  }
+
+  function yankSelected() {
+    const item = currentItem();
+    if (!item) {
+      return;
+    }
+    yankItem(item);
+  }
+
+  function yankItem(item: Item) {
+    yanked = { id: item.id, text: item.text, tags: [...item.tags] };
+  }
+
+  async function putYanked(above: boolean) {
+    if (yanked === null) {
+      return;
+    }
+    const current = currentItem();
+    const at = current === undefined ? 0 : items.findIndex((item) => item.id === current.id);
+    const index = current === undefined || at < 0 ? 0 : above ? at : at + 1;
+    const item = await invoke<Item>("put_item", {
+      text: yanked.text,
+      tags: yanked.tags,
+      index,
+    });
+    items = [...items.slice(0, index), item, ...items.slice(index)];
+    queueMicrotask(() => {
+      const next = filtered.findIndex((entry) => entry.id === item.id);
+      if (next >= 0) {
+        selected = next;
+      }
+    });
   }
 
   function startEdit() {
@@ -242,6 +277,34 @@
         pending = "";
       } else {
         pending = "g";
+      }
+      return;
+    }
+    if (event.key === "p") {
+      event.preventDefault();
+      pending = "";
+      void putYanked(false);
+      return;
+    }
+    if (event.key === "P") {
+      event.preventDefault();
+      pending = "";
+      void putYanked(true);
+      return;
+    }
+    if (event.key === "Y") {
+      event.preventDefault();
+      pending = "";
+      yankSelected();
+      return;
+    }
+    if (event.key === "y") {
+      event.preventDefault();
+      if (pending === "y") {
+        pending = "";
+        yankSelected();
+      } else {
+        pending = "y";
       }
       return;
     }
