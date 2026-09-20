@@ -196,11 +196,15 @@
     );
   }
 
+  function isEscape(event: KeyboardEvent) {
+    return event.key === "Escape" || isCtrl(event, "[");
+  }
+
   function onSearchKeydown(event: KeyboardEvent) {
     if (event.isComposing) {
       return;
     }
-    if (event.key === "Escape") {
+    if (isEscape(event)) {
       event.preventDefault();
       event.stopPropagation();
       mode = "normal";
@@ -254,7 +258,7 @@
       return;
     }
     if (mode === "editing") {
-      if (event.key === "Escape") {
+      if (isEscape(event)) {
         event.preventDefault();
         cancelEdit();
       }
@@ -265,7 +269,7 @@
       return;
     }
 
-    if (event.key === "Escape") {
+    if (isEscape(event)) {
       event.preventDefault();
       void hidePicker();
       return;

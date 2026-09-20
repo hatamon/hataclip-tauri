@@ -24,7 +24,7 @@
     const slot = recording;
     const onKey = (event: KeyboardEvent) => {
       event.preventDefault();
-      if (event.key === "Escape") {
+      if (event.key === "Escape" || (event.ctrlKey && event.key === "[")) {
         recording = null;
         return;
       }
