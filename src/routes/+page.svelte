@@ -76,6 +76,14 @@
     await invoke("paste_item", { id: item.id });
   }
 
+  async function copySelected() {
+    const item = currentItem();
+    if (!item) {
+      return;
+    }
+    await invoke("copy_item", { id: item.id });
+  }
+
   async function hidePicker() {
     await invoke("hide_picker");
   }
@@ -179,6 +187,15 @@
     editingId = null;
   }
 
+  function isCtrl(event: KeyboardEvent, key: string) {
+    return (
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      event.key.toLowerCase() === key
+    );
+  }
+
   function onSearchKeydown(event: KeyboardEvent) {
     if (event.isComposing) {
       return;
@@ -194,6 +211,26 @@
       event.preventDefault();
       event.stopPropagation();
       void pasteSelected();
+      return;
+    }
+    if (isCtrl(event, "n")) {
+      event.preventDefault();
+      event.stopPropagation();
+      pending = "";
+      move(1);
+      return;
+    }
+    if (isCtrl(event, "p")) {
+      event.preventDefault();
+      event.stopPropagation();
+      pending = "";
+      move(-1);
+      return;
+    }
+    if (isCtrl(event, "c")) {
+      event.preventDefault();
+      event.stopPropagation();
+      void copySelected();
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -236,6 +273,24 @@
     if (event.key === "Enter") {
       event.preventDefault();
       void pasteSelected();
+      return;
+    }
+    if (isCtrl(event, "c")) {
+      event.preventDefault();
+      pending = "";
+      void copySelected();
+      return;
+    }
+    if (isCtrl(event, "n")) {
+      event.preventDefault();
+      pending = "";
+      move(1);
+      return;
+    }
+    if (isCtrl(event, "p")) {
+      event.preventDefault();
+      pending = "";
+      move(-1);
       return;
     }
     if (event.key === "/") {

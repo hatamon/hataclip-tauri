@@ -105,6 +105,20 @@ fn paste_item(id: String, app: tauri::AppHandle, state: tauri::State<'_, AppStat
     }
 }
 
+#[tauri::command]
+fn copy_item(id: String, state: tauri::State<'_, AppState>) -> bool {
+    let text = state
+        .store
+        .lock()
+        .expect("store")
+        .get(&id)
+        .map(|item| item.text.clone());
+    match text {
+        Some(text) => clipboard::write_clipboard_text(&text),
+        None => false,
+    }
+}
+
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str) {
     let _ = clipboard::write_clipboard_text(text);
     hide_window(app, state);
@@ -261,6 +275,7 @@ pub fn run() {
             update_item,
             hide_picker,
             paste_item,
+            copy_item,
             get_shortcuts,
             set_shortcuts
         ])
