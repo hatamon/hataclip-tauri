@@ -1,16 +1,20 @@
 mod actions;
 mod clipboard;
+mod editor;
 mod platform;
 mod settings;
 mod shortcuts;
 mod store;
+mod text;
 mod tray;
 
+use chrono::Local;
 use platform::Point;
+use serde::Serialize;
 use settings::{Settings, Shortcuts};
 use std::sync::Mutex;
 use std::time::Duration;
-use store::{new_id, Item, Store};
+use store::{Item, Store};
 use tauri::{
     Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -23,34 +27,48 @@ pub(crate) struct AppState {
     last_position: Mutex<Option<Point>>,
 }
 
-#[tauri::command]
-fn list_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
-    state.store.lock().expect("store").list().to_vec()
+/// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
+#[derive(Serialize)]
+struct Put {
+    item: Item,
+    items: Vec<Item>,
 }
 
 #[tauri::command]
-fn delete_item(id: String, state: tauri::State<'_, AppState>) -> bool {
-    state.store.lock().expect("store").delete(&id)
+fn list_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    view(&state)
+}
+
+#[tauri::command]
+fn delete_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").delete_many(&ids);
+    view(&state)
+}
+
+#[tauri::command]
+fn undo_delete(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").undo_delete();
+    view(&state)
 }
 
 #[tauri::command]
 fn put_item(
     text: String,
     tags: Vec<String>,
-    index: usize,
+    anchor_id: Option<String>,
+    above: bool,
     state: tauri::State<'_, AppState>,
-) -> Item {
-    let item = Item {
-        id: new_id(),
-        text,
-        tags,
-    };
+) -> Put {
+    let item = Item::new(text, tags);
     state
         .store
         .lock()
         .expect("store")
-        .insert_at(index, item.clone());
-    item
+        .insert_relative(anchor_id.as_deref(), above, item.clone());
+    Put {
+        items: view(&state),
+        item,
+    }
 }
 
 #[tauri::command]
@@ -59,8 +77,55 @@ fn update_item(
     text: String,
     tags: Vec<String>,
     state: tauri::State<'_, AppState>,
-) -> bool {
-    state.store.lock().expect("store").update(&id, text, tags)
+) -> Vec<Item> {
+    state.store.lock().expect("store").update(&id, text, tags);
+    view(&state)
+}
+
+#[tauri::command]
+fn set_tag(
+    ids: Vec<String>,
+    tag: String,
+    add: bool,
+    state: tauri::State<'_, AppState>,
+) -> Vec<Item> {
+    state.store.lock().expect("store").set_tag(&ids, &tag, add);
+    view(&state)
+}
+
+#[tauri::command]
+fn set_pinned(ids: Vec<String>, pinned: bool, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").set_pinned(&ids, pinned);
+    view(&state)
+}
+
+/// 外部エディタを開く。終わるまで待つので、待ち時間は別スレッドに逃がす。
+#[tauri::command]
+fn edit_external(
+    id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let Some(item) = state.store.lock().expect("store").get(&id).cloned() else {
+        return Err("編集する行がない".to_string());
+    };
+    let editor = editor::find().ok_or("nvim も $EDITOR も見つからない")?;
+    let file = editor::write_temp_file(&item.id, &item.text).map_err(|error| error.to_string())?;
+    hide_window(&app, &state);
+    std::thread::spawn(move || {
+        if let Some(text) = editor::run(&editor, &file) {
+            let state = app.state::<AppState>();
+            state
+                .store
+                .lock()
+                .expect("store")
+                .update(&id, text, item.tags);
+        }
+        let state = app.state::<AppState>();
+        show_window(&app);
+        let _ = app.emit("items-changed", view(&state));
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -93,36 +158,70 @@ fn set_shortcuts(
     Ok(())
 }
 
+/// 複数行まとめて貼るときは改行でつなぐ。format は Shift+Enter のときだけ真。
 #[tauri::command]
-fn paste_item(
-    id: String,
+fn paste_items(
+    ids: Vec<String>,
     keep_open: bool,
+    format: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) {
-    let text = state
-        .store
-        .lock()
-        .expect("store")
-        .get(&id)
-        .map(|item| item.text.clone());
-    if let Some(text) = text {
-        paste_text(&app, &state, &text, keep_open);
+    let Some(text) = joined_text(&state, &ids) else {
+        return;
+    };
+    let text = if format {
+        text::format_for_paste(&text)
+    } else {
+        text
+    };
+    let now = Local::now();
+    let text = text::expand_template(
+        &text,
+        &now.format("%Y/%m/%d").to_string(),
+        &now.format("%H:%M").to_string(),
+    );
+    if let Some(key) = current_context(&state) {
+        state
+            .store
+            .lock()
+            .expect("store")
+            .record_context(&ids, &key);
     }
+    paste_text(&app, &state, &text, keep_open);
 }
 
 #[tauri::command]
-fn copy_item(id: String, state: tauri::State<'_, AppState>) -> bool {
-    let text = state
-        .store
-        .lock()
-        .expect("store")
-        .get(&id)
-        .map(|item| item.text.clone());
-    match text {
+fn copy_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> bool {
+    match joined_text(&state, &ids) {
         Some(text) => clipboard::write_clipboard_text(&text),
         None => false,
     }
+}
+
+fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
+    let store = state.store.lock().expect("store");
+    let texts: Vec<String> = ids
+        .iter()
+        .filter_map(|id| store.get(id).map(|item| item.text.clone()))
+        .collect();
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join("\n"))
+    }
+}
+
+/// 一覧に渡す並び。いまの貼り付け先で使った行を上に持ってくる。
+fn view(state: &AppState) -> Vec<Item> {
+    let context = current_context(state);
+    let store = state.store.lock().expect("store");
+    store::ordered(store.list(), context.as_deref())
+}
+
+fn current_context(state: &AppState) -> Option<String> {
+    let foreground = *state.foreground.lock().expect("foreground");
+    foreground.and_then(|foreground| platform::context_key(&foreground))
 }
 
 #[tauri::command]
@@ -215,10 +314,14 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
 }
 
 fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
+    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    show_window(app);
+}
+
+fn show_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
     let _ = window.set_always_on_top(true);
     let _ = window.unminimize();
     let _ = window.show();
@@ -255,22 +358,17 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
         .build();
 }
 
-fn insert_item(state: &AppState, text: String) {
-    let item = Item {
-        id: new_id(),
-        text,
-        tags: Vec::new(),
-    };
-    state.store.lock().expect("store").insert(item);
-}
-
 pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
     let Some(text) = clipboard::read_clipboard_text() else {
         return;
     };
-    insert_item(state, text);
-    let items = state.store.lock().expect("store").list().to_vec();
-    let _ = app.emit("items-changed", items);
+    let tags = text::auto_tags(&text);
+    state
+        .store
+        .lock()
+        .expect("store")
+        .insert(Item::new(text, tags));
+    let _ = app.emit("items-changed", view(state));
 }
 
 pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
@@ -289,13 +387,8 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
         )));
     }
 
-    let _ = window.set_always_on_top(true);
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
-
-    let items = state.store.lock().expect("store").list().to_vec();
-    let _ = app.emit("picker-opened", items);
+    show_window(app);
+    let _ = app.emit("picker-opened", view(state));
 }
 
 fn fallback_center(window: &WebviewWindow) -> Option<Point> {
@@ -376,12 +469,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_items,
-            delete_item,
+            delete_items,
+            undo_delete,
             put_item,
             update_item,
+            set_tag,
+            set_pinned,
+            edit_external,
             hide_picker,
-            paste_item,
-            copy_item,
+            paste_items,
+            copy_items,
             nudge_window,
             resize_window,
             get_shortcuts,

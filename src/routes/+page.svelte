@@ -12,7 +12,14 @@
   } from "$lib/tags";
   import type { Item } from "$lib/types";
 
-  type Mode = "normal" | "search" | "editing";
+  type Mode = "normal" | "search" | "editing" | "tag";
+
+  // `.` で繰り返せる変更。移動やヤンクは覚えない。
+  type Change =
+    | { kind: "delete" }
+    | { kind: "put"; above: boolean }
+    | { kind: "tag"; tag: string; add: boolean }
+    | { kind: "pin"; pinned: boolean };
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
@@ -20,12 +27,17 @@
   let query = $state("");
   let pending = $state("");
   let searchEl = $state<HTMLInputElement | undefined>(undefined);
+  let tagEl = $state<HTMLInputElement | undefined>(undefined);
   let listEl = $state<HTMLUListElement | undefined>(undefined);
   let editText = $state("");
   let editTags = $state<string[]>([]);
   let tagDraft = $state("");
   let editingId = $state<string | null>(null);
-  let yanked = $state<Item | null>(null);
+  let yanked = $state<{ text: string; tags: string[] } | null>(null);
+  let anchor = $state<number | null>(null);
+  let tagInput = $state("");
+  let tagAdd = $state(true);
+  let lastChange = $state<Change | null>(null);
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
@@ -36,10 +48,23 @@
     return list;
   });
 
+  const range = $derived.by<[number, number]>(() => {
+    if (anchor === null) {
+      return [selected, selected];
+    }
+    return anchor <= selected ? [anchor, selected] : [selected, anchor];
+  });
+
+  const selectedItems = $derived(filtered.slice(range[0], range[1] + 1));
+  const selectedIds = $derived(selectedItems.map((item) => item.id));
+
   const allTags = $derived(uniqueTags(items));
   const searchTagPrefix = $derived(mode === "search" ? currentTagPrefix(query) : null);
   const searchSuggestions = $derived(
     searchTagPrefix === null ? [] : matchingTags(searchTagPrefix, allTags),
+  );
+  const tagSuggestions = $derived(
+    mode === "tag" && tagInput.length > 0 ? matchingTags(tagInput, allTags) : [],
   );
   const editSuggestions = $derived(
     tagDraft.length === 0 ? [] : matchingTags(tagDraft, allTags.filter((tag) => !editTags.includes(tag))),
@@ -55,6 +80,9 @@
     if (mode === "search") {
       queueMicrotask(() => searchEl?.focus());
     }
+    if (mode === "tag") {
+      queueMicrotask(() => tagEl?.focus());
+    }
   });
 
   $effect(() => {
@@ -68,67 +96,133 @@
     return filtered[selected];
   }
 
-  async function pasteSelected(keepOpen = false) {
-    const item = currentItem();
-    if (!item) {
-      return;
-    }
-    await invoke("paste_item", { id: item.id, keepOpen });
+  function clearSelection() {
+    anchor = null;
   }
 
-  async function copySelected() {
-    const item = currentItem();
+  function selectById(id: string) {
+    queueMicrotask(() => {
+      const next = filtered.findIndex((item) => item.id === id);
+      if (next >= 0) {
+        selected = next;
+      }
+    });
+  }
+
+  async function pasteSelection(keepOpen: boolean, format = false) {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const ids = selectedIds;
+    clearSelection();
+    await invoke("paste_items", { ids, keepOpen, format });
+  }
+
+  async function pasteRow(index: number, keepOpen: boolean) {
+    const item = filtered[index];
     if (!item) {
       return;
     }
-    await invoke("copy_item", { id: item.id });
+    clearSelection();
+    selected = index;
+    await invoke("paste_items", { ids: [item.id], keepOpen, format: false });
+  }
+
+  async function copySelection() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    await invoke("copy_items", { ids: selectedIds });
   }
 
   async function hidePicker() {
     await invoke("hide_picker");
   }
 
-  async function deleteSelected() {
-    const item = currentItem();
-    if (!item) {
+  async function deleteSelection() {
+    if (selectedIds.length === 0) {
       return;
     }
-    yankItem(item);
-    await invoke("delete_item", { id: item.id });
-    items = items.filter((entry) => entry.id !== item.id);
+    yanked = {
+      text: selectedItems.map((item) => item.text).join("\n"),
+      tags: selectedItems.length === 1 ? [...selectedItems[0].tags] : [],
+    };
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("delete_items", { ids });
+    lastChange = { kind: "delete" };
   }
 
-  function yankSelected() {
-    const item = currentItem();
-    if (!item) {
+  async function undoDelete() {
+    items = await invoke<Item[]>("undo_delete");
+  }
+
+  function yankSelection() {
+    if (selectedItems.length === 0) {
       return;
     }
-    yankItem(item);
-  }
-
-  function yankItem(item: Item) {
-    yanked = { id: item.id, text: item.text, tags: [...item.tags] };
+    yanked = {
+      text: selectedItems.map((item) => item.text).join("\n"),
+      tags: selectedItems.length === 1 ? [...selectedItems[0].tags] : [],
+    };
+    clearSelection();
   }
 
   async function putYanked(above: boolean) {
     if (yanked === null) {
       return;
     }
-    const current = currentItem();
-    const at = current === undefined ? 0 : items.findIndex((item) => item.id === current.id);
-    const index = current === undefined || at < 0 ? 0 : above ? at : at + 1;
-    const item = await invoke<Item>("put_item", {
+    const result = await invoke<{ item: Item; items: Item[] }>("put_item", {
       text: yanked.text,
       tags: yanked.tags,
-      index,
+      anchorId: currentItem()?.id ?? null,
+      above,
     });
-    items = [...items.slice(0, index), item, ...items.slice(index)];
-    queueMicrotask(() => {
-      const next = filtered.findIndex((entry) => entry.id === item.id);
-      if (next >= 0) {
-        selected = next;
-      }
-    });
+    items = result.items;
+    selectById(result.item.id);
+    lastChange = { kind: "put", above };
+  }
+
+  async function applyTag(tag: string, add: boolean) {
+    const value = tag.trim();
+    if (value.length === 0 || selectedIds.length === 0) {
+      return;
+    }
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("set_tag", { ids, tag: value, add });
+    lastChange = { kind: "tag", tag: value, add };
+  }
+
+  async function applyPin(pinned: boolean) {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const ids = selectedIds;
+    const id = selectedItems[0].id;
+    clearSelection();
+    items = await invoke<Item[]>("set_pinned", { ids, pinned });
+    selectById(id);
+    lastChange = { kind: "pin", pinned };
+  }
+
+  async function repeatChange() {
+    if (lastChange === null) {
+      return;
+    }
+    switch (lastChange.kind) {
+      case "delete":
+        await deleteSelection();
+        return;
+      case "put":
+        await putYanked(lastChange.above);
+        return;
+      case "tag":
+        await applyTag(lastChange.tag, lastChange.add);
+        return;
+      case "pin":
+        await applyPin(lastChange.pinned);
+    }
   }
 
   function startEdit() {
@@ -136,11 +230,25 @@
     if (!item) {
       return;
     }
+    clearSelection();
     editingId = item.id;
     editText = item.text;
     editTags = [...item.tags];
     tagDraft = "";
     mode = "editing";
+  }
+
+  async function editExternal() {
+    const item = currentItem();
+    if (!item) {
+      return;
+    }
+    clearSelection();
+    try {
+      await invoke("edit_external", { id: item.id });
+    } catch {
+      // nvim も $EDITOR も無いときは何もしない。
+    }
   }
 
   function cancelEdit() {
@@ -154,10 +262,7 @@
       return;
     }
     const tags = tagDraft.trim().length > 0 ? [...editTags, tagDraft.trim()] : editTags;
-    await invoke("update_item", { id: editingId, text: editText, tags });
-    items = items.map((item) =>
-      item.id === editingId ? { ...item, text: editText, tags } : item,
-    );
+    items = await invoke<Item[]>("update_item", { id: editingId, text: editText, tags });
     cancelEdit();
   }
 
@@ -169,6 +274,15 @@
     }
     editTags = [...editTags, value];
     tagDraft = "";
+  }
+
+  function startTagInput(add: boolean) {
+    if (filtered.length === 0) {
+      return;
+    }
+    tagAdd = add;
+    tagInput = "";
+    mode = "tag";
   }
 
   function move(delta: number) {
@@ -185,6 +299,7 @@
     query = "";
     pending = "";
     editingId = null;
+    anchor = null;
   }
 
   function isCtrl(event: KeyboardEvent, key: string) {
@@ -235,7 +350,7 @@
     if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      void pasteSelected(event.ctrlKey);
+      void pasteSelection(event.ctrlKey, event.shiftKey);
       return;
     }
     if (handleWindowKeys(event)) {
@@ -258,7 +373,7 @@
     if (isCtrl(event, "c")) {
       event.preventDefault();
       event.stopPropagation();
-      void copySelected();
+      void copySelection();
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -274,11 +389,40 @@
     }
   }
 
+  function onTagKeydown(event: KeyboardEvent) {
+    if (event.isComposing) {
+      return;
+    }
+    if (isEscape(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      mode = "normal";
+      pending = "";
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      const tag = tagInput.trim().length > 0 ? tagInput : (tagSuggestions[0] ?? "");
+      mode = "normal";
+      void applyTag(tag, tagAdd);
+      return;
+    }
+    if (handleWindowKeys(event)) {
+      return;
+    }
+    if (event.key === "Tab" && tagSuggestions.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      tagInput = tagSuggestions[0];
+    }
+  }
+
   function onDocumentKeydown(event: KeyboardEvent) {
     if (event.isComposing || event.defaultPrevented) {
       return;
     }
-    if (mode === "search") {
+    if (mode === "search" || mode === "tag") {
       return;
     }
     if (mode === "editing") {
@@ -295,19 +439,24 @@
 
     if (isEscape(event)) {
       event.preventDefault();
-      void hidePicker();
+      pending = "";
+      if (anchor !== null) {
+        clearSelection();
+      } else {
+        void hidePicker();
+      }
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
       pending = "";
-      void pasteSelected(event.ctrlKey);
+      void pasteSelection(event.ctrlKey, event.shiftKey);
       return;
     }
     if (isCtrl(event, "c")) {
       event.preventDefault();
       pending = "";
-      void copySelected();
+      void copySelection();
       return;
     }
     if (isCtrl(event, "n")) {
@@ -323,6 +472,12 @@
       return;
     }
     if (handleWindowKeys(event)) {
+      return;
+    }
+    if (!event.shiftKey && /^[1-9]$/.test(event.key)) {
+      event.preventDefault();
+      pending = "";
+      void pasteRow(Number(event.key) - 1, event.ctrlKey);
       return;
     }
     if (event.key === "/") {
@@ -343,10 +498,52 @@
       move(-1);
       return;
     }
+    if (event.key === "V") {
+      event.preventDefault();
+      pending = "";
+      anchor = anchor === null ? selected : null;
+      return;
+    }
     if (event.key === "e") {
       event.preventDefault();
       pending = "";
       startEdit();
+      return;
+    }
+    if (event.key === "E") {
+      event.preventDefault();
+      pending = "";
+      void editExternal();
+      return;
+    }
+    if (event.key === "t") {
+      event.preventDefault();
+      pending = "";
+      startTagInput(true);
+      return;
+    }
+    if (event.key === "T") {
+      event.preventDefault();
+      pending = "";
+      startTagInput(false);
+      return;
+    }
+    if (event.key === "m") {
+      event.preventDefault();
+      pending = "";
+      void applyPin(!selectedItems.every((item) => item.pinned));
+      return;
+    }
+    if (event.key === "u") {
+      event.preventDefault();
+      pending = "";
+      void undoDelete();
+      return;
+    }
+    if (event.key === ".") {
+      event.preventDefault();
+      pending = "";
+      void repeatChange();
       return;
     }
     if (event.key === "G") {
@@ -382,14 +579,14 @@
     if (event.key === "Y") {
       event.preventDefault();
       pending = "";
-      yankSelected();
+      yankSelection();
       return;
     }
     if (event.key === "y") {
       event.preventDefault();
       if (pending === "y") {
         pending = "";
-        yankSelected();
+        yankSelection();
       } else {
         pending = "y";
       }
@@ -399,7 +596,7 @@
       event.preventDefault();
       if (pending === "d") {
         pending = "";
-        void deleteSelected();
+        void deleteSelection();
       } else {
         pending = "d";
       }
@@ -500,24 +697,58 @@
         </ul>
       {/if}
     {/if}
+    {#if mode === "tag"}
+      <input
+        bind:this={tagEl}
+        bind:value={tagInput}
+        class="search"
+        placeholder={tagAdd ? `tag +  (${selectedIds.length})` : `tag −  (${selectedIds.length})`}
+        onkeydown={onTagKeydown}
+      />
+      {#if tagSuggestions.length > 0}
+        <ul class="suggest">
+          {#each tagSuggestions as tag (tag)}
+            <li>
+              <button
+                type="button"
+                onclick={() => {
+                  tagInput = tag;
+                  tagEl?.focus();
+                }}>{tag}</button
+              >
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
     <ul class="list" bind:this={listEl}>
       {#each filtered as item, index (item.id)}
-        <li class:active={index === selected}>
+        <li
+          class:active={index === selected}
+          class:ranged={anchor !== null && index >= range[0] && index <= range[1]}
+        >
           <button
             type="button"
             class="row"
             onclick={() => {
+              clearSelection();
               selected = index;
             }}
             ondblclick={() => {
               selected = index;
-              void pasteSelected();
+              void pasteSelection(false);
             }}
           >
-            <span class="text">{item.text}</span>
-            {#if item.tags.length > 0}
-              <span class="item-tags">{item.tags.map((tag) => `#${tag}`).join(" ")}</span>
-            {/if}
+            <span class="gutter">{index < 9 ? index + 1 : ""}</span>
+            <span class="body">
+              <span class="text">{item.text}</span>
+              {#if item.pinned || item.tags.length > 0}
+                <span class="meta">
+                  {#if item.pinned}<span class="pin">pin</span>{/if}
+                  {item.tags.map((tag) => `#${tag}`).join(" ")}
+                </span>
+              {/if}
+            </span>
           </button>
         </li>
       {:else}
@@ -597,9 +828,9 @@
 
   .row {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
-    gap: 2px;
+    gap: 6px;
     width: 100%;
     border: 0;
     background: transparent;
@@ -611,9 +842,29 @@
     cursor: pointer;
   }
 
+  li.ranged .row {
+    background: #234;
+  }
+
   li.active .row,
   .row:hover {
     background: #2c4a6e;
+  }
+
+  .gutter {
+    flex-shrink: 0;
+    width: 10px;
+    text-align: right;
+    color: #778;
+    font-size: 11px;
+  }
+
+  .body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
   }
 
   .text {
@@ -627,11 +878,16 @@
     overflow-wrap: anywhere;
   }
 
-  .item-tags,
+  .meta,
   .hint,
   .empty {
     color: #9aa;
     font-size: 11px;
+  }
+
+  .pin {
+    color: #e0b060;
+    margin-right: 4px;
   }
 
   .empty,
