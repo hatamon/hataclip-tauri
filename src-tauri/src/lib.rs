@@ -12,7 +12,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use store::{new_id, Item, Store};
 use tauri::{
-    Emitter, Manager, PhysicalPosition, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 
 pub(crate) struct AppState {
@@ -122,6 +123,74 @@ fn copy_item(id: String, state: tauri::State<'_, AppState>) -> bool {
         Some(text) => clipboard::write_clipboard_text(&text),
         None => false,
     }
+}
+
+#[tauri::command]
+fn nudge_window(dx: i32, dy: i32, app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(pos) = window.outer_position() else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let point = clamp_to_screen(
+        &window,
+        Point {
+            x: pos.x + logical_to_physical(dx, scale),
+            y: pos.y + logical_to_physical(dy, scale),
+        },
+    );
+    *state.last_position.lock().expect("last_position") = Some(point);
+    let _ = window.set_position(Position::Physical(PhysicalPosition::new(point.x, point.y)));
+}
+
+#[tauri::command]
+fn resize_window(dw: i32, dh: i32, app: tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // set_size takes the inner size, so measure the inner size too and keep the
+    // frame (shadow and resize border) out of the calculation.
+    let (Ok(inner), Ok(outer), Ok(pos)) = (
+        window.inner_size(),
+        window.outer_size(),
+        window.outer_position(),
+    ) else {
+        return;
+    };
+    let frame_w = outer.width.saturating_sub(inner.width) as i32;
+    let frame_h = outer.height.saturating_sub(inner.height) as i32;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let min_w = logical_to_physical(200, scale);
+    let min_h = logical_to_physical(140, scale);
+    let (mut max_w, mut max_h) = (i32::MAX, i32::MAX);
+    if let Some(monitor) = window
+        .monitor_from_point(pos.x as f64, pos.y as f64)
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+    {
+        let area = monitor.work_area();
+        max_w = area.position.x + area.size.width as i32 - pos.x - frame_w;
+        max_h = area.position.y + area.size.height as i32 - pos.y - frame_h;
+    }
+    let width = next_side(
+        inner.width as i32,
+        logical_to_physical(dw, scale),
+        min_w,
+        max_w,
+    );
+    let height = next_side(
+        inner.height as i32,
+        logical_to_physical(dh, scale),
+        min_h,
+        max_h,
+    );
+    let _ = window.set_size(Size::Physical(PhysicalSize::new(
+        width as u32,
+        height as u32,
+    )));
 }
 
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
@@ -243,10 +312,25 @@ fn fallback_center(window: &WebviewWindow) -> Option<Point> {
     })
 }
 
+fn logical_to_physical(value: i32, scale: f64) -> i32 {
+    (value as f64 * scale).round() as i32
+}
+
+fn next_side(current: i32, delta: i32, min: i32, max: i32) -> i32 {
+    if delta == 0 {
+        return current;
+    }
+    (current + delta).max(min).min(max.max(min))
+}
+
 fn clamp_to_screen(window: &WebviewWindow, point: Point) -> Point {
     let Ok(size) = window.outer_size() else {
         return point;
     };
+    clamp_point(window, point, size.width, size.height)
+}
+
+fn clamp_point(window: &WebviewWindow, point: Point, width: u32, height: u32) -> Point {
     let monitor = window
         .monitor_from_point(point.x as f64, point.y as f64)
         .ok()
@@ -258,8 +342,8 @@ fn clamp_to_screen(window: &WebviewWindow, point: Point) -> Point {
     let area = monitor.work_area();
     let left = area.position.x;
     let top = area.position.y;
-    let right = (left + area.size.width as i32 - size.width as i32).max(left);
-    let bottom = (top + area.size.height as i32 - size.height as i32).max(top);
+    let right = (left + area.size.width as i32 - width as i32).max(left);
+    let bottom = (top + area.size.height as i32 - height as i32).max(top);
     Point {
         x: point.x.clamp(left, right),
         y: point.y.clamp(top, bottom),
@@ -298,9 +382,38 @@ pub fn run() {
             hide_picker,
             paste_item,
             copy_item,
+            nudge_window,
+            resize_window,
             get_shortcuts,
             set_shortcuts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_other_side_untouched() {
+        assert_eq!(next_side(360, 24, 200, 1920), 384);
+        assert_eq!(next_side(280, 0, 140, 1080), 280);
+    }
+
+    #[test]
+    fn stops_at_the_minimum() {
+        assert_eq!(next_side(210, -24, 200, 1920), 200);
+        assert_eq!(next_side(200, -24, 200, 1920), 200);
+    }
+
+    #[test]
+    fn stops_at_the_screen_edge() {
+        assert_eq!(next_side(1000, 24, 200, 1010), 1010);
+    }
+
+    #[test]
+    fn minimum_wins_over_a_smaller_maximum() {
+        assert_eq!(next_side(200, 24, 200, 150), 200);
+    }
 }

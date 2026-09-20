@@ -200,6 +200,27 @@
     return event.key === "Escape" || isCtrl(event, "[");
   }
 
+  function handleWindowKeys(event: KeyboardEvent) {
+    if (!event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+    const step = 24;
+    const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    if (dx === 0 && dy === 0) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pending = "";
+    if (event.shiftKey) {
+      void invoke("resize_window", { dw: dx, dh: dy });
+    } else {
+      void invoke("nudge_window", { dx, dy });
+    }
+    return true;
+  }
+
   function onSearchKeydown(event: KeyboardEvent) {
     if (event.isComposing) {
       return;
@@ -215,6 +236,9 @@
       event.preventDefault();
       event.stopPropagation();
       void pasteSelected(event.ctrlKey);
+      return;
+    }
+    if (handleWindowKeys(event)) {
       return;
     }
     if (isCtrl(event, "n")) {
@@ -296,6 +320,9 @@
       event.preventDefault();
       pending = "";
       move(-1);
+      return;
+    }
+    if (handleWindowKeys(event)) {
       return;
     }
     if (event.key === "/") {
