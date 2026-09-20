@@ -93,7 +93,12 @@ fn set_shortcuts(
 }
 
 #[tauri::command]
-fn paste_item(id: String, app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+fn paste_item(
+    id: String,
+    keep_open: bool,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) {
     let text = state
         .store
         .lock()
@@ -101,7 +106,7 @@ fn paste_item(id: String, app: tauri::AppHandle, state: tauri::State<'_, AppStat
         .get(&id)
         .map(|item| item.text.clone());
     if let Some(text) = text {
-        paste_text(&app, &state, &text);
+        paste_text(&app, &state, &text, keep_open);
     }
 }
 
@@ -119,19 +124,36 @@ fn copy_item(id: String, state: tauri::State<'_, AppState>) -> bool {
     }
 }
 
-fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str) {
+fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
     let _ = clipboard::write_clipboard_text(text);
     hide_window(app, state);
-    let foreground = state.foreground.lock().expect("foreground").take();
+    let foreground = if keep_open {
+        *state.foreground.lock().expect("foreground")
+    } else {
+        state.foreground.lock().expect("foreground").take()
+    };
     let restored = match foreground {
         Some(foreground) => platform::restore_foreground(&foreground),
         None => true,
     };
-    if !restored {
-        return;
+    if restored {
+        std::thread::sleep(Duration::from_millis(70));
+        let _ = platform::simulate_paste();
     }
-    std::thread::sleep(Duration::from_millis(70));
-    let _ = platform::simulate_paste();
+    if keep_open {
+        reveal_picker(app, state);
+    }
+}
+
+fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    let _ = window.set_always_on_top(true);
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 fn hide_window(app: &tauri::AppHandle, state: &AppState) {

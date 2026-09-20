@@ -68,12 +68,12 @@
     return filtered[selected];
   }
 
-  async function pasteSelected() {
+  async function pasteSelected(keepOpen = false) {
     const item = currentItem();
     if (!item) {
       return;
     }
-    await invoke("paste_item", { id: item.id });
+    await invoke("paste_item", { id: item.id, keepOpen });
   }
 
   async function copySelected() {
@@ -175,7 +175,7 @@
     if (filtered.length === 0) {
       return;
     }
-    selected = (selected + delta + filtered.length) % filtered.length;
+    selected = Math.min(filtered.length - 1, Math.max(0, selected + delta));
   }
 
   function openPicker(next: Item[]) {
@@ -210,7 +210,7 @@
     if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      void pasteSelected();
+      void pasteSelected(event.ctrlKey);
       return;
     }
     if (isCtrl(event, "n")) {
@@ -272,7 +272,8 @@
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      void pasteSelected();
+      pending = "";
+      void pasteSelected(event.ctrlKey);
       return;
     }
     if (isCtrl(event, "c")) {
