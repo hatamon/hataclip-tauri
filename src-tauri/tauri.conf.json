@@ -16,10 +16,12 @@
         "title": "hataclip",
         "width": 360,
         "height": 280,
+        "minWidth": 200,
+        "minHeight": 140,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "visible": false,
         "transparent": false,
         "shadow": true
