@@ -1,4 +1,4 @@
-export const DEFAULT_LEADER = "\\";
+export const DEFAULT_LEADER = " ";
 
 export type KeyMap = { lhs: string; rhs: string };
 
@@ -89,6 +89,9 @@ export function isLeaderToken(token: string, leader: string): boolean {
   if (leader === "\\" && (token === "\\" || token === "¥" || token === "￥")) {
     return true;
   }
+  if ((leader === " " || leader === "<Space>") && (token === " " || token === "<Space>")) {
+    return true;
+  }
   return token === leader;
 }
 
@@ -97,6 +100,9 @@ export function forbiddenToken(token: string): boolean {
 }
 
 export function validLeader(value: string): boolean {
+  if (value === " " || value === "<Space>") {
+    return true;
+  }
   const tokens = tokenizeKeys(value.trim());
   if (tokens.length !== 1) {
     return false;
@@ -166,10 +172,13 @@ export function parseUnmapArgs(rest: string): string | null {
 }
 
 export function parseMapleaderArgs(rest: string): { kind: "show" } | { kind: "set"; leader: string } | null {
-  const line = rest.trim();
-  if (line.length === 0) {
+  if (rest.length === 0) {
     return { kind: "show" };
   }
+  if (rest === " " || rest === "<Space>") {
+    return { kind: "set", leader: " " };
+  }
+  const line = rest.trim();
   if (!validLeader(line)) {
     return null;
   }

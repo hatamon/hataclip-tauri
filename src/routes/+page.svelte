@@ -22,6 +22,7 @@
     tokenToEventKey,
     upsertMap,
     whichKeysForMaps,
+    DEFAULT_LEADER,
     type KeyMap,
   } from "$lib/map";
   import { uniquePickSpecs, type PickSpec } from "$lib/pick";
@@ -112,7 +113,7 @@
   let whichPrefix = $state("");
   let whichTimer: ReturnType<typeof setTimeout> | null = null;
   let maps = $state<KeyMap[]>([]);
-  let mapLeader = $state("\\");
+  let mapLeader = $state(DEFAULT_LEADER);
   let mapsEnabled = true;
 
   const filtered = $derived.by(() => {
@@ -166,6 +167,7 @@
       return [
         { key: "g", label: "先頭" },
         { key: "f", label: "開く" },
+        { key: "e", label: "全文" },
         { key: "Enter", label: "本文のまま" },
         { key: "J", label: "カンマ" },
         { key: "T", label: "タブ" },
@@ -1159,7 +1161,15 @@
   }
 
   function onDocumentKeydown(event: KeyboardEvent) {
-    if (event.isComposing || event.defaultPrevented) {
+    if (event.isComposing) {
+      return;
+    }
+    if (
+      event.key === "Shift" ||
+      event.key === "Control" ||
+      event.key === "Alt" ||
+      event.key === "Meta"
+    ) {
       return;
     }
     if (mode === "search" || mode === "tag" || mode === "colon" || mode === "ask") {
@@ -1228,6 +1238,7 @@
           const result = matchMap(maps, pending, token, mapLeader);
           if (result.kind === "hit") {
             event.preventDefault();
+            event.stopPropagation();
             pending = "";
             whichPrefix = "";
             runMappedRhs(result.rhs);
@@ -1235,11 +1246,13 @@
           }
           if (result.kind === "prefix") {
             event.preventDefault();
+            event.stopPropagation();
             pending = combinePending(pending, token, mapLeader);
             return;
           }
           if (pending === "<leader>") {
             event.preventDefault();
+            event.stopPropagation();
             pending = "";
             whichPrefix = "";
             return;
@@ -1294,6 +1307,12 @@
       event.preventDefault();
       pending = "";
       void replayLastPaste();
+      return;
+    }
+    if (pending === "g" && event.key === "e") {
+      event.preventDefault();
+      pending = "";
+      preview = !preview;
       return;
     }
     if (pending === "g" && event.key === "?") {
@@ -1383,12 +1402,6 @@
       event.preventDefault();
       pending = "";
       anchor = anchor === null ? selected : null;
-      return;
-    }
-    if (event.key === " ") {
-      event.preventDefault();
-      pending = "";
-      preview = !preview;
       return;
     }
     if (event.key === "Tab") {
@@ -1583,7 +1596,7 @@
 
   onMount(() => {
     const onKey = (event: KeyboardEvent) => onDocumentKeydown(event);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
 
     const unlistenOpened = listen<Item[]>("picker-opened", (event) => {
       openPicker(event.payload);
@@ -1614,7 +1627,7 @@
     });
 
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
       stopDrop?.();
@@ -1806,6 +1819,7 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
           <button
             type="button"
             class="row"
+            tabindex="-1"
             onclick={() => {
               clearSelection();
               selected = index;

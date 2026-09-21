@@ -15,10 +15,10 @@ import {
 describe("parseMapArgs", () => {
   it("lists when empty and sets nvim-style leader cmd", () => {
     expect(parseMapArgs("")).toEqual({ kind: "list" });
-    expect(parseMapArgs("<leader>* <cmd>bullet")).toEqual({
+    expect(parseMapArgs("<leader>* :bullet")).toEqual({
       kind: "set",
       lhs: "<leader>*",
-      rhs: "<cmd>bullet",
+      rhs: ":bullet",
     });
     expect(parseMapArgs("j k")).toEqual({ kind: "set", lhs: "j", rhs: "k" });
     expect(parseMapArgs("gT :quote")).toEqual({ kind: "set", lhs: "gT", rhs: ":quote" });
@@ -29,7 +29,7 @@ describe("parseMapArgs", () => {
 
 describe("parseRhs", () => {
   it("treats :quote and <cmd>bullet as commands", () => {
-    expect(parseRhs(":quote")).toEqual({ kind: "cmd", command: "quote" });
+    expect(parseRhs(":bullet")).toEqual({ kind: "cmd", command: "bullet" });
     expect(parseRhs("<cmd>bullet")).toEqual({ kind: "cmd", command: "bullet" });
     expect(parseRhs("dd")).toEqual({ kind: "keys", keys: "dd" });
   });
@@ -41,7 +41,9 @@ describe("validLhs and leader", () => {
     expect(validLhs("<leader>dd")).toBe(false);
     expect(validLhs("dd")).toBe(true);
     expect(validLhs("1")).toBe(false);
-    expect(validLeader("\\")).toBe(true);
+    expect(validLeader(" ")).toBe(true);
+    expect(parseMapleaderArgs(" ")).toEqual({ kind: "set", leader: " " });
+    expect(parseMapleaderArgs("<Space>")).toEqual({ kind: "set", leader: " " });
     expect(validLeader(",")).toBe(true);
     expect(validLeader("1")).toBe(false);
     expect(parseMapleaderArgs("")).toEqual({ kind: "show" });
@@ -53,12 +55,12 @@ describe("validLhs and leader", () => {
 describe("matchMap", () => {
   it("waits on prefixes and does not recurse", () => {
     const maps = upsertMap([], "<leader>*", "<cmd>bullet");
-    expect(matchMap(maps, "", "\\", "\\")).toEqual({ kind: "prefix" });
-    expect(matchMap(maps, "<leader>", "*", "\\")).toEqual({
+    expect(matchMap(maps, "", "<Space>", " ")).toEqual({ kind: "prefix" });
+    expect(matchMap(maps, "<leader>", "*", " ")).toEqual({
       kind: "hit",
       rhs: { kind: "cmd", command: "bullet" },
     });
-    expect(combinePending("", "\\", "\\")).toBe("<leader>");
+    expect(combinePending("", "<Space>", " ")).toBe("<leader>");
     expect(matchMap([{ lhs: "j", rhs: "k" }], "", "j", "\\")).toEqual({
       kind: "hit",
       rhs: { kind: "keys", keys: "k" },

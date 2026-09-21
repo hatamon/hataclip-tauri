@@ -54,7 +54,7 @@ pub struct KeyMaps {
 }
 
 fn default_leader() -> String {
-    "\\".to_string()
+    " ".to_string()
 }
 
 impl Default for KeyMaps {
