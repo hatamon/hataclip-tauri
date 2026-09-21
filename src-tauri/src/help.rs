@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の #foo / {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -36,7 +36,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "search",
-        "/ で検索。Tab は一覧へ（絞りは残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
+        "/ で検索。Tab は一覧へ（絞りと検索欄は残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
     ),
     (
         "edit",
@@ -66,6 +66,8 @@ const TOPICS: &[(&str, &str)] = &[
 {{env:USERPROFILE}}  同名の環境変数。無ければ空\n\
 {{@foo}}           #alias:foo の先の行の本文。差し込んだ本文も展開する。同じ名前を二度辿ったら空。エイリアス側の #run などは見ない\n\
 {{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない\n\
+{{tag:work}}       いまの一覧でタグ work の本文。並びどおり、改行つなぎ。差し込んだ本文も展開する。同じタグを二度辿ったら空。その行の #run などは見ない\n\
+{{type:<Tab>}}     貼る途中でキーを送る。id{{type:<Tab>}}pass は id を貼って Tab を押して pass を貼る。{{type:<Ctrl+A>abc<Enter>}} {{type:<Ctrl+Shift+A>}} も可。矢印は <Up> <Down> <Left> <Right>。F キーは <F1>〜<F24>。文字は 1 文字ずつ。Tab Enter Esc Space BS Del Home End PgUp PgDn と Ctrl/Shift/Alt+それら\n\
 {{sh: コマンド}}   #run 付きの行だけ実行。標準出力。失敗したら貼らない",
     ),
     (
@@ -140,6 +142,8 @@ mod tests {
         assert!(render(Some("template")).contains("{{@foo}}"));
         assert!(render(Some("template")).contains("{{var a}}"));
         assert!(render(Some("template")).contains("{{sh: コマンド}}"));
+        assert!(render(Some("template")).contains("{{tag:work}}"));
+        assert!(render(Some("template")).contains("{{type:<Tab>}}"));
         assert!(render(None).contains(":help template"));
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));

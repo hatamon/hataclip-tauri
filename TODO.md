@@ -50,10 +50,9 @@
 - [x] `:sort`
 - [x] `E` のメモ帳フォールバック / `:settings` / `:set paste` / `target_keys`
 - [x] `:type`
-- [x] `#foo` を選んでタグの行を貼る
 - [x] `:set a="text"` / `{{var:a}}`
 - [x] `:echo`
-- [x] 選んだ `{{date}}` / `:sh` / `:echo` をタグ貼りのキーで置き換える
+- [x] 選んだ `{{date}}` / `:sh` / `:echo` を Ctrl+Shift+H で置き換える
 - [x] `:help template` の `{{xx}}` 一覧
 - [x] `{{var a}}`（`:` の代わりに空白）
 - [x] `#app:chrome` / `#not:chrome`（`#here` / `#not` はやめる）
@@ -62,6 +61,7 @@
 - [x] `#multi` を自動で付けない
 - [x] `J` をまとめ（旧 `M`）。空白つなぎ貼りはやめる
 - [x] 検索中の Tab で一覧へ。`Esc` / `Ctrl+[` で絞りを外す
+- [x] `{{tag:work}}` / `{{type:<Tab>}}`
 
 ## やりたいこと
 

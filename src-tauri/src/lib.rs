@@ -1,6 +1,7 @@
 mod actions;
 mod chord;
 mod clipboard;
+mod keys;
 mod editor;
 mod eval;
 mod expr;
@@ -510,35 +511,13 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     let Some(text) = captured else {
         return;
     };
-    if let Some(tag) = text::selection_tag(&text) {
-        let Some(item) = view(state)
-            .into_iter()
-            .find(|item| item.tags.iter().any(|entry| entry == tag))
-        else {
-            return;
-        };
-        run_paste(
-            app,
-            state,
-            &[item.id],
-            false,
-            false,
-            false,
-            "\n",
-            HashMap::new(),
-            None,
-            false,
-            true,
-        );
-        return;
-    }
     let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
         return;
     };
     remember_last_sh(&text, state);
-    paste_text(app, state, &out, false);
+    play_resolved(app, state, text::take_type_ops(&out), false, false);
 }
 
 fn remember_last_sh(text: &str, state: &AppState) {
@@ -636,12 +615,12 @@ fn run_paste(
         }
         return false;
     }
-    let mut paste_parts = Vec::new();
+    let mut paste_parts: Vec<Vec<text::PasteOp>> = Vec::new();
     let mut logged = false;
     for item in &rows {
         let resolved = if let Some(ctx) = ctx.as_ref() {
             match resolve_item(item, ctx) {
-                Some(text) => text,
+                Some(ops) => ops,
                 None => {
                     if was_open {
                         show_window(app);
@@ -650,10 +629,10 @@ fn run_paste(
                 }
             }
         } else {
-            item.text.clone()
+            vec![text::PasteOp::Text(item.text.clone())]
         };
         if let Some(path) = text::log_path(&item.tags) {
-            if append_log(&path, &resolved).is_err() {
+            if append_log(&path, &text::flatten_ops(&resolved)).is_err() {
                 if was_open {
                     show_window(app);
                 }
@@ -664,14 +643,22 @@ fn run_paste(
             paste_parts.push(resolved);
         }
     }
-    let mut text = paste_parts.join(separator);
+    let mut ops = Vec::new();
+    for (index, part) in paste_parts.iter().enumerate() {
+        if index > 0 {
+            ops.push(text::PasteOp::Text(separator.to_string()));
+        }
+        ops.extend(part.clone());
+    }
+    let mut ops = text::compact_ops(ops);
     if format {
-        text = text::format_for_paste(&text);
+        ops = map_text_ops(ops, |text| text::format_for_paste(text));
     }
     if let Some(prefix) = prefix {
         let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
         let already = if prefix == "* " { "* " } else { already.as_str() };
-        text = text::prefix_lines(&text, prefix, already);
+        let already = already.to_string();
+        ops = map_text_ops(ops, |text| text::prefix_lines(text, prefix, &already));
     }
     if paste_parts.is_empty() {
         if !logged {
@@ -695,7 +682,7 @@ fn run_paste(
         }
         return true;
     }
-    if text.is_empty() && prefix.is_some() {
+    if text::flatten_ops(&ops).is_empty() && prefix.is_some() && !text::has_keys(&ops) {
         if was_open {
             show_window(app);
         }
@@ -709,12 +696,7 @@ fn run_paste(
             .record_context(ids, &key);
     }
     state.store.lock().expect("store").bump_paste(ids);
-    let ok = if typed {
-        type_text(app, state, &text, keep_open)
-    } else {
-        paste_text(app, state, &text, keep_open);
-        true
-    };
+    let ok = play_resolved(app, state, ops, keep_open, typed);
     if ok {
         drop_once(state, ids);
         let _ = app.emit("items-changed", view(state));
@@ -740,6 +722,25 @@ fn alias_map(state: &AppState) -> HashMap<String, String> {
                 map.entry(name.to_string())
                     .or_insert_with(|| item.text.clone());
             }
+        }
+    }
+    map
+}
+
+/// いまの一覧の並びで、同じタグの本文を改行つなぎ。
+fn tag_map(state: &AppState) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    for item in view(state) {
+        for tag in &item.tags {
+            if tag.is_empty() {
+                continue;
+            }
+            map.entry(tag.clone())
+                .and_modify(|body| {
+                    body.push('\n');
+                    body.push_str(&item.text);
+                })
+                .or_insert_with(|| item.text.clone());
         }
     }
     map
@@ -788,6 +789,7 @@ fn expand_context(
         answers,
         aliases: alias_map(state),
         vars: var_map(state),
+        tags: tag_map(state),
     }
 }
 
@@ -839,20 +841,116 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     }
 }
 
-fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<String> {
+fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>> {
     let run = item.tags.iter().any(|tag| tag == "run");
     let file = item.tags.iter().any(|tag| tag == "file");
     if run && !shell::has_sh_token(&item.text) {
         let expanded = text::expand_template(&item.text, ctx);
-        return apply_tsv(item, shell::run_script(&expanded).ok()?);
+        return Some(vec![text::PasteOp::Text(apply_tsv(
+            item,
+            shell::run_script(&expanded).ok()?,
+        )?)]);
     }
     let expanded = text::expand_template(&item.text, ctx);
     let expanded = shell::apply_sh(&expanded, run).ok()?;
-    if file && !run {
-        let contents = shell::read_file_contents(&expanded).ok()?;
-        return apply_tsv(item, contents);
+    let expanded = if file && !run {
+        shell::read_file_contents(&text::flatten_ops(&text::take_type_ops(&expanded))).ok()?
+    } else {
+        expanded
+    };
+    let ops = text::take_type_ops(&expanded);
+    if text::has_keys(&ops) {
+        Some(ops)
+    } else {
+        Some(vec![text::PasteOp::Text(apply_tsv(
+            item,
+            text::flatten_ops(&ops),
+        )?)])
     }
-    apply_tsv(item, expanded)
+}
+
+fn map_text_ops(ops: Vec<text::PasteOp>, map: impl Fn(&str) -> String) -> Vec<text::PasteOp> {
+    text::compact_ops(
+        ops.into_iter()
+            .map(|op| match op {
+                text::PasteOp::Text(text) => text::PasteOp::Text(map(&text)),
+                other => other,
+            })
+            .collect(),
+    )
+}
+
+fn play_resolved(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ops: Vec<text::PasteOp>,
+    keep_open: bool,
+    typed: bool,
+) -> bool {
+    if !text::has_keys(&ops) {
+        let text = text::flatten_ops(&ops);
+        if typed {
+            return type_text(app, state, &text, keep_open);
+        }
+        paste_text(app, state, &text, keep_open);
+        return true;
+    }
+    play_ops(app, state, &ops, keep_open, typed)
+}
+
+fn play_ops(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ops: &[text::PasteOp],
+    keep_open: bool,
+    typed: bool,
+) -> bool {
+    let previous = clipboard::peek_text();
+    let spec = paste_spec(state);
+    let wait = *state.picker_open.lock().expect("picker_open");
+    if !yield_target(app, state, keep_open) {
+        return false;
+    }
+    if wait {
+        std::thread::sleep(Duration::from_millis(70));
+    }
+    let mut did_paste = false;
+    let restore = |did_paste: bool| {
+        if did_paste {
+            if let Some(previous) = previous.as_ref() {
+                std::thread::sleep(Duration::from_millis(200));
+                let _ = clipboard::write_clipboard_text(previous);
+            }
+        }
+    };
+    for (index, op) in ops.iter().enumerate() {
+        if index > 0 {
+            std::thread::sleep(Duration::from_millis(70));
+        }
+        let ok = match op {
+            text::PasteOp::Text(text) if text.is_empty() => true,
+            text::PasteOp::Text(text) if typed => platform::simulate_type(text),
+            text::PasteOp::Text(text) => {
+                let _ = clipboard::write_clipboard_text(text);
+                did_paste = true;
+                platform::simulate_paste(&spec)
+            }
+            text::PasteOp::Type(atoms) => platform::simulate_type_atoms(atoms),
+        };
+        if !ok {
+            if did_paste {
+                if let Some(previous) = previous.as_ref() {
+                    let _ = clipboard::write_clipboard_text(previous);
+                }
+            }
+            return false;
+        }
+    }
+    restore(did_paste);
+    if keep_open {
+        reveal_picker(app, state);
+    }
+    true
 }
 
 fn apply_tsv(item: &Item, text: String) -> Option<String> {

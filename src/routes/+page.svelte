@@ -1157,6 +1157,7 @@
     }
     mode = "normal";
     pending = "";
+    searchEl?.blur();
   }
 
   function onSearchKeydown(event: KeyboardEvent) {
@@ -1809,15 +1810,23 @@
         </ul>
       {/if}
     {/if}
-    {#if mode === "search"}
+    {#if mode === "search" || query.length > 0}
       <input
         bind:this={searchEl}
         bind:value={query}
         class="search"
+        class:idle={mode !== "search"}
+        readonly={mode !== "search"}
+        tabindex={mode === "search" ? 0 : -1}
         placeholder="search  #tag"
         onkeydown={onSearchKeydown}
+        onfocus={() => {
+          if (mode !== "search") {
+            mode = "search";
+          }
+        }}
       />
-      {#if searchSuggestions.length > 0}
+      {#if mode === "search" && searchSuggestions.length > 0}
         <ul class="suggest">
           {#each searchSuggestions as tag (tag)}
             <li>
@@ -2001,6 +2010,10 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
     outline: none;
   }
 
+  .search.idle {
+    color: #888;
+  }
+
   textarea {
     resize: none;
     min-height: 120px;
@@ -2013,6 +2026,10 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
     list-style: none;
     overflow: auto;
     flex: 1;
+  }
+
+  .list > li:not(:last-child):not(.empty) {
+    border-bottom: 1px solid #2a2a2a;
   }
 
   .row {

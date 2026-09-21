@@ -109,7 +109,7 @@
   </div>
 
   <div class="row">
-    <span class="name">タグ</span>
+    <span class="name">展開</span>
     <button type="button" class:recording={recording === "expand"} onclick={() => void startRecording("expand")}>
       {label("expand", expand)}
     </button>
@@ -121,7 +121,7 @@
     <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
   </label>
 
-  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。タグは前面で `#foo` / `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。</p>
+  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。展開は前面で `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。</p>
 
   <div class="actions">
     <button type="button" class="save" onclick={save}>保存</button>

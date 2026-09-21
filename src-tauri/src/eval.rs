@@ -25,7 +25,7 @@ pub fn colon_output(line: &str, vars: &HashMap<String, String>) -> Option<String
     None
 }
 
-/// 選んだ文字をタグ以外で置き換える。`#foo` は呼び出し側。
+/// 前面で選んだ `{{date}}` / `:sh` / `:echo` を置き換える。
 pub fn resolve_selection(
     text: &str,
     ctx: &text::Expand,
@@ -33,9 +33,6 @@ pub fn resolve_selection(
 ) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return None;
-    }
-    if text::selection_tag(trimmed).is_some() {
         return None;
     }
     if let Some(out) = colon_line(trimmed, &ctx.vars, last_sh) {
@@ -48,7 +45,7 @@ pub fn resolve_selection(
     if let Some(out) = colon_line(expanded.trim(), &ctx.vars, last_sh) {
         return Some(out);
     }
-    if expanded != trimmed {
+    if expanded != trimmed || text::has_type_token(trimmed) {
         Some(expanded)
     } else {
         None
@@ -91,6 +88,7 @@ mod tests {
             answers: HashMap::new(),
             aliases: HashMap::new(),
             vars: HashMap::from([("a".into(), "{{date}}".into())]),
+            tags: HashMap::new(),
         }
     }
 
@@ -130,6 +128,10 @@ mod tests {
         assert_eq!(resolve_selection("#foo", &ctx, None), None);
         assert_eq!(resolve_selection("hello", &ctx, None), None);
         assert_eq!(resolve_selection("{{nope}}", &ctx, None), None);
+        assert_eq!(
+            resolve_selection("{{type:<Tab>}}", &ctx, None).as_deref(),
+            Some("{{type:<Tab>}}")
+        );
     }
 }
 

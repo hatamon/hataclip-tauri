@@ -39,6 +39,95 @@ pub struct Expand {
     pub answers: std::collections::HashMap<String, String>,
     pub aliases: std::collections::HashMap<String, String>,
     pub vars: std::collections::HashMap<String, String>,
+    pub tags: std::collections::HashMap<String, String>,
+}
+
+/// 貼り付けの断片。`{{type:}}` のところだけキー、ほかはテキスト。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PasteOp {
+    Text(String),
+    Type(Vec<crate::keys::TypeAtom>),
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn expand_ops(text: &str, ctx: &Expand) -> Vec<PasteOp> {
+    take_type_ops(&expand_template(text, ctx))
+}
+
+/// 展開済みの本文から `{{type:}}` だけ切り出す。
+pub fn take_type_ops(text: &str) -> Vec<PasteOp> {
+    compact_ops(take_type_ops_raw(text))
+}
+
+fn take_type_ops_raw(text: &str) -> Vec<PasteOp> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut ops = Vec::new();
+    let mut buf = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                if let Some(script) = arg_after(inner.trim(), "type") {
+                    if !buf.is_empty() {
+                        ops.push(PasteOp::Text(std::mem::take(&mut buf)));
+                    }
+                    ops.push(PasteOp::Type(crate::keys::parse_type_script(script)));
+                    i = close + 2;
+                    continue;
+                }
+            }
+        }
+        buf.push(chars[i]);
+        i += 1;
+    }
+    if !buf.is_empty() {
+        ops.push(PasteOp::Text(buf));
+    }
+    ops
+}
+
+pub fn compact_ops(ops: Vec<PasteOp>) -> Vec<PasteOp> {
+    let mut out = Vec::new();
+    for op in ops {
+        match op {
+            PasteOp::Text(text) if text.is_empty() => {}
+            PasteOp::Type(atoms) if atoms.is_empty() => {}
+            PasteOp::Text(text) => {
+                if let Some(PasteOp::Text(last)) = out.last_mut() {
+                    last.push_str(&text);
+                } else {
+                    out.push(PasteOp::Text(text));
+                }
+            }
+            PasteOp::Type(atoms) => {
+                if let Some(PasteOp::Type(last)) = out.last_mut() {
+                    last.extend(atoms);
+                } else {
+                    out.push(PasteOp::Type(atoms));
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn flatten_ops(ops: &[PasteOp]) -> String {
+    let mut out = String::new();
+    for op in ops {
+        if let PasteOp::Text(text) = op {
+            out.push_str(text);
+        }
+    }
+    out
+}
+
+pub fn has_keys(ops: &[PasteOp]) -> bool {
+    ops.iter().any(|op| matches!(op, PasteOp::Type(_)))
+}
+
+pub fn has_type_token(text: &str) -> bool {
+    walk_tokens(text, |inner| arg_after(inner, "type").is_some())
 }
 
 pub fn expand_template(text: &str, ctx: &Expand) -> String {
@@ -161,6 +250,17 @@ fn token_value(
         }
         return Some(expanded);
     }
+    if let Some(name) = arg_after(inner, "tag") {
+        if name.is_empty() {
+            return Some(String::new());
+        }
+        let key = format!("tag:{name}");
+        if !seen.insert(key) {
+            return Some(String::new());
+        }
+        let body = ctx.tags.get(name).cloned().unwrap_or_default();
+        return Some(expand_seen(&body, ctx, seen));
+    }
     if inner == "n" {
         return Some(ctx.n.to_string());
     }
@@ -241,17 +341,6 @@ pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
         false
     });
     specs
-}
-
-/// 前面で選んだ `#foo` からタグ名を取る。
-pub fn selection_tag(text: &str) -> Option<&str> {
-    let rest = text.trim().strip_prefix('#')?.trim();
-    let name = rest.split_whitespace().next().unwrap_or("");
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
 }
 
 pub fn prefix_lines(text: &str, prefix: &str, already: &str) -> String {
@@ -486,15 +575,6 @@ mod tests {
     }
 
     #[test]
-    fn selection_tag_reads_hash_name() {
-        assert_eq!(selection_tag("  #foo  "), Some("foo"));
-        assert_eq!(selection_tag("#alias:foo"), Some("alias:foo"));
-        assert_eq!(selection_tag("foo"), None);
-        assert_eq!(selection_tag("#"), None);
-        assert_eq!(selection_tag(""), None);
-    }
-
-    #[test]
     fn tag_arg_reads_colon_or_space() {
         assert_eq!(tag_arg("app:chrome", "app"), Some("chrome"));
         assert_eq!(tag_arg("app chrome", "app"), Some("chrome"));
@@ -543,6 +623,12 @@ mod tests {
                 ("a".into(), "{{date}}".into()),
                 ("sum".into(), ":echo 2+3".into()),
                 ("loop".into(), "{{var:loop}}".into()),
+            ]),
+            tags: std::collections::HashMap::from([
+                ("work".into(), "alpha\nbeta".into()),
+                ("dated".into(), "X{{date}}Y".into()),
+                ("loop".into(), "{{tag:loop}}".into()),
+                ("login".into(), "id{{type:<Tab>}}pass".into()),
             ]),
         }
     }
@@ -657,6 +743,60 @@ mod tests {
         assert_eq!(expand_template("{{var:loop}}", &ctx), "");
         assert_eq!(expand_template("{{var:missing}}", &ctx), "");
         assert_eq!(expand_template("{{var:}}", &ctx), "");
+    }
+
+    #[test]
+    fn expands_tag_nested_and_stops_cycles() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("{{tag:work}}", &ctx), "alpha\nbeta");
+        assert_eq!(expand_template("{{tag work}}", &ctx), "alpha\nbeta");
+        assert_eq!(expand_template("{{tag:dated}}", &ctx), "X2026/09/20Y");
+        assert_eq!(expand_template("{{tag:loop}}", &ctx), "");
+        assert_eq!(expand_template("{{tag:missing}}", &ctx), "");
+        assert_eq!(expand_template("{{tag:}}", &ctx), "");
+        assert_eq!(expand_template("{{tag}}", &ctx), "{{tag}}");
+        assert_eq!(
+            expand_template("{{tag:login}}", &ctx),
+            "id{{type:<Tab>}}pass"
+        );
+    }
+
+    #[test]
+    fn splits_type_tokens_into_ops() {
+        use crate::keys::{TypeAtom, TypeKey, TypeStep};
+        let tab = TypeAtom::Key(TypeStep {
+            ctrl: false,
+            shift: false,
+            alt: false,
+            key: TypeKey::Tab,
+        });
+        let ctx = sample_ctx();
+        assert_eq!(
+            expand_ops("id{{type:<Tab>}}pass", &ctx),
+            vec![
+                PasteOp::Text("id".into()),
+                PasteOp::Type(vec![tab.clone()]),
+                PasteOp::Text("pass".into()),
+            ]
+        );
+        assert_eq!(
+            expand_ops("{{tag:login}}", &ctx),
+            vec![
+                PasteOp::Text("id".into()),
+                PasteOp::Type(vec![tab]),
+                PasteOp::Text("pass".into()),
+            ]
+        );
+        assert_eq!(
+            expand_ops("{{type:<Ctrl+A>abc<Enter>}}", &ctx),
+            vec![PasteOp::Type(crate::keys::parse_type_script(
+                "<Ctrl+A>abc<Enter>"
+            ))]
+        );
+        assert_eq!(expand_ops("plain", &ctx), vec![PasteOp::Text("plain".into())]);
+        assert!(has_type_token("id{{type:<Tab>}}pass"));
+        assert!(has_type_token("{{type <Tab>}}"));
+        assert!(!has_type_token("{{date}}"));
     }
 
     #[test]
