@@ -51,6 +51,12 @@
 
 ## やりたいこと
 
+### 操作
+
+- [ ] `E` は nvim、無ければ `$VISUAL` / `$EDITOR`、それも無ければメモ帳
+- [ ] `:settings` は settings.json を同じエディタで開く。閉じたら読み直す。壊れていたら今の設定のまま
+- [ ] 前面アプリへのコピー／貼り付けキーは settings.json の `target_keys`。鍵はプロセス名（小文字）。無いときは `ctrl+c` / `ctrl+v`。`:set paste shift+insert` はいまの前面アプリの貼り付けだけ書く。`Ctrl+4` と `{{sel}}` も同じ表の copy を使う
+
 ### あとまわし
 
 - [ ] ブラウザの貼り付け先をウィンドウタイトルではなく URL で覚えたい。UI Automation が要るので様子見
