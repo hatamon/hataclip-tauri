@@ -10,6 +10,7 @@ import {
   upsertMap,
   validLhs,
   validLeader,
+  whichKeysForMaps,
 } from "./map";
 
 describe("parseMapArgs", () => {
@@ -67,5 +68,7 @@ describe("matchMap", () => {
     });
     expect(matchMap([{ lhs: "dd", rhs: "k" }], "", "d", "\\")).toEqual({ kind: "prefix" });
     expect(formatMaps("\\", maps)).toContain("<leader>*");
+    expect(whichKeysForMaps(maps, "")).toEqual([]);
+    expect(whichKeysForMaps(maps, "<leader>")).toEqual([{ key: "*", label: "<cmd>bullet" }]);
   });
 });

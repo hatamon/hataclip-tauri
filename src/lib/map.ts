@@ -215,6 +215,9 @@ export function hasLeaderMaps(maps: KeyMap[]): boolean {
 }
 
 export function whichKeysForMaps(maps: KeyMap[], prefix: string): { key: string; label: string }[] {
+  if (prefix.length === 0) {
+    return [];
+  }
   return maps
     .filter((entry) => entry.lhs.startsWith(prefix) && entry.lhs.length > prefix.length)
     .map((entry) => ({

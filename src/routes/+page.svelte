@@ -162,6 +162,9 @@
   );
 
   const whichKeys = $derived.by(() => {
+    if (whichPrefix.length === 0) {
+      return [];
+    }
     const mapped = whichKeysForMaps(maps, whichPrefix);
     if (whichPrefix === "g") {
       return [
