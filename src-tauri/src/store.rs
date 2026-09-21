@@ -583,6 +583,33 @@ impl Store {
         true
     }
 
+    /// 選んだ行の本文を置き換える。タグ・ピン・回数はそのまま。
+    pub fn replace_texts(&mut self, updates: &[(String, String)]) -> bool {
+        if updates.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for (id, text) in updates {
+            let Some(item) = self.get(id) else {
+                return false;
+            };
+            if item.text != *text {
+                changed = true;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        for (id, text) in updates {
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == *id) {
+                item.text = text.clone();
+            }
+        }
+        self.save();
+        true
+    }
+
     /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
     pub fn sort_items(&mut self, ids: &[String]) -> bool {
         if ids.len() < 2 {
@@ -1294,6 +1321,21 @@ mod tests {
         assert!(store.substitute(&["a".into()], "foo", "bar"));
         assert_eq!(store.get("a").unwrap().text, "bar bar");
         assert!(!store.substitute(&["a".into()], "", "x"));
+    }
+
+    #[test]
+    fn replace_texts_updates_and_undoes() {
+        let mut store = fresh("replace");
+        store.insert(item("a", "old"));
+        store.insert(item("b", "keep"));
+        assert!(store.replace_texts(&[("a".into(), "new".into())]));
+        assert_eq!(store.get("a").unwrap().text, "new");
+        assert_eq!(store.get("b").unwrap().text, "keep");
+        assert!(!store.replace_texts(&[("a".into(), "new".into())]));
+        store.undo();
+        assert_eq!(store.get("a").unwrap().text, "old");
+        assert!(!store.replace_texts(&[]));
+        assert!(!store.replace_texts(&[("missing".into(), "x".into())]));
     }
 
     #[test]

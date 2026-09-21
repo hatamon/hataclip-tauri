@@ -5,6 +5,7 @@
   import { uniqueAskNames } from "$lib/ask";
   import {
     applyColonCompletion,
+    bangFilterScript,
     matchingColonCommands,
     stripClipSink,
   } from "$lib/colon";
@@ -54,6 +55,7 @@
     | { kind: "merge" }
     | { kind: "clone" }
     | { kind: "sub"; old: string; new: string }
+    | { kind: "filter"; script: string }
     | { kind: "sort" }
     | { kind: "app" };
 
@@ -664,6 +666,9 @@
       case "sub":
         await substituteSelection(lastChange.old, lastChange.new);
         return;
+      case "filter":
+        await filterSelection(lastChange.script);
+        return;
       case "sort":
         await sortSelection();
     }
@@ -725,6 +730,22 @@
     items = await invoke<Item[]>("substitute_items", { ids, old, new: next });
     selectById(id);
     lastChange = { kind: "sub", old, new: next };
+  }
+
+  async function filterSelection(script: string) {
+    if (script.trim().length === 0 || selectedIds.length === 0) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    const ids = selectedIds;
+    clearSelection();
+    try {
+      items = await invoke<Item[]>("filter_items", { ids, script });
+      selectById(id);
+      lastChange = { kind: "filter", script };
+    } catch {
+      // 失敗したらそのまま
+    }
   }
 
   async function sortSelection() {
@@ -1174,6 +1195,11 @@
     }
     if (line === "sort") {
       void sortSelection();
+      return;
+    }
+    const filterScript = bangFilterScript(line);
+    if (filterScript !== null) {
+      void filterSelection(filterScript);
       return;
     }
     if (line === "sh" || line === "sh ") {

@@ -35,7 +35,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter 改行つなぎ。:comma カンマ、:tab タブ。:quote 引用、:bullet 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。:comma カンマ、:tab タブ。:quote 引用、:bullet 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。:!!sh 各行をフィルタ。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
     ),
     (
         "search",
@@ -43,11 +43,11 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "edit",
-        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR、それも無ければメモ帳）。o 空行を作って編集。S 改行で分割。J は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。:sort は V 中なら本文の順。. は dd p P t T gp ga S J c :s :sort + - を繰り返す。",
+        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR、それも無ければメモ帳）。o 空行を作って編集。S 改行で分割。J は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。:!!sh は各行をコマンドで書き換える。:sort は V 中なら本文の順。. は dd p P t T gp ga S J c :s :!! :sort + - を繰り返す。",
     ),
     (
         "sh",
-        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る（stdin なし）。:.!sh xxx はカレント行（V なら改行つなぎ）を stdin に流す。:@ は直前の :sh / :.!sh のスクリプトをもう一度（stdin はいまの選択）。失敗したら貼らない。末尾に > clip でクリップボードへ（貼らない）。",
+        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る（stdin なし）。:.!sh xxx はカレント行（V なら改行つなぎ）を stdin に流す。:!!sh xxx は各行を stdin に流して本文を書き換える（貼らない）。:@ は直前の :sh / :.!sh のスクリプトをもう一度（stdin はいまの選択）。失敗したら貼らない／書き換えない。末尾に > clip でクリップボードへ（貼らない）。",
     ),
     (
         "template",
@@ -85,7 +85,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -101,7 +101,7 @@ const OVERVIEW: &str = "\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  J まとめ  c 複製  t T タグ  gp ピン  ga #app  + -\n\
 その他 V 範囲  :open 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  echo  export  import  quote  bullet  type  format  raw  comma  tab  open  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
+:      help  sh  !!  @  echo  export  import  quote  bullet  type  format  raw  comma  tab  open  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -165,7 +165,9 @@ mod tests {
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains("次に一覧を出すとその行"));
-        assert!(render(Some("sh")).contains(":.!sh"));
+        assert!(render(Some("sh")).contains(":!!sh"));
+        assert!(render(Some("colon")).contains(":!!sh"));
+        assert!(render(Some("edit")).contains(":!!sh"));
         assert!(render(Some("sh")).contains("> clip"));
         assert!(render(Some("colon")).contains(":.!sh"));
         assert!(render(Some("colon")).contains("> clip"));

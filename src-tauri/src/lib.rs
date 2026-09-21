@@ -170,6 +170,35 @@ fn substitute_items(
 }
 
 #[tauri::command]
+fn filter_items(
+    ids: Vec<String>,
+    script: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Item>, String> {
+    let script = script.trim();
+    if script.is_empty() || ids.is_empty() {
+        return Ok(view(&state));
+    }
+    let store = state.store.lock().expect("store");
+    let mut updates = Vec::new();
+    for id in &ids {
+        let Some(item) = store.get(id) else {
+            return Ok(view(&state));
+        };
+        let out = shell::run_script_with_stdin(script, Some(&item.text))
+            .map_err(|_| "コマンドに失敗した".to_string())?;
+        updates.push((id.clone(), out));
+    }
+    drop(store);
+    state
+        .store
+        .lock()
+        .expect("store")
+        .replace_texts(&updates);
+    Ok(view(&state))
+}
+
+#[tauri::command]
 fn dedup_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").dedup();
     view(&state)
@@ -1544,6 +1573,7 @@ pub fn run() {
             merge_items,
             clone_items,
             substitute_items,
+            filter_items,
             dedup_items,
             sort_items,
             drop_paths,

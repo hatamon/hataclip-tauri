@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, matchingColonCommands, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, matchingColonCommands, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -7,6 +7,7 @@ describe("matchingColonCommands", () => {
     expect(matchingColonCommands("")).toEqual([
       "help",
       "sh",
+      "!!",
       "export",
       "import",
       "clear",
@@ -32,6 +33,7 @@ describe("matchingColonCommands", () => {
       "tags",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
+    expect(matchingColonCommands("!")).toEqual(["!!"]);
   });
 
   it("ignores a trailing clip sink when matching", () => {
@@ -51,5 +53,15 @@ describe("applyColonCompletion", () => {
   it("adds a trailing slash for substitute", () => {
     expect(applyColonCompletion("", "s")).toBe("s/");
     expect(applyColonCompletion("", "quote")).toBe("quote");
+    expect(applyColonCompletion("", "!!")).toBe("!!sh ");
+  });
+});
+
+describe("bangFilterScript", () => {
+  it("reads !!sh and !! sh", () => {
+    expect(bangFilterScript("!!sh jq .")).toBe("jq .");
+    expect(bangFilterScript("!! sh sort")).toBe("sort");
+    expect(bangFilterScript("!!sh")).toBeNull();
+    expect(bangFilterScript(".!sh jq .")).toBeNull();
   });
 });

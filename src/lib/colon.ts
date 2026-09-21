@@ -1,6 +1,7 @@
 export const COLON_COMMANDS = [
   "help",
   "sh",
+  "!!",
   "export",
   "import",
   "clear",
@@ -41,6 +42,9 @@ export function colonCommandToken(input: string): string {
   if (line.startsWith("help")) {
     return "help";
   }
+  if (line.startsWith("!!")) {
+    return "!!";
+  }
   return line.split(/\s/)[0] ?? "";
 }
 
@@ -49,13 +53,16 @@ export function matchingColonCommands(input: string): string[] {
   if (line.startsWith("help ") || line === "help") {
     return [];
   }
-  const token = line.split(/[\s/]/)[0] ?? "";
+  const token = line.startsWith("!!") ? "!!" : (line.split(/[\s/]/)[0] ?? "");
   return COLON_COMMANDS.filter((name) => name.startsWith(token));
 }
 
 export function applyColonCompletion(input: string, command: string): string {
   if (command === "s") {
     return "s/";
+  }
+  if (command === "!!") {
+    return "!!sh ";
   }
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
@@ -64,4 +71,14 @@ export function applyColonCompletion(input: string, command: string): string {
     return `${command} `;
   }
   return command;
+}
+
+export function bangFilterScript(line: string): string | null {
+  if (line.startsWith("!!sh ")) {
+    return line.slice(5);
+  }
+  if (line.startsWith("!! sh ")) {
+    return line.slice(6);
+  }
+  return null;
 }
