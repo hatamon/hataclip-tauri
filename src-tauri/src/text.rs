@@ -41,6 +41,7 @@ pub struct Expand {
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
     pub aliases: std::collections::HashMap<String, String>,
+    pub vars: std::collections::HashMap<String, String>,
 }
 
 pub fn expand_template(text: &str, ctx: &Expand) -> String {
@@ -148,6 +149,22 @@ fn token_value(
             return Some(String::new());
         }
         return Some(std::env::var(name).unwrap_or_default());
+    }
+    if let Some(name) = inner.strip_prefix("val:") {
+        let name = name.trim();
+        if name.is_empty() {
+            return Some(String::new());
+        }
+        let key = format!("val:{name}");
+        if !seen.insert(key) {
+            return Some(String::new());
+        }
+        let body = ctx.vars.get(name).cloned().unwrap_or_default();
+        let expanded = expand_seen(&body, ctx, seen);
+        if let Some(out) = crate::eval::colon_output(&expanded, &ctx.vars) {
+            return Some(out);
+        }
+        return Some(expanded);
     }
     if inner == "n" {
         return Some(ctx.n.to_string());
@@ -483,6 +500,10 @@ mod tests {
                 ("bar".into(), "BB{{@foo}}".into()),
                 ("loop".into(), "{{@loop}}".into()),
             ]),
+            vars: std::collections::HashMap::from([
+                ("a".into(), "{{date}}".into()),
+                ("loop".into(), "{{val:loop}}".into()),
+            ]),
         }
     }
 
@@ -568,6 +589,15 @@ mod tests {
         assert_eq!(expand_template("{{@missing}}", &ctx), "");
         assert_eq!(expand_template("{{@}}", &ctx), "");
         assert_eq!(expand_template("{{@ foo }}", &ctx), "X2026/09/20Y");
+    }
+
+    #[test]
+    fn expands_val_nested_and_stops_cycles() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("date {{val:a}}", &ctx), "date 2026/09/20");
+        assert_eq!(expand_template("{{val:loop}}", &ctx), "");
+        assert_eq!(expand_template("{{val:missing}}", &ctx), "");
+        assert_eq!(expand_template("{{val:}}", &ctx), "");
     }
 
     #[test]

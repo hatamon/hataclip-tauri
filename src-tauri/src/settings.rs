@@ -96,6 +96,8 @@ struct SettingsFile {
     keymaps: KeyMaps,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     target_keys: BTreeMap<String, TargetKeys>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    vars: BTreeMap<String, String>,
 }
 
 pub struct Settings {
@@ -104,17 +106,25 @@ pub struct Settings {
     window: Option<WindowGeom>,
     keymaps: KeyMaps,
     target_keys: BTreeMap<String, TargetKeys>,
+    vars: BTreeMap<String, String>,
+}
+
+pub enum SetCommand {
+    List,
+    Paste(String),
+    Var { name: String, value: String },
 }
 
 impl Settings {
     pub fn load(path: PathBuf) -> Self {
-        let (shortcuts, window, keymaps, target_keys) = read_file(&path);
+        let loaded = read_file(&path);
         Self {
             path,
-            shortcuts,
-            window,
-            keymaps,
-            target_keys,
+            shortcuts: loaded.shortcuts,
+            window: loaded.window,
+            keymaps: loaded.keymaps,
+            target_keys: loaded.target_keys,
+            vars: loaded.vars,
         }
     }
 
@@ -133,12 +143,37 @@ impl Settings {
         let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
             return false;
         };
-        let (shortcuts, window, keymaps, target_keys) = from_file(file);
-        self.shortcuts = shortcuts;
-        self.window = window;
-        self.keymaps = keymaps;
-        self.target_keys = target_keys;
+        let loaded = from_file(file);
+        self.shortcuts = loaded.shortcuts;
+        self.window = loaded.window;
+        self.keymaps = loaded.keymaps;
+        self.target_keys = loaded.target_keys;
+        self.vars = loaded.vars;
         true
+    }
+
+    pub fn vars(&self) -> &BTreeMap<String, String> {
+        &self.vars
+    }
+
+    pub fn set_var(&mut self, name: &str, value: String) -> bool {
+        if !valid_var_name(name) {
+            return false;
+        }
+        self.vars.insert(name.to_string(), value);
+        self.save();
+        true
+    }
+
+    pub fn format_vars(&self) -> String {
+        if self.vars.is_empty() {
+            return "変数はない".to_string();
+        }
+        self.vars
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     pub fn shortcuts(&self) -> &Shortcuts {
@@ -202,43 +237,118 @@ impl Settings {
             self.window,
             &self.keymaps,
             &self.target_keys,
+            &self.vars,
         );
     }
 }
 
-fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>, KeyMaps, BTreeMap<String, TargetKeys>) {
+struct Loaded {
+    shortcuts: Shortcuts,
+    window: Option<WindowGeom>,
+    keymaps: KeyMaps,
+    target_keys: BTreeMap<String, TargetKeys>,
+    vars: BTreeMap<String, String>,
+}
+
+fn empty_loaded() -> Loaded {
+    Loaded {
+        shortcuts: Shortcuts::default(),
+        window: None,
+        keymaps: KeyMaps::default(),
+        target_keys: BTreeMap::new(),
+        vars: BTreeMap::new(),
+    }
+}
+
+fn read_file(path: &Path) -> Loaded {
     let Ok(data) = fs::read_to_string(path) else {
-        return (
-            Shortcuts::default(),
-            None,
-            KeyMaps::default(),
-            BTreeMap::new(),
-        );
+        return empty_loaded();
     };
     let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
-        return (
-            Shortcuts::default(),
-            None,
-            KeyMaps::default(),
-            BTreeMap::new(),
-        );
+        return empty_loaded();
     };
     from_file(file)
 }
 
-fn from_file(file: SettingsFile) -> (Shortcuts, Option<WindowGeom>, KeyMaps, BTreeMap<String, TargetKeys>) {
+fn from_file(file: SettingsFile) -> Loaded {
     let shortcuts = Shortcuts {
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
         quick_paste: file.shortcuts.quick_paste,
         expand: usable_expand(file.shortcuts.expand),
     };
-    (
+    Loaded {
         shortcuts,
-        file.window,
-        sanitize_keymaps(file.keymaps),
-        sanitize_target_keys(file.target_keys),
-    )
+        window: file.window,
+        keymaps: sanitize_keymaps(file.keymaps),
+        target_keys: sanitize_target_keys(file.target_keys),
+        vars: sanitize_vars(file.vars),
+    }
+}
+
+pub fn parse_set(rest: &str) -> Option<SetCommand> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(SetCommand::List);
+    }
+    if let Some(spec) = rest.strip_prefix("paste") {
+        let spec = spec.trim();
+        if spec.starts_with('=') {
+            return None;
+        }
+        if spec.is_empty() {
+            return None;
+        }
+        return Some(SetCommand::Paste(spec.to_string()));
+    }
+    let eq = rest.find('=')?;
+    let name = rest[..eq].trim();
+    if !valid_var_name(name) {
+        return None;
+    }
+    let raw = rest[eq + 1..].trim();
+    let value = parse_set_value(raw)?;
+    Some(SetCommand::Var {
+        name: name.to_string(),
+        value,
+    })
+}
+
+fn parse_set_value(raw: &str) -> Option<String> {
+    if let Some(inner) = unquote(raw, '"') {
+        return Some(inner);
+    }
+    if let Some(inner) = unquote(raw, '\'') {
+        return Some(inner);
+    }
+    Some(raw.to_string())
+}
+
+fn unquote(raw: &str, quote: char) -> Option<String> {
+    let mut chars = raw.chars();
+    if chars.next() != Some(quote) {
+        return None;
+    }
+    let rest: String = chars.collect();
+    let end = rest.find(quote)?;
+    if !rest[end + quote.len_utf8()..].trim().is_empty() {
+        return None;
+    }
+    Some(rest[..end].to_string())
+}
+
+fn valid_var_name(name: &str) -> bool {
+    if name == "paste" {
+        return false;
+    }
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn usable(value: String, fallback: &str) -> String {
@@ -305,12 +415,19 @@ fn sanitize_target_keys(raw: BTreeMap<String, TargetKeys>) -> BTreeMap<String, T
     out
 }
 
+fn sanitize_vars(raw: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    raw.into_iter()
+        .filter(|(name, _)| valid_var_name(name))
+        .collect()
+}
+
 fn write_file(
     path: &Path,
     shortcuts: &Shortcuts,
     window: Option<WindowGeom>,
     keymaps: &KeyMaps,
     target_keys: &BTreeMap<String, TargetKeys>,
+    vars: &BTreeMap<String, String>,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -321,6 +438,7 @@ fn write_file(
         window,
         keymaps: keymaps.clone(),
         target_keys: target_keys.clone(),
+        vars: vars.clone(),
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -448,6 +566,51 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         assert!(!settings.reload());
         assert_eq!(settings.copy_for("wt"), "ctrl+shift+c");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parse_set_reads_paste_quotes_and_unquoted() {
+        assert!(matches!(parse_set(""), Some(SetCommand::List)));
+        assert!(matches!(
+            parse_set("paste shift+insert"),
+            Some(SetCommand::Paste(spec)) if spec == "shift+insert"
+        ));
+        assert!(matches!(
+            parse_set("a=\"{{date}}\""),
+            Some(SetCommand::Var { name, value }) if name == "a" && value == "{{date}}"
+        ));
+        assert!(matches!(
+            parse_set("a=':sh dir'"),
+            Some(SetCommand::Var { name, value }) if name == "a" && value == ":sh dir"
+        ));
+        assert!(matches!(
+            parse_set("b={{date}}"),
+            Some(SetCommand::Var { name, value }) if name == "b" && value == "{{date}}"
+        ));
+        assert!(parse_set("paste=\"no\"").is_none());
+        assert!(parse_set("paste").is_none());
+        assert!(parse_set("1a=x").is_none());
+    }
+
+    #[test]
+    fn vars_round_trip_and_drop_invalid() {
+        let path = temp_path("vars");
+        let _ = fs::remove_file(&path);
+        let mut settings = Settings::load(path.clone());
+        assert!(settings.set_var("a", "{{date}}".into()));
+        assert!(!settings.set_var("paste", "no".into()));
+        let reloaded = Settings::load(path.clone());
+        assert_eq!(reloaded.vars().get("a").map(String::as_str), Some("{{date}}"));
+        fs::write(
+            &path,
+            r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"vars":{"ok":"1","paste":"x","1bad":"y"}}"#,
+        )
+        .unwrap();
+        assert!(settings.reload());
+        assert_eq!(settings.vars().get("ok").map(String::as_str), Some("1"));
+        assert!(!settings.vars().contains_key("paste"));
+        assert!(!settings.vars().contains_key("1bad"));
         let _ = fs::remove_file(path);
     }
 }

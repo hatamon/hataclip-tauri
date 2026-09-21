@@ -2,6 +2,7 @@ mod actions;
 mod chord;
 mod clipboard;
 mod editor;
+mod eval;
 mod help;
 mod platform;
 mod settings;
@@ -14,7 +15,7 @@ mod tray;
 use chrono::Local;
 use platform::Point;
 use serde::Serialize;
-use settings::{KeyMaps, Settings, Shortcuts, WindowGeom};
+use settings::{KeyMaps, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -281,13 +282,33 @@ fn open_settings_file(app: tauri::AppHandle, state: tauri::State<'_, AppState>) 
 }
 
 #[tauri::command]
-fn set_target_paste(spec: String, state: tauri::State<'_, AppState>) -> bool {
-    let app = foreground_app(&state);
-    state
-        .settings
-        .lock()
-        .expect("settings")
-        .set_target_paste(&app, &spec)
+fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    match settings::parse_set(&rest) {
+        Some(SetCommand::List) => Ok(Some(
+            state.settings.lock().expect("settings").format_vars(),
+        )),
+        Some(SetCommand::Paste(spec)) => {
+            let app = foreground_app(&state);
+            let _ = state
+                .settings
+                .lock()
+                .expect("settings")
+                .set_target_paste(&app, &spec);
+            Ok(None)
+        }
+        Some(SetCommand::Var { name, value }) => {
+            if !state
+                .settings
+                .lock()
+                .expect("settings")
+                .set_var(&name, value)
+            {
+                return Err("変数名が使えない".into());
+            }
+            Ok(None)
+        }
+        None => Err("書き方が違う".into()),
+    }
 }
 
 /// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
@@ -582,6 +603,7 @@ fn run_paste(
             now,
             answers,
             aliases: alias_map(state),
+            vars: var_map(state),
         })
     };
     let store = state.store.lock().expect("store");
@@ -703,6 +725,17 @@ fn alias_map(state: &AppState) -> HashMap<String, String> {
         }
     }
     map
+}
+
+fn var_map(state: &AppState) -> HashMap<String, String> {
+    state
+        .settings
+        .lock()
+        .expect("settings")
+        .vars()
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 fn has_sel(state: &AppState, ids: &[String]) -> bool {
@@ -1189,7 +1222,7 @@ pub fn run() {
             get_keymaps,
             set_keymaps,
             open_settings_file,
-            set_target_paste
+            apply_set
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

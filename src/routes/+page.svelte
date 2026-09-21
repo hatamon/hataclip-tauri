@@ -938,10 +938,15 @@
       return;
     }
     if (line === "set" || line.startsWith("set ")) {
-      const rest = line === "set" ? "" : line.slice(4).trim();
-      const paste = rest.match(/^paste\s+(.+)$/);
-      if (paste) {
-        await invoke("set_target_paste", { spec: paste[1].trim() });
+      const rest = line === "set" ? "" : line.slice(4);
+      try {
+        const listed = await invoke<string | null>("apply_set", { rest });
+        if (listed != null && listed.length > 0) {
+          helpText = listed;
+          mode = "help";
+        }
+      } catch {
+        // 書き方が違うときは何もしない
       }
       return;
     }
