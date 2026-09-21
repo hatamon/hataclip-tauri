@@ -1,3 +1,4 @@
+use crate::chord::{self, Chord, ChordKey};
 use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Settings,
@@ -20,12 +21,19 @@ pub struct Point {
     pub y: i32,
 }
 
-pub fn simulate_paste() -> bool {
-    chord(Key::Unicode('v'))
+pub fn simulate_paste(spec: &str) -> bool {
+    simulate_chord(spec)
 }
 
-pub fn simulate_copy() -> bool {
-    chord(Key::Unicode('c'))
+pub fn simulate_copy(spec: &str) -> bool {
+    simulate_chord(spec)
+}
+
+pub fn simulate_chord(spec: &str) -> bool {
+    let Some(chord) = chord::parse(spec) else {
+        return false;
+    };
+    send_chord(chord)
 }
 
 /// 本文を 1 文字ずつ前面へ送る。2 秒を超えたら中止。
@@ -53,12 +61,28 @@ pub fn simulate_type(text: &str) -> bool {
     true
 }
 
-fn chord(key: Key) -> bool {
+fn send_chord(chord: Chord) -> bool {
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(enigo) => enigo,
         Err(_) => return false,
     };
-    enigo.key(Key::Control, Press).is_ok()
-        && enigo.key(key, Click).is_ok()
-        && enigo.key(Key::Control, Release).is_ok()
+    let mut ok = true;
+    if chord.ctrl {
+        ok &= enigo.key(Key::Control, Press).is_ok();
+    }
+    if chord.shift {
+        ok &= enigo.key(Key::Shift, Press).is_ok();
+    }
+    let key = match chord.key {
+        ChordKey::Char(ch) => Key::Unicode(ch),
+        ChordKey::Insert => Key::Insert,
+    };
+    ok &= enigo.key(key, Click).is_ok();
+    if chord.shift {
+        ok &= enigo.key(Key::Shift, Release).is_ok();
+    }
+    if chord.ctrl {
+        ok &= enigo.key(Key::Control, Release).is_ok();
+    }
+    ok
 }

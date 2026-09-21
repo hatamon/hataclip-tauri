@@ -1,5 +1,7 @@
 use crate::actions;
+use crate::chord;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -66,6 +68,15 @@ impl Default for KeyMaps {
     }
 }
 
+/// 前面アプリへ送るコピー／貼り付け。無い欄は `ctrl+c` / `ctrl+v`。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TargetKeys {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SettingsFile {
     version: u32,
@@ -74,6 +85,8 @@ struct SettingsFile {
     window: Option<WindowGeom>,
     #[serde(default)]
     keymaps: KeyMaps,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    target_keys: BTreeMap<String, TargetKeys>,
 }
 
 pub struct Settings {
@@ -81,17 +94,42 @@ pub struct Settings {
     shortcuts: Shortcuts,
     window: Option<WindowGeom>,
     keymaps: KeyMaps,
+    target_keys: BTreeMap<String, TargetKeys>,
 }
 
 impl Settings {
     pub fn load(path: PathBuf) -> Self {
-        let (shortcuts, window, keymaps) = read_file(&path);
+        let (shortcuts, window, keymaps, target_keys) = read_file(&path);
         Self {
             path,
             shortcuts,
             window,
             keymaps,
+            target_keys,
         }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn persist(&self) {
+        self.save();
+    }
+
+    pub fn reload(&mut self) -> bool {
+        let Ok(data) = fs::read_to_string(&self.path) else {
+            return false;
+        };
+        let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
+            return false;
+        };
+        let (shortcuts, window, keymaps, target_keys) = from_file(file);
+        self.shortcuts = shortcuts;
+        self.window = window;
+        self.keymaps = keymaps;
+        self.target_keys = target_keys;
+        true
     }
 
     pub fn shortcuts(&self) -> &Shortcuts {
@@ -104,6 +142,33 @@ impl Settings {
 
     pub fn keymaps(&self) -> &KeyMaps {
         &self.keymaps
+    }
+
+    pub fn copy_for(&self, app: &str) -> String {
+        self.target_keys
+            .get(&app.to_lowercase())
+            .and_then(|row| row.copy.clone())
+            .unwrap_or_else(|| chord::DEFAULT_COPY.to_string())
+    }
+
+    pub fn paste_for(&self, app: &str) -> String {
+        self.target_keys
+            .get(&app.to_lowercase())
+            .and_then(|row| row.paste.clone())
+            .unwrap_or_else(|| chord::DEFAULT_PASTE.to_string())
+    }
+
+    pub fn set_target_paste(&mut self, app: &str, spec: &str) -> bool {
+        let app = app.trim().to_lowercase();
+        let Some(parsed) = chord::parse(spec) else {
+            return false;
+        };
+        if app.is_empty() {
+            return false;
+        }
+        self.target_keys.entry(app).or_default().paste = Some(chord::display(&parsed));
+        self.save();
+        true
     }
 
     pub fn set_shortcuts(&mut self, shortcuts: Shortcuts) {
@@ -122,23 +187,48 @@ impl Settings {
     }
 
     fn save(&self) {
-        let _ = write_file(&self.path, &self.shortcuts, self.window, &self.keymaps);
+        let _ = write_file(
+            &self.path,
+            &self.shortcuts,
+            self.window,
+            &self.keymaps,
+            &self.target_keys,
+        );
     }
 }
 
-fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>, KeyMaps) {
+fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>, KeyMaps, BTreeMap<String, TargetKeys>) {
     let Ok(data) = fs::read_to_string(path) else {
-        return (Shortcuts::default(), None, KeyMaps::default());
+        return (
+            Shortcuts::default(),
+            None,
+            KeyMaps::default(),
+            BTreeMap::new(),
+        );
     };
     let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
-        return (Shortcuts::default(), None, KeyMaps::default());
+        return (
+            Shortcuts::default(),
+            None,
+            KeyMaps::default(),
+            BTreeMap::new(),
+        );
     };
+    from_file(file)
+}
+
+fn from_file(file: SettingsFile) -> (Shortcuts, Option<WindowGeom>, KeyMaps, BTreeMap<String, TargetKeys>) {
     let shortcuts = Shortcuts {
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
         quick_paste: file.shortcuts.quick_paste,
     };
-    (shortcuts, file.window, sanitize_keymaps(file.keymaps))
+    (
+        shortcuts,
+        file.window,
+        sanitize_keymaps(file.keymaps),
+        sanitize_target_keys(file.target_keys),
+    )
 }
 
 fn usable(value: String, fallback: &str) -> String {
@@ -176,11 +266,33 @@ fn sanitize_keymaps(keymaps: KeyMaps) -> KeyMaps {
     }
 }
 
+fn sanitize_target_keys(raw: BTreeMap<String, TargetKeys>) -> BTreeMap<String, TargetKeys> {
+    let mut out = BTreeMap::new();
+    for (app, mut row) in raw {
+        let app = app.trim().to_lowercase();
+        if app.is_empty() {
+            continue;
+        }
+        row.copy = row
+            .copy
+            .and_then(|spec| chord::parse(&spec).map(|parsed| chord::display(&parsed)));
+        row.paste = row
+            .paste
+            .and_then(|spec| chord::parse(&spec).map(|parsed| chord::display(&parsed)));
+        if row.copy.is_none() && row.paste.is_none() {
+            continue;
+        }
+        out.insert(app, row);
+    }
+    out
+}
+
 fn write_file(
     path: &Path,
     shortcuts: &Shortcuts,
     window: Option<WindowGeom>,
     keymaps: &KeyMaps,
+    target_keys: &BTreeMap<String, TargetKeys>,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -190,6 +302,7 @@ fn write_file(
         shortcuts: shortcuts.clone(),
         window,
         keymaps: keymaps.clone(),
+        target_keys: target_keys.clone(),
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -215,6 +328,8 @@ mod tests {
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
         assert_eq!(settings.window(), None);
         assert_eq!(settings.keymaps(), &KeyMaps::default());
+        assert_eq!(settings.copy_for("putty"), "ctrl+c");
+        assert_eq!(settings.paste_for("putty"), "ctrl+v");
     }
 
     #[test]
@@ -288,6 +403,31 @@ mod tests {
         let reloaded = Settings::load(path.clone());
         assert_eq!(reloaded.keymaps().leader, ",");
         assert_eq!(reloaded.keymaps().maps[0].lhs, "<leader>*");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn target_keys_round_trip_and_drop_invalid() {
+        let path = temp_path("targets");
+        let _ = fs::remove_file(&path);
+        let mut settings = Settings::load(path.clone());
+        assert!(settings.set_target_paste("PuTTY", "Shift+Insert"));
+        assert!(!settings.set_target_paste("putty", "nope"));
+        assert!(!settings.set_target_paste("", "ctrl+v"));
+        let reloaded = Settings::load(path.clone());
+        assert_eq!(reloaded.paste_for("putty"), "shift+insert");
+        assert_eq!(reloaded.copy_for("putty"), "ctrl+c");
+        fs::write(
+            &path,
+            r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"target_keys":{"WT":{"copy":"ctrl+shift+c","paste":"nope"}}}"#,
+        )
+        .unwrap();
+        assert!(settings.reload());
+        assert_eq!(settings.copy_for("wt"), "ctrl+shift+c");
+        assert_eq!(settings.paste_for("wt"), "ctrl+v");
+        fs::write(&path, "{not json").unwrap();
+        assert!(!settings.reload());
+        assert_eq!(settings.copy_for("wt"), "ctrl+shift+c");
         let _ = fs::remove_file(path);
     }
 }

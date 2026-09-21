@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// nvim を優先し、無ければ $VISUAL / $EDITOR を見る。
+/// nvim を優先し、無ければ $VISUAL / $EDITOR、それも無ければメモ帳。
 pub fn find() -> Option<PathBuf> {
     if let Some(path) = lookup("nvim") {
         return Some(path);
@@ -18,6 +18,9 @@ pub fn find() -> Option<PathBuf> {
         if let Some(path) = lookup(value) {
             return Some(path);
         }
+    }
+    if cfg!(windows) {
+        return lookup("notepad");
     }
     None
 }
@@ -87,6 +90,22 @@ pub fn run(editor: &Path, file: &Path) -> Option<String> {
         return None;
     }
     Some(normalize(&after))
+}
+
+/// エディタが閉じるまで待つ。ファイルは消さない。
+pub fn wait_close(editor: &Path, file: &Path) -> bool {
+    let mut command = Command::new(editor);
+    command.arg(file);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        command.creation_flags(CREATE_NEW_CONSOLE);
+    }
+    command
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn normalize(text: &str) -> String {

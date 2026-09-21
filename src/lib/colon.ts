@@ -13,6 +13,8 @@ export const COLON_COMMANDS = [
   "map",
   "unmap",
   "mapleader",
+  "set",
+  "settings",
 ];
 
 export function colonCommandToken(input: string): string {
@@ -39,7 +41,7 @@ export function applyColonCompletion(input: string, command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set") {
     return `${command} `;
   }
   return command;

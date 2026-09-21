@@ -619,7 +619,7 @@
     try {
       await invoke("edit_external", { id: item.id });
     } catch {
-      // nvim も $EDITOR も無いときは何もしない。
+      // エディタが無いときは何もしない。
     }
   }
 
@@ -918,6 +918,22 @@
     }
     if (line === "dedup yes") {
       items = await invoke<Item[]>("dedup_items");
+      return;
+    }
+    if (line === "settings") {
+      try {
+        await invoke("open_settings_file");
+      } catch {
+        // エディタが無いときは何もしない。
+      }
+      return;
+    }
+    if (line === "set" || line.startsWith("set ")) {
+      const rest = line === "set" ? "" : line.slice(4).trim();
+      const paste = rest.match(/^paste\s+(.+)$/);
+      if (paste) {
+        await invoke("set_target_paste", { spec: paste[1].trim() });
+      }
       return;
     }
     if (line === "sort") {
@@ -1632,6 +1648,10 @@
       mapLeader = next.leader;
       maps = next.maps;
     });
+    const unlistenSettings = listen<{ leader: string; maps: KeyMap[] }>("settings-changed", (event) => {
+      mapLeader = event.payload.leader;
+      maps = event.payload.maps;
+    });
 
     let stopDrop: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
@@ -1653,6 +1673,7 @@
       window.removeEventListener("keydown", onKey, true);
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
+      void unlistenSettings.then((stop) => stop());
       stopDrop?.();
     };
   });

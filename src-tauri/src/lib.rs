@@ -1,4 +1,5 @@
 mod actions;
+mod chord;
 mod clipboard;
 mod editor;
 mod help;
@@ -183,7 +184,7 @@ fn edit_external(
     let Some(item) = state.store.lock().expect("store").get(&id).cloned() else {
         return Err("編集する行がない".to_string());
     };
-    let editor = editor::find().ok_or("nvim も $EDITOR も見つからない")?;
+    let editor = editor::find().ok_or("エディタが見つからない")?;
     let file = editor::write_temp_file(&item.id, &item.text).map_err(|error| error.to_string())?;
     hide_window(&app, &state);
     std::thread::spawn(move || {
@@ -248,6 +249,43 @@ fn set_keymaps(keymaps: KeyMaps, state: tauri::State<'_, AppState>) -> KeyMaps {
     let mut settings = state.settings.lock().expect("settings");
     settings.set_keymaps(keymaps);
     settings.keymaps().clone()
+}
+
+#[tauri::command]
+fn open_settings_file(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let editor = editor::find().ok_or("エディタが見つからない")?;
+    let path = {
+        let settings = state.settings.lock().expect("settings");
+        settings.persist();
+        settings.path().to_path_buf()
+    };
+    hide_window(&app, &state);
+    std::thread::spawn(move || {
+        let _ = editor::wait_close(&editor, &path);
+        let state = app.state::<AppState>();
+        let shortcuts = {
+            let mut settings = state.settings.lock().expect("settings");
+            let _ = settings.reload();
+            settings.shortcuts().clone()
+        };
+        if let Err(error) = shortcuts::apply(&app, &shortcuts) {
+            eprintln!("failed to register global shortcuts: {error}");
+        }
+        let keymaps = state.settings.lock().expect("settings").keymaps().clone();
+        let _ = app.emit("settings-changed", keymaps);
+        show_window(&app);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn set_target_paste(spec: String, state: tauri::State<'_, AppState>) -> bool {
+    let app = foreground_app(&state);
+    state
+        .settings
+        .lock()
+        .expect("settings")
+        .set_target_paste(&app, &spec)
 }
 
 /// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
@@ -661,7 +699,7 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
         let _ = platform::restore_foreground(foreground);
     }
     std::thread::sleep(Duration::from_millis(70));
-    let _ = platform::simulate_copy();
+    let _ = platform::simulate_copy(&copy_spec(state));
     std::thread::sleep(Duration::from_millis(70));
     let captured = clipboard::peek_text();
     if let Some(previous) = previous.as_ref() {
@@ -794,9 +832,26 @@ fn resize_window(dw: i32, dh: i32, app: tauri::AppHandle) {
     )));
 }
 
+fn foreground_app(state: &AppState) -> String {
+    (*state.foreground.lock().expect("foreground"))
+        .map(|fg| platform::app_and_title(&fg).0)
+        .unwrap_or_default()
+}
+
+fn copy_spec(state: &AppState) -> String {
+    let app = foreground_app(state);
+    state.settings.lock().expect("settings").copy_for(&app)
+}
+
+fn paste_spec(state: &AppState) -> String {
+    let app = foreground_app(state);
+    state.settings.lock().expect("settings").paste_for(&app)
+}
+
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
     let previous = clipboard::peek_text();
     let _ = clipboard::write_clipboard_text(text);
+    let spec = paste_spec(state);
     hide_window(app, state);
     let foreground = if keep_open {
         *state.foreground.lock().expect("foreground")
@@ -809,7 +864,7 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     };
     if restored {
         std::thread::sleep(Duration::from_millis(70));
-        let _ = platform::simulate_paste();
+        let _ = platform::simulate_paste(&spec);
         if let Some(previous) = previous {
             std::thread::sleep(Duration::from_millis(200));
             let _ = clipboard::write_clipboard_text(&previous);
@@ -906,7 +961,13 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
 
 pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
     let previous = clipboard::peek_text();
-    let _ = platform::simulate_copy();
+    let spec = {
+        let app_name = platform::capture_foreground()
+            .map(|fg| platform::app_and_title(&fg).0)
+            .unwrap_or_default();
+        state.settings.lock().expect("settings").copy_for(&app_name)
+    };
+    let _ = platform::simulate_copy(&spec);
     std::thread::sleep(Duration::from_millis(70));
     let captured = clipboard::peek_text();
     if let Some(previous) = previous {
@@ -1077,7 +1138,9 @@ pub fn run() {
             get_shortcuts,
             set_shortcuts,
             get_keymaps,
-            set_keymaps
+            set_keymaps,
+            open_settings_file,
+            set_target_paste
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
