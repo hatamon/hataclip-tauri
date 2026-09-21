@@ -2,6 +2,7 @@ use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 mod windows;
@@ -25,6 +26,31 @@ pub fn simulate_paste() -> bool {
 
 pub fn simulate_copy() -> bool {
     chord(Key::Unicode('c'))
+}
+
+/// 本文を 1 文字ずつ前面へ送る。2 秒を超えたら中止。
+pub fn simulate_type(text: &str) -> bool {
+    let mut enigo = match Enigo::new(&Settings::default()) {
+        Ok(enigo) => enigo,
+        Err(_) => return false,
+    };
+    let started = Instant::now();
+    for ch in text.chars() {
+        if started.elapsed() >= Duration::from_secs(2) {
+            return false;
+        }
+        let ok = if ch == '\n' || ch == '\r' {
+            enigo.key(Key::Return, Click).is_ok()
+        } else if ch == '\t' {
+            enigo.key(Key::Tab, Click).is_ok()
+        } else {
+            enigo.text(&ch.to_string()).is_ok()
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
 }
 
 fn chord(key: Key) -> bool {

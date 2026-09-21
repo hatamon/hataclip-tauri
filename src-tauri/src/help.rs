@@ -1,24 +1,27 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "j / k と矢印で移動。端で止まる。gg 先頭、G 末尾。1〜9 でその行を貼り付けて閉じる。Ctrl+1〜9 は残す。Esc / Ctrl+[ で閉じる。",
+        "j / k と矢印で移動。端で止まる。gg 先頭、G 末尾。1〜9 でその行を貼り付けて閉じる。Ctrl+1〜9 は残す。u 取り消し、Ctrl+R やり直し。Esc / Ctrl+[ で閉じる。",
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形して貼る。Ctrl+C コピー。{{date}} {{time}} {{clip}} {{n}} {{uuid}} は貼る直前だけ展開。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。g Enter は本文そのまま。J は V 中なら空白つなぎ、gJ はカンマ。#type は 1 文字ずつ送る。#once は成功したら消す。{{sel}} は選択、{{ask:名前}} は貼る前に聞く。",
     ),
     (
         "tag",
-        "t でタグを付ける。T で外す。V 選択中は範囲の全行。#url #multi #path は登録時に自動。",
+        "t でタグを付ける。T で外す。V 選択中は範囲の全行。#url #multi #path は登録時に自動。#here はその貼り付け先のときだけ出す。#type と #once と #run は自動では付けない。",
     ),
-    ("pin", "m でピン留めを切り替える。ピン留めは一覧の先頭。"),
+    (
+        "pin",
+        "m でピン留め。+ でピンを上へ、- で下へ。ピンの並びは手動順が回数より優先。",
+    ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter で改行つなぎ貼り付け。dd / yy / t / T / m は範囲に効く。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter で改行つなぎ。J 空白、gJ カンマ。dd / yy / t / T / m / S は範囲に効く。Esc で解除。",
     ),
     (
         "search",
-        "/ で検索。#tag でタグ絞り込み。Ctrl+N / Ctrl+P で移動。#alias:foo を付けた行は foo でも当たる。",
+        "/ で検索。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
     ),
     (
         "sh",
@@ -26,7 +29,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "{{date}} は 2026/09/20、{{time}} は 10:54、{{date:%Y%m%d}} は書式、{{clip}} はいまのクリップボード、{{n}} は連番、{{n:2}} は 01、{{uuid}} {{user}} {{host}}。履歴の本文は変わらない。",
+        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{ask:名前}}。履歴の本文は変わらない。",
     ),
     (
         "gf",
@@ -38,7 +41,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export <path> Markdown 書き出し。:clear は yes でピン以外削除。:sh <cmd> 実行して貼る。:@ 直前の :sh。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear は yes でピン以外削除。:sh 実行して貼る。:@ 直前の :sh。↑↓ で入力履歴。",
     ),
 ];
 

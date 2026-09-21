@@ -14,6 +14,7 @@ use chrono::Local;
 use platform::Point;
 use serde::Serialize;
 use settings::{Settings, Shortcuts, WindowGeom};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{Item, Store};
@@ -51,8 +52,14 @@ fn delete_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item
 }
 
 #[tauri::command]
-fn undo_delete(state: tauri::State<'_, AppState>) -> Vec<Item> {
-    state.store.lock().expect("store").undo_delete();
+fn undo_change(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").undo();
+    view(&state)
+}
+
+#[tauri::command]
+fn redo_change(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").redo();
     view(&state)
 }
 
@@ -102,6 +109,23 @@ fn set_tag(
 fn set_pinned(ids: Vec<String>, pinned: bool, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").set_pinned(&ids, pinned);
     view(&state)
+}
+
+#[tauri::command]
+fn move_pins(ids: Vec<String>, delta: i32, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").move_pins(&ids, delta);
+    view(&state)
+}
+
+#[tauri::command]
+fn split_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").split_items(&ids);
+    view(&state)
+}
+
+#[tauri::command]
+fn get_context(state: tauri::State<'_, AppState>) -> Option<String> {
+    current_context(&state)
 }
 
 /// 外部エディタを開く。終わるまで待つので、待ち時間は別スレッドに逃がす。
@@ -169,51 +193,28 @@ fn set_shortcuts(
     Ok(())
 }
 
-/// 複数行まとめて貼るときは改行でつなぐ。format は Shift+Enter のときだけ真。
+/// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
 #[tauri::command]
 fn paste_items(
     ids: Vec<String>,
     keep_open: bool,
     format: bool,
+    raw: Option<bool>,
+    separator: Option<String>,
+    answers: Option<HashMap<String, String>>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) {
-    let n = {
-        let mut serial = state.paste_serial.lock().expect("paste_serial");
-        *serial += 1;
-        *serial
-    };
-    let now = Local::now();
-    let ctx = text::Expand {
-        date: now.format("%Y/%m/%d").to_string(),
-        time: now.format("%H:%M").to_string(),
-        clip: clipboard::peek_text().unwrap_or_default(),
-        n,
-        uuid: uuid::Uuid::new_v4().to_string(),
-        user: text::login_name(),
-        host: text::host_name(),
-        now,
-    };
-    let Some(text) = resolved_text(&state, &ids, &ctx) else {
-        return;
-    };
-    let text = if format {
-        text::format_for_paste(&text)
-    } else {
-        text
-    };
-    if let Some(key) = current_context(&state) {
-        state
-            .store
-            .lock()
-            .expect("store")
-            .record_context(&ids, &key);
-    }
-    state.store.lock().expect("store").bump_paste(&ids);
-    paste_text(&app, &state, &text, keep_open);
-    if !keep_open {
-        *state.paste_serial.lock().expect("paste_serial") = 0;
-    }
+    run_paste(
+        &app,
+        &state,
+        &ids,
+        keep_open,
+        format,
+        raw.unwrap_or(false),
+        separator.as_deref().unwrap_or("\n"),
+        answers.unwrap_or_default(),
+    );
 }
 
 #[tauri::command]
@@ -257,11 +258,32 @@ fn export_items(path: String, state: tauri::State<'_, AppState>) -> Result<(), S
             md.push_str(&item.tags.join(", "));
             md.push('\n');
         }
+        if item.pinned {
+            md.push_str("pinned: true\n");
+        }
         md.push_str("\n```\n");
         md.push_str(&item.text);
         md.push_str("\n```\n\n");
     }
     std::fs::write(path, md).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn import_items(path: String, state: tauri::State<'_, AppState>) -> Result<Vec<Item>, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Ok(view(&state));
+    }
+    let markdown = match std::fs::read_to_string(path) {
+        Ok(data) => data,
+        Err(_) => return Ok(view(&state)),
+    };
+    state
+        .store
+        .lock()
+        .expect("store")
+        .import_markdown(&markdown);
+    Ok(view(&state))
 }
 
 #[tauri::command]
@@ -297,11 +319,7 @@ fn paste_last_script(
     paste_script(script, app, state)
 }
 
-pub(crate) fn paste_ranked(
-    index: usize,
-    app: &tauri::AppHandle,
-    state: &AppState,
-) {
+pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppState) {
     if *state.picker_open.lock().expect("picker_open") {
         return;
     }
@@ -310,16 +328,16 @@ pub(crate) fn paste_ranked(
     let Some(item) = items.get(index) else {
         return;
     };
-    let ids = vec![item.id.clone()];
-    let ctx = current_expand(state);
-    let Some(text) = resolved_text(state, &ids, &ctx) else {
-        return;
-    };
-    if let Some(key) = current_context(state) {
-        state.store.lock().expect("store").record_context(&ids, &key);
-    }
-    state.store.lock().expect("store").bump_paste(&ids);
-    paste_text(app, state, &text, false);
+    run_paste(
+        app,
+        state,
+        &[item.id.clone()],
+        false,
+        false,
+        false,
+        "\n",
+        HashMap::new(),
+    );
 }
 
 fn open_target_text(text: &str) -> bool {
@@ -354,6 +372,10 @@ fn open_url(url: &str) -> bool {
 }
 
 fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
+    joined_raw(state, ids, "\n")
+}
+
+fn joined_raw(state: &AppState, ids: &[String], separator: &str) -> Option<String> {
     let store = state.store.lock().expect("store");
     let texts: Vec<String> = ids
         .iter()
@@ -362,11 +384,145 @@ fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
     if texts.is_empty() {
         None
     } else {
-        Some(texts.join("\n"))
+        Some(texts.join(separator))
     }
 }
 
-fn resolved_text(state: &AppState, ids: &[String], ctx: &text::Expand) -> Option<String> {
+fn run_paste(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    keep_open: bool,
+    format: bool,
+    raw: bool,
+    separator: &str,
+    answers: HashMap<String, String>,
+) {
+    let was_open = *state.picker_open.lock().expect("picker_open");
+    let typed = !raw && has_tag(state, ids, "type");
+    let needs_sel = !raw && has_sel(state, ids);
+    let sel = if needs_sel {
+        capture_selection(app, state)
+    } else {
+        String::new()
+    };
+    let text = if raw {
+        joined_raw(state, ids, separator)
+    } else {
+        let n = {
+            let mut serial = state.paste_serial.lock().expect("paste_serial");
+            *serial += 1;
+            *serial
+        };
+        let now = Local::now();
+        let ctx = text::Expand {
+            date: now.format("%Y/%m/%d").to_string(),
+            time: now.format("%H:%M").to_string(),
+            clip: clipboard::peek_text().unwrap_or_default(),
+            sel,
+            n,
+            uuid: uuid::Uuid::new_v4().to_string(),
+            user: text::login_name(),
+            host: text::host_name(),
+            now,
+            answers,
+        };
+        resolved_text(state, ids, &ctx, separator)
+    };
+    let Some(mut text) = text else {
+        if was_open {
+            show_window(app);
+        }
+        return;
+    };
+    if format {
+        text = text::format_for_paste(&text);
+    }
+    if let Some(key) = current_context(state) {
+        state
+            .store
+            .lock()
+            .expect("store")
+            .record_context(ids, &key);
+    }
+    state.store.lock().expect("store").bump_paste(ids);
+    let ok = if typed {
+        type_text(app, state, &text, keep_open)
+    } else {
+        paste_text(app, state, &text, keep_open);
+        true
+    };
+    if ok {
+        drop_once(state, ids);
+        let _ = app.emit("items-changed", view(state));
+    } else if was_open {
+        reveal_picker(app, state);
+    }
+    if !keep_open {
+        *state.paste_serial.lock().expect("paste_serial") = 0;
+    }
+}
+
+fn has_tag(state: &AppState, ids: &[String], tag: &str) -> bool {
+    let store = state.store.lock().expect("store");
+    ids.iter().any(|id| {
+        store
+            .get(id)
+            .map_or(false, |item| item.tags.iter().any(|entry| entry == tag))
+    })
+}
+
+fn has_sel(state: &AppState, ids: &[String]) -> bool {
+    let store = state.store.lock().expect("store");
+    ids.iter().any(|id| {
+        store
+            .get(id)
+            .map_or(false, |item| text::has_sel_token(&item.text))
+    })
+}
+
+fn drop_once(state: &AppState, ids: &[String]) {
+    let mut store = state.store.lock().expect("store");
+    let once: Vec<String> = ids
+        .iter()
+        .filter(|id| {
+            store
+                .get(id)
+                .map_or(false, |item| item.tags.iter().any(|tag| tag == "once"))
+        })
+        .cloned()
+        .collect();
+    if !once.is_empty() {
+        store.remove_ids(&once);
+    }
+}
+
+fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
+    let previous = clipboard::peek_text();
+    hide_window(app, state);
+    let foreground = *state.foreground.lock().expect("foreground");
+    if let Some(foreground) = foreground.as_ref() {
+        let _ = platform::restore_foreground(foreground);
+    }
+    std::thread::sleep(Duration::from_millis(70));
+    let _ = platform::simulate_copy();
+    std::thread::sleep(Duration::from_millis(70));
+    let captured = clipboard::peek_text();
+    if let Some(previous) = previous.as_ref() {
+        let _ = clipboard::write_clipboard_text(previous);
+    }
+    match captured {
+        Some(text) if previous.as_ref() != Some(&text) => text,
+        _ => String::new(),
+    }
+}
+
+fn resolved_text(
+    state: &AppState,
+    ids: &[String],
+    ctx: &text::Expand,
+    separator: &str,
+) -> Option<String> {
     let store = state.store.lock().expect("store");
     let mut parts = Vec::new();
     for id in ids {
@@ -376,7 +532,7 @@ fn resolved_text(state: &AppState, ids: &[String], ctx: &text::Expand) -> Option
     if parts.is_empty() {
         None
     } else {
-        Some(parts.join("\n"))
+        Some(parts.join(separator))
     }
 }
 
@@ -393,24 +549,6 @@ fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<String> {
         return shell::read_file_contents(&expanded).ok();
     }
     Some(expanded)
-}
-
-fn current_expand(state: &AppState) -> text::Expand {
-    let now = Local::now();
-    let n = {
-        let serial = state.paste_serial.lock().expect("paste_serial");
-        (*serial).max(1)
-    };
-    text::Expand {
-        date: now.format("%Y/%m/%d").to_string(),
-        time: now.format("%H:%M").to_string(),
-        clip: clipboard::peek_text().unwrap_or_default(),
-        n,
-        uuid: uuid::Uuid::new_v4().to_string(),
-        user: text::login_name(),
-        host: text::host_name(),
-        now,
-    }
 }
 
 /// 一覧に渡す並び。いまの貼り付け先で使った行を上に持ってくる。
@@ -517,6 +655,29 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     if keep_open {
         reveal_picker(app, state);
     }
+}
+
+fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
+    hide_window(app, state);
+    let foreground = if keep_open {
+        *state.foreground.lock().expect("foreground")
+    } else {
+        state.foreground.lock().expect("foreground").take()
+    };
+    let restored = match foreground {
+        Some(foreground) => platform::restore_foreground(&foreground),
+        None => true,
+    };
+    let ok = if restored {
+        std::thread::sleep(Duration::from_millis(70));
+        platform::simulate_type(text)
+    } else {
+        false
+    };
+    if ok && keep_open {
+        reveal_picker(app, state);
+    }
+    ok
 }
 
 fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
@@ -721,11 +882,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_items,
             delete_items,
-            undo_delete,
+            undo_change,
+            redo_change,
             put_item,
             update_item,
             set_tag,
             set_pinned,
+            move_pins,
+            split_items,
+            get_context,
             edit_external,
             hide_picker,
             paste_items,
@@ -734,6 +899,7 @@ pub fn run() {
             get_help,
             help_topics,
             export_items,
+            import_items,
             clear_unpinned,
             paste_script,
             paste_last_script,

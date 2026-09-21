@@ -31,11 +31,13 @@ pub struct Expand {
     pub date: String,
     pub time: String,
     pub clip: String,
+    pub sel: String,
     pub n: u32,
     pub uuid: String,
     pub user: String,
     pub host: String,
     pub now: chrono::DateTime<chrono::Local>,
+    pub answers: std::collections::HashMap<String, String>,
 }
 
 pub fn expand_template(text: &str, ctx: &Expand) -> String {
@@ -80,6 +82,17 @@ fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
     if inner == "clip" {
         return Some(ctx.clip.clone());
     }
+    if inner == "sel" {
+        return Some(ctx.sel.clone());
+    }
+    if let Some(name) = inner.strip_prefix("ask:") {
+        return Some(
+            ctx.answers
+                .get(name.trim())
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
     if inner == "uuid" {
         return Some(ctx.uuid.clone());
     }
@@ -103,6 +116,45 @@ fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
         return Some(ctx.now.format(fmt).to_string());
     }
     None
+}
+
+pub fn has_sel_token(text: &str) -> bool {
+    walk_tokens(text, |inner| inner == "sel")
+}
+
+/// 出現順。同じ名前は 1 回だけ。
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn ask_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    walk_tokens(text, |inner| {
+        if let Some(name) = inner.strip_prefix("ask:") {
+            let name = name.trim();
+            if !names.iter().any(|entry| entry == name) {
+                names.push(name.to_string());
+            }
+        }
+        false
+    });
+    names
+}
+
+fn walk_tokens(text: &str, mut visit: impl FnMut(&str) -> bool) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                if visit(inner.trim()) {
+                    return true;
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 pub fn login_name() -> String {
@@ -221,11 +273,13 @@ mod tests {
             date: "2026/09/20".into(),
             time: "10:54".into(),
             clip: "CLIP".into(),
+            sel: "SEL".into(),
             n: 3,
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),
             now: chrono::Local::now(),
+            answers: std::collections::HashMap::from([("名前".into(), "hatamon".into())]),
         }
     }
 
@@ -259,6 +313,17 @@ mod tests {
     fn leaves_unknown_tokens_alone() {
         let ctx = sample_ctx();
         assert_eq!(expand_template("{{nope}}", &ctx), "{{nope}}");
+    }
+
+    #[test]
+    fn expands_sel_and_ask() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("**{{sel}}**", &ctx), "**SEL**");
+        assert_eq!(expand_template("hi {{ask:名前}}", &ctx), "hi hatamon");
+        assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
+        assert!(has_sel_token("x {{sel}} y"));
+        assert!(!has_sel_token("{{clip}}"));
+        assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
     }
 
     #[test]

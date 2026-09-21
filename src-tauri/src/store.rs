@@ -20,6 +20,9 @@ pub struct Item {
     pub contexts: Vec<String>,
     #[serde(default)]
     pub paste_count: u32,
+    /// ピン留め同士の手動順。小さいほど上。
+    #[serde(default)]
+    pub pin_rank: i32,
 }
 
 impl Item {
@@ -31,6 +34,7 @@ impl Item {
             pinned: false,
             contexts: Vec::new(),
             paste_count: 0,
+            pin_rank: 0,
         }
     }
 }
@@ -41,10 +45,13 @@ struct StoreFile {
     items: Vec<Item>,
 }
 
+const MAX_UNDO: usize = 50;
+
 pub struct Store {
     path: PathBuf,
     items: Vec<Item>,
-    undo: Vec<(usize, Item)>,
+    undo: Vec<Vec<Item>>,
+    redo: Vec<Vec<Item>>,
 }
 
 impl Store {
@@ -56,6 +63,7 @@ impl Store {
             path,
             items,
             undo: Vec::new(),
+            redo: Vec::new(),
         };
         if store.items.len() != before {
             store.save();
@@ -72,6 +80,7 @@ impl Store {
     }
 
     pub fn insert(&mut self, item: Item) {
+        self.push_undo();
         if let Some(index) = self
             .items
             .iter()
@@ -87,6 +96,7 @@ impl Store {
 
     /// 指定した行のすぐ上か下に差し込む。同じ本文でもまとめない。
     pub fn insert_relative(&mut self, anchor: Option<&str>, above: bool, item: Item) {
+        self.push_undo();
         let at = anchor
             .and_then(|id| self.items.iter().position(|item| item.id == id))
             .map(|index| if above { index } else { index + 1 })
@@ -104,9 +114,12 @@ impl Store {
     }
 
     pub fn update(&mut self, id: &str, text: String, tags: Vec<String>) -> bool {
-        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
-            item.text = text;
-            item.tags = tags;
+        if self.items.iter().any(|item| item.id == id) {
+            self.push_undo();
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+                item.text = text;
+                item.tags = tags;
+            }
             self.save();
             true
         } else {
@@ -115,33 +128,39 @@ impl Store {
     }
 
     pub fn delete_many(&mut self, ids: &[String]) -> bool {
-        let mut removed = Vec::new();
-        let mut index = 0;
-        self.items.retain(|item| {
-            let keep = !ids.iter().any(|id| id == &item.id);
-            if !keep {
-                removed.push((index, item.clone()));
-            }
-            index += 1;
-            keep
-        });
-        if removed.is_empty() {
+        if !self.items.iter().any(|item| ids.iter().any(|id| id == &item.id)) {
             return false;
         }
-        self.undo = removed;
+        self.push_undo();
+        self.remove_ids(ids);
+        true
+    }
+
+    /// `#once` のように、取り消しスタックに残さない削除。
+    pub fn remove_ids(&mut self, ids: &[String]) {
+        self.items.retain(|item| !ids.iter().any(|id| id == &item.id));
+        self.save();
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some(previous) = self.undo.pop() else {
+            return false;
+        };
+        self.redo.push(self.items.clone());
+        self.items = previous;
         self.save();
         true
     }
 
-    /// 直前の削除だけ元に戻す。戻す先は削除前の位置。
-    pub fn undo_delete(&mut self) -> bool {
-        if self.undo.is_empty() {
+    pub fn redo(&mut self) -> bool {
+        let Some(next) = self.redo.pop() else {
             return false;
+        };
+        self.undo.push(self.items.clone());
+        if self.undo.len() > MAX_UNDO {
+            self.undo.remove(0);
         }
-        for (index, item) in std::mem::take(&mut self.undo) {
-            let index = index.min(self.items.len());
-            self.items.insert(index, item);
-        }
+        self.items = next;
         self.save();
         true
     }
@@ -152,6 +171,20 @@ impl Store {
             return false;
         }
         let mut changed = false;
+        for item in self.items.iter() {
+            if !ids.iter().any(|id| id == &item.id) {
+                continue;
+            }
+            let has = item.tags.iter().any(|entry| entry == tag);
+            if (add && !has) || (!add && has) {
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
         for item in self.items.iter_mut() {
             if !ids.iter().any(|id| id == &item.id) {
                 continue;
@@ -159,30 +192,46 @@ impl Store {
             let has = item.tags.iter().any(|entry| entry == tag);
             if add && !has {
                 item.tags.push(tag.to_string());
-                changed = true;
             } else if !add && has {
                 item.tags.retain(|entry| entry != tag);
-                changed = true;
             }
         }
-        if changed {
-            self.save();
-        }
-        changed
+        self.save();
+        true
     }
 
     pub fn set_pinned(&mut self, ids: &[String], pinned: bool) -> bool {
         let mut changed = false;
+        for item in self.items.iter() {
+            if ids.iter().any(|id| id == &item.id) && item.pinned != pinned {
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        let mut rank = self
+            .items
+            .iter()
+            .filter(|item| item.pinned)
+            .map(|item| item.pin_rank)
+            .min()
+            .unwrap_or(0);
         for item in self.items.iter_mut() {
             if ids.iter().any(|id| id == &item.id) && item.pinned != pinned {
                 item.pinned = pinned;
-                changed = true;
+                if pinned {
+                    rank -= 1;
+                    item.pin_rank = rank;
+                } else {
+                    item.pin_rank = 0;
+                }
             }
         }
-        if changed {
-            self.save();
-        }
-        changed
+        self.save();
+        true
     }
 
     pub fn record_context(&mut self, ids: &[String], key: &str) {
@@ -218,15 +267,144 @@ impl Store {
     }
 
     pub fn clear_unpinned(&mut self) -> bool {
-        let before = self.items.len();
-        self.items.retain(|item| item.pinned);
-        self.undo.clear();
-        if self.items.len() != before {
-            self.save();
-            true
-        } else {
-            false
+        if self.items.iter().all(|item| item.pinned) {
+            return false;
         }
+        self.push_undo();
+        self.items.retain(|item| item.pinned);
+        self.save();
+        true
+    }
+
+    pub fn move_pins(&mut self, ids: &[String], delta: i32) -> bool {
+        if ids.is_empty() || delta == 0 {
+            return false;
+        }
+        if !ids
+            .iter()
+            .all(|id| self.get(id).map_or(false, |item| item.pinned))
+        {
+            return false;
+        }
+        let mut order: Vec<usize> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.pinned)
+            .map(|(index, _)| index)
+            .collect();
+        order.sort_by(|&a, &b| self.items[a].pin_rank.cmp(&self.items[b].pin_rank));
+        let selected: Vec<usize> = order
+            .iter()
+            .enumerate()
+            .filter(|(_, &index)| ids.iter().any(|id| id == &self.items[index].id))
+            .map(|(pos, _)| pos)
+            .collect();
+        if selected.is_empty() {
+            return false;
+        }
+        let first = selected[0];
+        let last = selected[selected.len() - 1];
+        if last - first + 1 != selected.len() {
+            return false;
+        }
+        if delta < 0 && first == 0 {
+            return false;
+        }
+        if delta > 0 && last + 1 >= order.len() {
+            return false;
+        }
+        self.push_undo();
+        let block: Vec<usize> = order.drain(first..=last).collect();
+        if delta < 0 {
+            let at = first - 1;
+            for index in block.into_iter().rev() {
+                order.insert(at, index);
+            }
+        } else {
+            for (offset, index) in block.into_iter().enumerate() {
+                order.insert(first + 1 + offset, index);
+            }
+        }
+        for (rank, &index) in order.iter().enumerate() {
+            self.items[index].pin_rank = rank as i32;
+        }
+        self.save();
+        true
+    }
+
+    pub fn split_items(&mut self, ids: &[String]) -> bool {
+        let targets: Vec<Item> = ids
+            .iter()
+            .filter_map(|id| self.get(id).cloned())
+            .filter(|item| item.text.contains('\n'))
+            .collect();
+        if targets.is_empty() {
+            return false;
+        }
+        self.push_undo();
+        for item in targets.into_iter().rev() {
+            let Some(index) = self.items.iter().position(|entry| entry.id == item.id) else {
+                continue;
+            };
+            self.items.remove(index);
+            let mut at = index;
+            for part in item.text.split('\n') {
+                let next = Item::new(part.to_string(), item.tags.clone());
+                self.items.insert(at, next);
+                at += 1;
+            }
+        }
+        if self.items.len() > MAX_ITEMS {
+            self.items.truncate(MAX_ITEMS);
+        }
+        self.save();
+        true
+    }
+
+    pub fn import_markdown(&mut self, markdown: &str) -> bool {
+        let parsed = parse_export(markdown);
+        if parsed.is_empty() {
+            return false;
+        }
+        self.push_undo();
+        for (text, tags, pinned) in parsed.into_iter().rev() {
+            if let Some(index) = self.items.iter().position(|item| item.text == text) {
+                let mut existing = self.items.remove(index);
+                existing.tags = tags;
+                existing.pinned = pinned;
+                if pinned {
+                    existing.pin_rank = existing.pin_rank.min(-1);
+                } else {
+                    existing.pin_rank = 0;
+                }
+                self.items.insert(0, existing);
+            } else {
+                let mut item = Item::new(text, tags);
+                item.pinned = pinned;
+                if pinned {
+                    item.pin_rank = self
+                        .items
+                        .iter()
+                        .filter(|entry| entry.pinned)
+                        .map(|entry| entry.pin_rank)
+                        .min()
+                        .unwrap_or(0)
+                        - 1;
+                }
+                self.insert_at(0, item);
+            }
+        }
+        self.save();
+        true
+    }
+
+    fn push_undo(&mut self) {
+        self.undo.push(self.items.clone());
+        if self.undo.len() > MAX_UNDO {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
     }
 
     fn save(&self) {
@@ -234,12 +412,15 @@ impl Store {
     }
 }
 
-/// 一覧に出す順番。ピン留め、同じ貼り付け先、回数の多い順、新しい順。
+/// 一覧に出す順番。ピン留め（手動順）、同じ貼り付け先、回数の多い順、新しい順。
 pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
     let mut pinned = Vec::new();
     let mut same_context = Vec::new();
     let mut rest = Vec::new();
     for item in items {
+        if !visible_here(item, context) {
+            continue;
+        }
         if item.pinned {
             pinned.push(item.clone());
         } else if context.is_some_and(|key| item.contexts.iter().any(|entry| entry == key)) {
@@ -248,12 +429,22 @@ pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
             rest.push(item.clone());
         }
     }
-    sort_by_count(&mut pinned);
+    pinned.sort_by(|a, b| a.pin_rank.cmp(&b.pin_rank).then(b.paste_count.cmp(&a.paste_count)));
     sort_by_count(&mut same_context);
     sort_by_count(&mut rest);
     pinned.append(&mut same_context);
     pinned.append(&mut rest);
     pinned
+}
+
+fn visible_here(item: &Item, context: Option<&str>) -> bool {
+    if !item.tags.iter().any(|tag| tag == "here") {
+        return true;
+    }
+    match context {
+        Some(key) => item.contexts.iter().any(|entry| entry == key),
+        None => false,
+    }
 }
 
 fn sort_by_count(items: &mut [Item]) {
@@ -289,6 +480,55 @@ fn write_items(path: &Path, items: &[Item]) -> std::io::Result<()> {
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
 
+/// `:export` が出す Markdown を読み戻す。
+pub fn parse_export(markdown: &str) -> Vec<(String, Vec<String>, bool)> {
+    let mut items = Vec::new();
+    let mut lines = markdown.lines().peekable();
+    while let Some(line) = lines.next() {
+        if !line.starts_with("## ") {
+            continue;
+        }
+        let mut tags = Vec::new();
+        let mut pinned = false;
+        loop {
+            match lines.peek().copied() {
+                Some(next) if next.starts_with("tags:") => {
+                    tags = next["tags:".len()..]
+                        .split(',')
+                        .map(|tag| tag.trim().to_string())
+                        .filter(|tag| !tag.is_empty())
+                        .collect();
+                    lines.next();
+                }
+                Some(next) if next.trim() == "pinned: true" => {
+                    pinned = true;
+                    lines.next();
+                }
+                Some(next) if next.trim().is_empty() => {
+                    lines.next();
+                }
+                Some(next) if next.trim() == "```" => {
+                    lines.next();
+                    let mut body = String::new();
+                    for body_line in lines.by_ref() {
+                        if body_line.trim() == "```" {
+                            break;
+                        }
+                        if !body.is_empty() {
+                            body.push('\n');
+                        }
+                        body.push_str(body_line);
+                    }
+                    items.push((body, tags, pinned));
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+    items
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +549,7 @@ mod tests {
             pinned: false,
             contexts: Vec::new(),
             paste_count: 0,
+            pin_rank: 0,
         }
     }
 
@@ -414,7 +655,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["b"]
         );
-        assert!(store.undo_delete());
+        assert!(store.undo());
         assert_eq!(
             store
                 .list()
@@ -423,7 +664,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["a", "b", "c"]
         );
-        assert!(!store.undo_delete());
+        assert!(store.redo());
+        assert_eq!(
+            store
+                .list()
+                .iter()
+                .map(|i| i.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b"]
+        );
+        assert!(!store.redo());
     }
 
     #[test]
@@ -528,5 +778,88 @@ mod tests {
         assert_eq!(store.list()[0].text, "x");
         assert!(!store.list()[0].pinned);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn pin_rank_beats_paste_count() {
+        let items = vec![
+            Item {
+                pinned: true,
+                pin_rank: 1,
+                paste_count: 9,
+                ..item("a", "one")
+            },
+            Item {
+                pinned: true,
+                pin_rank: 0,
+                paste_count: 0,
+                ..item("b", "two")
+            },
+        ];
+        assert_eq!(ordered_ids(&items, None), vec!["b", "a"]);
+    }
+
+    #[test]
+    fn here_hides_unless_the_context_matches() {
+        let items = vec![
+            Item {
+                tags: vec!["here".into()],
+                contexts: vec!["code".into()],
+                ..item("a", "one")
+            },
+            item("b", "two"),
+        ];
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("other")), vec!["b"]);
+        assert_eq!(ordered_ids(&items, None), vec!["b"]);
+    }
+
+    #[test]
+    fn move_pins_swaps_neighbors() {
+        let mut store = fresh("pins");
+        store.insert(Item {
+            pinned: true,
+            pin_rank: 0,
+            ..item("a", "one")
+        });
+        store.insert(Item {
+            pinned: true,
+            pin_rank: 1,
+            ..item("b", "two")
+        });
+        // insert puts at front: b then a. pin_rank 1 then 0 so ordered is a, b.
+        assert!(store.move_pins(&["a".into()], 1));
+        assert_eq!(ordered_ids(store.list(), None), vec!["b", "a"]);
+        assert!(!store.move_pins(&["c".into()], 1));
+        assert!(!store.move_pins(&["b".into()], -1));
+    }
+
+    #[test]
+    fn split_makes_one_row_per_line() {
+        let mut store = fresh("split");
+        store.insert(Item {
+            tags: vec!["work".into()],
+            ..item("a", "one\ntwo")
+        });
+        assert!(store.split_items(&["a".to_string()]));
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[0].text, "one");
+        assert_eq!(store.list()[1].text, "two");
+        assert_eq!(store.list()[0].tags, vec!["work"]);
+        assert!(store.get("a").is_none());
+        assert!(!store.split_items(&[store.list()[0].id.clone()]));
+    }
+
+    #[test]
+    fn import_updates_same_text_and_adds_new() {
+        let mut store = fresh("import");
+        store.insert(item("a", "hello"));
+        let md = "# hataclip\n\n## hello\ntags: work\npinned: true\n\n```\nhello\n```\n\n## other\n\n```\nworld\n```\n";
+        assert!(store.import_markdown(md));
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[0].text, "hello");
+        assert_eq!(store.list()[0].tags, vec!["work"]);
+        assert!(store.list()[0].pinned);
+        assert_eq!(store.list()[1].text, "world");
     }
 }

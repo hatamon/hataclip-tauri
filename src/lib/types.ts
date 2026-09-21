@@ -5,4 +5,5 @@ export type Item = {
   pinned: boolean;
   contexts: string[];
   paste_count: number;
+  pin_rank: number;
 };

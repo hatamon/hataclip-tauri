@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
+  import { uniqueAskNames } from "$lib/ask";
   import { fuzzyFilter } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
   import {
@@ -15,14 +16,16 @@
   } from "$lib/tags";
   import type { Item } from "$lib/types";
 
-  type Mode = "normal" | "search" | "editing" | "tag" | "colon" | "help";
+  type Mode = "normal" | "search" | "editing" | "tag" | "colon" | "help" | "ask";
 
   // `.` で繰り返せる変更。移動やヤンクは覚えない。
   type Change =
     | { kind: "delete" }
     | { kind: "put"; above: boolean }
     | { kind: "tag"; tag: string; add: boolean }
-    | { kind: "pin"; pinned: boolean };
+    | { kind: "pin"; pinned: boolean }
+    | { kind: "split" }
+    | { kind: "move"; delta: number };
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
@@ -46,13 +49,34 @@
   let draftNewId = $state<string | null>(null);
   let colonEl = $state<HTMLInputElement | undefined>(undefined);
   let colonInput = $state("");
+  let colonHistory = $state<string[]>([]);
+  let colonHistIndex = $state(-1);
+  let colonDraft = $state("");
   let helpText = $state("");
   let helpEl = $state<HTMLPreElement | undefined>(undefined);
   let helpTopics = $state<string[]>([]);
+  let contextKey = $state<string | null>(null);
+  let contextOnly = $state(false);
+  let findChar = $state("");
+  let askEl = $state<HTMLInputElement | undefined>(undefined);
+  let askQueue = $state<string[]>([]);
+  let askIndex = $state(0);
+  let askDraft = $state("");
+  let askAnswers = $state<Record<string, string>>({});
+  let pendingPaste = $state<{
+    ids: string[];
+    keepOpen: boolean;
+    format: boolean;
+    raw: boolean;
+    separator: string;
+  } | null>(null);
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
     let list = items.filter((item) => parsed.tags.every((tag) => item.tags.includes(tag)));
+    if (contextOnly && contextKey) {
+      list = list.filter((item) => item.contexts.includes(contextKey!));
+    }
     if (parsed.text.length > 0) {
       const fuzzy = fuzzyFilter(parsed.text, list);
       const seen = new Set(fuzzy.map((item) => item.id));
@@ -105,6 +129,9 @@
     if (mode === "colon") {
       queueMicrotask(() => colonEl?.focus());
     }
+    if (mode === "ask") {
+      queueMicrotask(() => askEl?.focus());
+    }
   });
 
   $effect(() => {
@@ -131,13 +158,38 @@
     });
   }
 
-  async function pasteSelection(keepOpen: boolean, format = false) {
+  async function pasteSelection(
+    keepOpen: boolean,
+    format = false,
+    raw = false,
+    separator = "\n",
+  ) {
     if (selectedIds.length === 0) {
       return;
     }
     const ids = selectedIds;
+    if (!raw) {
+      const names = uniqueAskNames(selectedItems);
+      if (names.length > 0) {
+        clearSelection();
+        askQueue = names;
+        askIndex = 0;
+        askDraft = "";
+        askAnswers = {};
+        pendingPaste = { ids, keepOpen, format, raw, separator };
+        mode = "ask";
+        return;
+      }
+    }
     clearSelection();
-    await invoke("paste_items", { ids, keepOpen, format });
+    await invoke("paste_items", {
+      ids,
+      keepOpen,
+      format,
+      raw,
+      separator,
+      answers: {},
+    });
   }
 
   async function pasteRow(index: number, keepOpen: boolean) {
@@ -147,7 +199,24 @@
     }
     clearSelection();
     selected = index;
-    await invoke("paste_items", { ids: [item.id], keepOpen, format: false });
+    const names = uniqueAskNames([item]);
+    if (names.length > 0) {
+      askQueue = names;
+      askIndex = 0;
+      askDraft = "";
+      askAnswers = {};
+      pendingPaste = { ids: [item.id], keepOpen, format: false, raw: false, separator: "\n" };
+      mode = "ask";
+      return;
+    }
+    await invoke("paste_items", {
+      ids: [item.id],
+      keepOpen,
+      format: false,
+      raw: false,
+      separator: "\n",
+      answers: {},
+    });
   }
 
   async function copySelection() {
@@ -175,8 +244,12 @@
     lastChange = { kind: "delete" };
   }
 
-  async function undoDelete() {
-    items = await invoke<Item[]>("undo_delete");
+  async function undoChange() {
+    items = await invoke<Item[]>("undo_change");
+  }
+
+  async function redoChange() {
+    items = await invoke<Item[]>("redo_change");
   }
 
   function yankSelection() {
@@ -244,10 +317,38 @@
         return;
       case "pin":
         await applyPin(lastChange.pinned);
+        return;
+      case "split":
+        await splitSelection();
+        return;
+      case "move":
+        await movePins(lastChange.delta);
     }
   }
 
-  function startEdit() {
+  async function splitSelection() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("split_items", { ids });
+    selectById(id);
+    lastChange = { kind: "split" };
+  }
+
+  async function movePins(delta: number) {
+    if (selectedIds.length === 0 || !selectedItems.every((item) => item.pinned)) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("move_pins", { ids, delta });
+    selectById(id);
+    lastChange = { kind: "move", delta };
+  }
     const item = currentItem();
     if (!item) {
       return;
@@ -336,6 +437,14 @@
     tagCycle = -1;
     colonInput = "";
     helpText = "";
+    contextOnly = false;
+    findChar = "";
+    askQueue = [];
+    pendingPaste = null;
+    colonHistIndex = -1;
+    void invoke<string | null>("get_context").then((key) => {
+      contextKey = key;
+    });
   }
 
   async function openBlank() {
@@ -372,7 +481,50 @@
     selected = 0;
   }
 
-  function gotoFile() {
+  async function finishAsk(commit: boolean) {
+    const pending = pendingPaste;
+    askQueue = [];
+    pendingPaste = null;
+    mode = "normal";
+    askDraft = "";
+    if (!commit || pending === null) {
+      askAnswers = {};
+      return;
+    }
+    await invoke("paste_items", {
+      ids: pending.ids,
+      keepOpen: pending.keepOpen,
+      format: pending.format,
+      raw: pending.raw,
+      separator: pending.separator,
+      answers: askAnswers,
+    });
+    askAnswers = {};
+  }
+
+  function onAskKeydown(event: KeyboardEvent) {
+    if (event.isComposing) {
+      return;
+    }
+    if (isEscape(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void finishAsk(false);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      const name = askQueue[askIndex];
+      askAnswers = { ...askAnswers, [name]: askDraft };
+      askDraft = "";
+      if (askIndex + 1 >= askQueue.length) {
+        void finishAsk(true);
+      } else {
+        askIndex += 1;
+      }
+    }
+  }
     const item = selectedItems[0];
     if (!item) {
       return;
@@ -385,6 +537,10 @@
     const line = raw.trim().replace(/^:/, "");
     mode = "normal";
     colonInput = "";
+    colonHistIndex = -1;
+    if (line.length > 0 && colonHistory[colonHistory.length - 1] !== line) {
+      colonHistory = [...colonHistory, line];
+    }
     if (line === "help" || line.startsWith("help ")) {
       const topic = line === "help" ? null : line.slice(5).trim();
       helpText = await invoke<string>("get_help", { topic });
@@ -401,7 +557,15 @@
       }
       return;
     }
-    if (line === "clear") {
+    if (line.startsWith("import ")) {
+      const path = line.slice(7).trim();
+      try {
+        items = await invoke<Item[]>("import_items", { path });
+      } catch {
+        // 読めなければそのまま
+      }
+      return;
+    }
       colonInput = "clear yes";
       mode = "colon";
       return;
@@ -447,6 +611,29 @@
       void runColon(colonInput);
       return;
     }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (colonHistory.length === 0) {
+        return;
+      }
+      if (colonHistIndex < 0) {
+        colonDraft = colonInput;
+      }
+      if (event.key === "ArrowUp") {
+        colonHistIndex = colonHistIndex < 0 ? colonHistory.length - 1 : Math.max(0, colonHistIndex - 1);
+        colonInput = colonHistory[colonHistIndex];
+      } else if (colonHistIndex < 0) {
+        return;
+      } else if (colonHistIndex >= colonHistory.length - 1) {
+        colonHistIndex = -1;
+        colonInput = colonDraft;
+      } else {
+        colonHistIndex += 1;
+        colonInput = colonHistory[colonHistIndex];
+      }
+      return;
+    }
     if (event.key === "Tab") {
       event.preventDefault();
       event.stopPropagation();
@@ -458,6 +645,21 @@
       const topic = helpTopics.find((name) => name.startsWith(prefix));
       if (topic) {
         colonInput = `help ${topic}`;
+      }
+    }
+  }
+
+  function jumpFind(dir: number) {
+    if (findChar.length === 0 || filtered.length === 0) {
+      return;
+    }
+    const needle = findChar.toLocaleLowerCase();
+    for (let step = 1; step <= filtered.length; step += 1) {
+      const index = (selected + dir * step + filtered.length * 8) % filtered.length;
+      const first = filtered[index].text.charAt(0).toLocaleLowerCase();
+      if (first === needle) {
+        selected = index;
+        return;
       }
     }
   }
@@ -582,7 +784,7 @@
     if (event.isComposing || event.defaultPrevented) {
       return;
     }
-    if (mode === "search" || mode === "tag" || mode === "colon") {
+    if (mode === "search" || mode === "tag" || mode === "colon" || mode === "ask") {
       return;
     }
     if (mode === "help") {
@@ -626,10 +828,47 @@
       }
       return;
     }
+    if (pending === "f") {
+      event.preventDefault();
+      pending = "";
+      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        findChar = event.key;
+        jumpFind(1);
+      }
+      return;
+    }
+    if (pending === "g" && event.key === "Enter") {
+      event.preventDefault();
+      pending = "";
+      void pasteSelection(false, false, true);
+      return;
+    }
+    if (pending === "g" && event.key === "J") {
+      event.preventDefault();
+      pending = "";
+      if (anchor !== null) {
+        void pasteSelection(false, false, false, ",");
+      }
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       pending = "";
       void pasteSelection(event.ctrlKey, event.shiftKey);
+      return;
+    }
+    if (event.key === "J") {
+      event.preventDefault();
+      pending = "";
+      if (anchor !== null) {
+        void pasteSelection(false, false, false, " ");
+      }
+      return;
+    }
+    if (isCtrl(event, "r")) {
+      event.preventDefault();
+      pending = "";
+      void redoChange();
       return;
     }
     if (isCtrl(event, "c")) {
@@ -743,10 +982,53 @@
       void applyPin(!selectedItems.every((item) => item.pinned));
       return;
     }
+    if (event.key === "a") {
+      event.preventDefault();
+      pending = "";
+      if (contextKey) {
+        contextOnly = !contextOnly;
+        selected = 0;
+      }
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      if (event.key === "=" && !event.shiftKey) {
+        pending = "";
+        return;
+      }
+      event.preventDefault();
+      pending = "";
+      void movePins(-1);
+      return;
+    }
+    if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      pending = "";
+      void movePins(1);
+      return;
+    }
+    if (event.key === "S") {
+      event.preventDefault();
+      pending = "";
+      void splitSelection();
+      return;
+    }
+    if (event.key === ";") {
+      event.preventDefault();
+      pending = "";
+      jumpFind(1);
+      return;
+    }
+    if (event.key === ",") {
+      event.preventDefault();
+      pending = "";
+      jumpFind(-1);
+      return;
+    }
     if (event.key === "u") {
       event.preventDefault();
       pending = "";
-      void undoDelete();
+      void undoChange();
       return;
     }
     if (event.key === ".") {
@@ -763,10 +1045,14 @@
       }
       return;
     }
-    if (event.key === "f" && pending === "g") {
+    if (event.key === "f") {
       event.preventDefault();
-      pending = "";
-      gotoFile();
+      if (pending === "g") {
+        pending = "";
+        gotoFile();
+      } else {
+        pending = "f";
+      }
       return;
     }
     if (event.key === "g") {
@@ -895,7 +1181,7 @@
         bind:this={colonEl}
         bind:value={colonInput}
         class="search"
-        placeholder=":help  :sh  :export  :clear"
+        placeholder=":help  :sh  :export  :import  :clear"
         onkeydown={onColonKeydown}
       />
     {/if}
@@ -922,6 +1208,15 @@
           {/each}
         </ul>
       {/if}
+    {/if}
+    {#if mode === "ask"}
+      <input
+        bind:this={askEl}
+        bind:value={askDraft}
+        class="search"
+        placeholder={askQueue[askIndex] ?? ""}
+        onkeydown={onAskKeydown}
+      />
     {/if}
     {#if mode === "tag"}
       <input
