@@ -293,6 +293,7 @@ fn resize_window(dw: i32, dh: i32, app: tauri::AppHandle) {
 }
 
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
+    let previous = clipboard::peek_text();
     let _ = clipboard::write_clipboard_text(text);
     hide_window(app, state);
     let foreground = if keep_open {
@@ -307,6 +308,10 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     if restored {
         std::thread::sleep(Duration::from_millis(70));
         let _ = platform::simulate_paste();
+        if let Some(previous) = previous {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = clipboard::write_clipboard_text(&previous);
+        }
     }
     if keep_open {
         reveal_picker(app, state);
