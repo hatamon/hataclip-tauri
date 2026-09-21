@@ -376,7 +376,14 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
-    let Some(text) = clipboard::read_clipboard_text() else {
+    let previous = clipboard::peek_text();
+    let _ = platform::simulate_copy();
+    std::thread::sleep(Duration::from_millis(70));
+    let captured = clipboard::peek_text();
+    if let Some(previous) = previous {
+        let _ = clipboard::write_clipboard_text(&previous);
+    }
+    let Some(text) = captured.filter(|text| !text.trim().is_empty()) else {
         return;
     };
     let tags = text::auto_tags(&text);

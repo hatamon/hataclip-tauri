@@ -20,11 +20,19 @@ pub struct Point {
 }
 
 pub fn simulate_paste() -> bool {
+    chord(Key::Unicode('v'))
+}
+
+pub fn simulate_copy() -> bool {
+    chord(Key::Unicode('c'))
+}
+
+fn chord(key: Key) -> bool {
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(enigo) => enigo,
         Err(_) => return false,
     };
     enigo.key(Key::Control, Press).is_ok()
-        && enigo.key(Key::Unicode('v'), Click).is_ok()
+        && enigo.key(key, Click).is_ok()
         && enigo.key(Key::Control, Release).is_ok()
 }
