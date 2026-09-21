@@ -502,6 +502,7 @@ mod tests {
             ]),
             vars: std::collections::HashMap::from([
                 ("a".into(), "{{date}}".into()),
+                ("sum".into(), ":echo 2+3".into()),
                 ("loop".into(), "{{val:loop}}".into()),
             ]),
         }
@@ -595,6 +596,7 @@ mod tests {
     fn expands_val_nested_and_stops_cycles() {
         let ctx = sample_ctx();
         assert_eq!(expand_template("date {{val:a}}", &ctx), "date 2026/09/20");
+        assert_eq!(expand_template("{{val:sum}}", &ctx), "5");
         assert_eq!(expand_template("{{val:loop}}", &ctx), "");
         assert_eq!(expand_template("{{val:missing}}", &ctx), "");
         assert_eq!(expand_template("{{val:}}", &ctx), "");

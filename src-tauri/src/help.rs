@@ -60,7 +60,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{val:a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{val:a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -76,7 +76,7 @@ const OVERVIEW: &str = "\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  M まとめ  c 複製  t T タグ  m ピン  + -\n\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  settings\n\
+:      help  sh  @  echo  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  settings\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -121,6 +121,7 @@ mod tests {
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains("Ctrl+Shift+H"));
+        assert!(render(Some("colon")).contains(":echo"));
         assert!(render(Some("colon")).contains(":type"));
         assert!(render(Some("colon")).contains(":settings"));
         assert!(render(Some("colon")).contains(":set paste"));

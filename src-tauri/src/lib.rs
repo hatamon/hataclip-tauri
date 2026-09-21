@@ -3,6 +3,7 @@ mod chord;
 mod clipboard;
 mod editor;
 mod eval;
+mod expr;
 mod help;
 mod platform;
 mod settings;
@@ -428,6 +429,22 @@ fn paste_script(
     let output = shell::run_script(&script).map_err(|_| "コマンドに失敗した".to_string())?;
     *state.last_sh.lock().expect("last_sh") = Some(script);
     paste_text(&app, &state, &output, false);
+    Ok(())
+}
+
+#[tauri::command]
+fn paste_echo(
+    expr: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return Ok(());
+    }
+    let vars = var_map(&state);
+    let value = expr::eval_with(expr, &vars).ok_or("計算できない")?;
+    paste_text(&app, &state, &expr::format_number(value), false);
     Ok(())
 }
 
@@ -1214,6 +1231,7 @@ pub fn run() {
             import_items,
             clear_unpinned,
             paste_script,
+            paste_echo,
             paste_last_script,
             nudge_window,
             resize_window,

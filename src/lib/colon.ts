@@ -7,6 +7,7 @@ export const COLON_COMMANDS = [
   "quote",
   "bullet",
   "type",
+  "echo",
   "s",
   "@",
   "dedup",
@@ -39,7 +40,7 @@ export function applyColonCompletion(input: string, command: string): string {
   if (command === "s") {
     return "s/";
   }
-  if (command === "export" || command === "import" || command === "sh" || command === "help") {
+  if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
   }
   if (command === "map" || command === "unmap" || command === "mapleader" || command === "set") {

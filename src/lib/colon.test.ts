@@ -13,6 +13,7 @@ describe("matchingColonCommands", () => {
       "quote",
       "bullet",
       "type",
+      "echo",
       "s",
       "@",
       "dedup",

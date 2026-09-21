@@ -909,6 +909,18 @@
       void pasteSelection(false, false, false, "\n", undefined, true);
       return;
     }
+    if (line === "echo" || line.startsWith("echo ")) {
+      const expr = line === "echo" ? "" : line.slice(5);
+      if (expr.trim().length === 0) {
+        return;
+      }
+      try {
+        await invoke("paste_echo", { expr });
+      } catch {
+        // 計算できなければ貼らない
+      }
+      return;
+    }
     if (line.startsWith("s/")) {
       const rest = line.slice(2);
       const cut = rest.indexOf("/");
