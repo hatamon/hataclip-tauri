@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, bangFilterScript, matchingColonCommands, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, matchingColonCommands, quotePrefix, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -12,7 +12,6 @@ describe("matchingColonCommands", () => {
       "import",
       "clear",
       "quote",
-      "bullet",
       "type",
       "format",
       "raw",
@@ -52,7 +51,7 @@ describe("stripClipSink", () => {
 describe("applyColonCompletion", () => {
   it("adds a trailing slash for substitute", () => {
     expect(applyColonCompletion("", "s")).toBe("s/");
-    expect(applyColonCompletion("", "quote")).toBe("quote");
+    expect(applyColonCompletion("", "quote")).toBe("quote ");
     expect(applyColonCompletion("", "!!")).toBe("!!sh ");
   });
 });
@@ -63,5 +62,16 @@ describe("bangFilterScript", () => {
     expect(bangFilterScript("!! sh sort")).toBe("sort");
     expect(bangFilterScript("!!sh")).toBeNull();
     expect(bangFilterScript(".!sh jq .")).toBeNull();
+  });
+});
+
+describe("quotePrefix", () => {
+  it("defaults to >  and keeps a custom marker", () => {
+    expect(quotePrefix("quote")).toBe("> ");
+    expect(quotePrefix("quote ")).toBe("> ");
+    expect(quotePrefix("quote * ")).toBe("* ");
+    expect(quotePrefix("quote - [ ] ")).toBe("- [ ] ");
+    expect(quotePrefix("bullet")).toBe("* ");
+    expect(quotePrefix("format")).toBeNull();
   });
 });

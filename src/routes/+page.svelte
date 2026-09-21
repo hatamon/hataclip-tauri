@@ -7,6 +7,7 @@
     applyColonCompletion,
     bangFilterScript,
     matchingColonCommands,
+    quotePrefix,
     stripClipSink,
   } from "$lib/colon";
   import {
@@ -1088,12 +1089,9 @@
       items = await invoke<Item[]>("clear_unpinned");
       return;
     }
-    if (line === "quote") {
-      void pasteSelection(false, false, false, "\n", "> ", false, clip);
-      return;
-    }
-    if (line === "bullet") {
-      void pasteSelection(false, false, false, "\n", "* ", false, clip);
+    const marker = quotePrefix(line);
+    if (marker !== null) {
+      void pasteSelection(false, false, false, "\n", marker, false, clip);
       return;
     }
     if (line === "type") {
@@ -2027,7 +2025,7 @@
         bind:this={colonEl}
         bind:value={colonInput}
         class="search"
-        placeholder=":help  :map  :quote  :bullet"
+        placeholder=":help  :map  :quote  :quote * "
         onkeydown={onColonKeydown}
       />
       {#if colonSuggestions.length > 0}

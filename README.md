@@ -97,8 +97,7 @@ docker compose down -v
 | `:raw` | テンプレートも `#run` も通さず本文のまま貼る |
 | `:comma` | `V` 中ならカンマでつないで貼る。`V` でなければ何もしない |
 | `:tab` | `V` 中ならタブでつないで 1 行にして貼る。`V` でなければ何もしない |
-| `:quote` | 各行先頭に `> `。すでに `>` ならそのまま。履歴は触らない。`:quote > clip` 可 |
-| `:bullet` | 各行先頭に `* `。すでに `* ` ならそのまま |
+| `:quote` | 各行先頭に付ける。未指定は `> `。すでに同じ印ならそのまま。履歴は触らない。`:quote * ` は箇条書き。`:quote > clip` 可 |
 | `:type` | `Ctrl+V` ではなく 1 文字ずつ送る。履歴のタグは触らない |
 | `:open` | URL ならブラウザ、パスなら Explorer |
 | `g.` | 直前に貼った行をもう一度。失敗したとき・`#once` で消えたあと・終了後は何もしない |
@@ -177,7 +176,7 @@ docker compose down -v
 | 末尾 `> clip` | `:quote > clip` / `:sh dir > clip` / `:.!sh xxx > clip` など。前面へ貼らずクリップボードへ |
 | `:export <path>` | 履歴を Markdown に書く |
 | `:import <path>` | その Markdown を読み戻す |
-| `:quote` / `:bullet` | 各行先頭に `> ` / `* ` |
+| `:quote` | 各行先頭に付ける。未指定は `> `。`:quote * ` は箇条書き |
 | `:format` | 整形して貼る |
 | `:raw` | 本文のまま貼る |
 | `:comma` / `:tab` | `V` 中ならカンマ / タブでつないで貼る |
@@ -188,7 +187,7 @@ docker compose down -v
 | `:sort` | `V` 中なら選んだ行を本文の順に並べ替える。ピン・タグ・回数はそのまま。範囲の先頭の位置から置く。`.` の対象。`u` で戻せる |
 | `:clear` のあと `:clear yes` | ピン留めと `#lock` 以外を消す |
 | `:dedup` のあと `:dedup yes` | 空白と改行だけ違う行を 1 つに。ピンがある方、どちらもピンなら新しい方。`u` で戻せる |
-| `:map lhs rhs` | 通常モードのキーを付け替える。再帰しない。`:map <leader>* <cmd>bullet` のように書ける |
+| `:map lhs rhs` | 通常モードのキーを付け替える。再帰しない。`:map <leader>* :quote * ` のように書ける |
 | `:unmap lhs` | 付け替えを消す |
 | `:map` / `:mapleader` | いまの付け替えを表示。リーダーの初期値は Space。変えるときは `:mapleader ,` |
 | `:settings` | `settings.json` を nvim（無ければメモ帳）で開く。閉じたら読み直す。壊れていたら今の設定のまま |

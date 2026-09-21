@@ -547,7 +547,8 @@ pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
     specs
 }
 
-pub fn prefix_lines(text: &str, prefix: &str, already: &str) -> String {
+pub fn prefix_lines(text: &str, prefix: &str) -> String {
+    let already = prefix_already(prefix);
     text.lines()
         .map(|line| {
             if line.starts_with(already) {
@@ -558,6 +559,15 @@ pub fn prefix_lines(text: &str, prefix: &str, already: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn prefix_already(prefix: &str) -> &str {
+    let trimmed = prefix.trim_end();
+    if trimmed.is_empty() {
+        prefix
+    } else {
+        trimmed
+    }
 }
 
 pub fn to_tsv(text: &str) -> Option<String> {
@@ -1111,9 +1121,10 @@ mod tests {
 
     #[test]
     fn prefixes_lines_unless_already_marked() {
-        assert_eq!(prefix_lines("a\nb", "> ", ">"), "> a\n> b");
-        assert_eq!(prefix_lines("> a\nb", "> ", ">"), "> a\n> b");
-        assert_eq!(prefix_lines("a\n* b", "* ", "* "), "* a\n* b");
+        assert_eq!(prefix_lines("a\nb", "> "), "> a\n> b");
+        assert_eq!(prefix_lines("> a\nb", "> "), "> a\n> b");
+        assert_eq!(prefix_lines("a\n* b", "* "), "* a\n* b");
+        assert_eq!(prefix_lines("- a\nb", "- [ ] "), "- a\n- [ ] b");
     }
 
     #[test]

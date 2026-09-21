@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:quote 引用。:bullet 箇条書き。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{when chrome}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:quote 行頭（未指定は > 。:quote *  で箇条書き）。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{when chrome}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -35,7 +35,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter 改行つなぎ。:comma カンマ、:tab タブ。:quote 引用、:bullet 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。:!!sh 各行をフィルタ。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。:comma カンマ、:tab タブ。:quote 行頭（:quote *  で箇条書き）。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。:!!sh 各行をフィルタ。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
     ),
     (
         "search",
@@ -86,11 +86,11 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote *  で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* :quote * ）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
-        ":map lhs rhs で通常モードだけ付け替える。再帰しない。同じ lhs は上書き。:unmap lhs で消す。:map だけで今の付け替えを出す。lhs は j dd gT か <leader>*。rhs はキー列か :quote / <cmd>bullet（末尾 <CR> は要らない）。Esc と 1〜9 は lhs にできない。settings.json に残る。<leader> の初期値は Space。:mapleader , で変える。which-key は付け替えたあとのキーを出す。",
+        ":map lhs rhs で通常モードだけ付け替える。再帰しない。同じ lhs は上書き。:unmap lhs で消す。:map だけで今の付け替えを出す。lhs は j dd gT か <leader>*。rhs はキー列か :quote / :quote * （末尾 <CR> は要らない）。Esc と 1〜9 は lhs にできない。settings.json に残る。<leader> の初期値は Space。:mapleader , で変える。which-key は付け替えたあとのキーを出す。",
     ),
 ];
 
@@ -98,11 +98,11 @@ const OVERVIEW: &str = "\
 移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /  Escで絞り解除\n\
 見る   ge 展開して全文  g? 回数・貼り付け先・タグ\n\
 貼る   Enter 閉じる  Ctrl+Enter 残す  1〜9  g. 再貼\n\
-       :format 整形  :raw 本文のまま  :comma カンマ  :tab タブ  :quote 引用  :bullet 箇条書き\n\
+       :format 整形  :raw 本文のまま  :comma カンマ  :tab タブ  :quote 行頭\n\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  J まとめ  c 複製  t T タグ  gp ピン  ga #app  + -\n\
 その他 V 範囲  :open 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  !!  @  echo  export  import  quote  bullet  type  format  raw  comma  tab  open  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
+:      help  sh  !!  @  echo  export  import  quote  type  format  raw  comma  tab  open  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -174,7 +174,8 @@ mod tests {
         assert!(render(Some("sh")).contains("> clip"));
         assert!(render(Some("colon")).contains(":.!sh"));
         assert!(render(Some("colon")).contains("> clip"));
-        assert!(render(Some("colon")).contains(":format"));
+        assert!(render(Some("colon")).contains(":quote *"));
+        assert!(render(Some("paste")).contains(":quote *"));
         assert!(render(Some("paste")).contains(":open"));
         assert!(render(Some("open")).contains(":open"));
         assert!(render(Some("paste")).contains(":sh dir"));

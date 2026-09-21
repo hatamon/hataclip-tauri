@@ -437,9 +437,7 @@ fn paste_resolved_text(
         text.to_string()
     };
     if let Some(prefix) = prefix {
-        let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
-        let already = if prefix == "* " { "* " } else { already.as_str() };
-        text = text::prefix_lines(&text, prefix, already);
+        text = text::prefix_lines(&text, prefix);
     }
     if to_clipboard {
         return clipboard::write_clipboard_text(&text);
@@ -831,10 +829,7 @@ fn run_paste(
         ops = map_text_ops(ops, |text| text::format_for_paste(text));
     }
     if let Some(prefix) = prefix {
-        let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
-        let already = if prefix == "* " { "* " } else { already.as_str() };
-        let already = already.to_string();
-        ops = map_text_ops(ops, |text| text::prefix_lines(text, prefix, &already));
+        ops = map_text_ops(ops, |text| text::prefix_lines(text, prefix));
     }
     if paste_parts.is_empty() {
         if to_clipboard {

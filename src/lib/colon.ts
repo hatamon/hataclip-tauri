@@ -6,7 +6,6 @@ export const COLON_COMMANDS = [
   "import",
   "clear",
   "quote",
-  "bullet",
   "type",
   "format",
   "raw",
@@ -67,7 +66,7 @@ export function applyColonCompletion(input: string, command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote") {
     return `${command} `;
   }
   return command;
@@ -79,6 +78,21 @@ export function bangFilterScript(line: string): string | null {
   }
   if (line.startsWith("!! sh ")) {
     return line.slice(6);
+  }
+  return null;
+}
+
+/** `:quote` の行頭。未指定なら `> `。`:bullet` は `* `。 */
+export function quotePrefix(line: string): string | null {
+  if (line === "bullet") {
+    return "* ";
+  }
+  if (line === "quote") {
+    return "> ";
+  }
+  if (line.startsWith("quote ") || line.startsWith("quote\t")) {
+    const rest = line.slice(6);
+    return rest.trim().length === 0 ? "> " : rest;
   }
   return null;
 }
