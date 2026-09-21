@@ -1,7 +1,7 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替。/ 検索。\n見る  ge 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
@@ -36,7 +36,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "search",
-        "/ で検索。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
+        "/ で検索。Tab は一覧へ（絞りは残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
     ),
     (
         "edit",
@@ -87,7 +87,7 @@ const TOPICS: &[(&str, &str)] = &[
 ];
 
 const OVERVIEW: &str = "\
-移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /\n\
+移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /  Escで絞り解除\n\
 見る   ge 全文  g? 回数・貼り付け先・タグ\n\
 貼る   Enter 閉じる  Ctrl+Enter 残す  Shift+Enter 整形  1〜9  g. 再貼\n\
        gJ カンマ  gT タブ  g> 引用  g* 箇条書き  g Enter 本文のまま\n\
@@ -153,6 +153,8 @@ mod tests {
         assert!(render(Some("keys")).contains("J まとめ"));
         assert!(render(Some("keys")).contains("gp ピン"));
         assert!(render(None).contains("g. 再貼"));
+        assert!(render(Some("search")).contains("Esc / Ctrl+[ で絞りを外す"));
+        assert!(render(Some("search")).contains("Tab は一覧へ"));
         assert!(render(Some("pin")).contains("gp でピン留め"));
         assert!(render(Some("nope")).starts_with("ない"));
     }

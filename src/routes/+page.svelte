@@ -465,8 +465,10 @@
       return;
     }
     const ids = selectedIds;
+    const id = selectedItems[0].id;
     clearSelection();
     items = await invoke<Item[]>("set_tag", { ids, tag: value, add });
+    selectById(id);
     lastChange = { kind: "tag", tag: value, add };
   }
 
@@ -1148,6 +1150,15 @@
     return true;
   }
 
+  function leaveSearch(clear: boolean) {
+    if (clear) {
+      query = "";
+      tagCycle = -1;
+    }
+    mode = "normal";
+    pending = "";
+  }
+
   function onSearchKeydown(event: KeyboardEvent) {
     if (event.isComposing) {
       return;
@@ -1155,8 +1166,7 @@
     if (isEscape(event)) {
       event.preventDefault();
       event.stopPropagation();
-      mode = "normal";
-      pending = "";
+      leaveSearch(true);
       return;
     }
     if (event.key === "Enter") {
@@ -1194,10 +1204,15 @@
       move(event.key === "ArrowDown" ? 1 : -1);
       return;
     }
-    if (event.key === "Tab" && searchSuggestions.length > 0) {
+    if (event.key === "Tab") {
       event.preventDefault();
       event.stopPropagation();
-      query = applyTagCompletion(query, searchSuggestions[0]);
+      if (searchSuggestions.length > 0) {
+        query = applyTagCompletion(query, searchSuggestions[0]);
+        return;
+      }
+      leaveSearch(false);
+      return;
     }
   }
 
@@ -1243,6 +1258,18 @@
       return;
     }
     if (mode === "search" || mode === "tag" || mode === "colon" || mode === "ask") {
+      if (mode === "search" && isEscape(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        leaveSearch(true);
+        return;
+      }
+      if (mode === "search" && event.key === "Tab" && searchSuggestions.length === 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        leaveSearch(false);
+        return;
+      }
       return;
     }
     if (mode === "pick") {
@@ -1285,6 +1312,11 @@
       if (pending.length > 0 || whichPrefix.length > 0) {
         pending = "";
         whichPrefix = "";
+        return;
+      }
+      if (query.length > 0 || tagCycle >= 0) {
+        query = "";
+        tagCycle = -1;
         return;
       }
       if (anchor !== null) {

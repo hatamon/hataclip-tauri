@@ -635,6 +635,20 @@ pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
     pinned
 }
 
+/// `#app:` で隠れる行でも、今いじっている行は一覧に残す。付けたタグが見えなくなるのを防ぐ。
+pub fn ordered_keeping(items: &[Item], context: Option<&str>, keep: &[String]) -> Vec<Item> {
+    let mut list = ordered(items, context);
+    for id in keep {
+        if list.iter().any(|item| item.id == *id) {
+            continue;
+        }
+        if let Some(item) = items.iter().find(|item| item.id == *id) {
+            list.push(item.clone());
+        }
+    }
+    list
+}
+
 fn visible_app(item: &Item, context: Option<&str>) -> bool {
     let apps: Vec<_> = tagged_apps(&item.tags, "app");
     if apps.is_empty() {
@@ -1043,6 +1057,23 @@ mod tests {
         assert_eq!(ordered_ids(&items, Some("CHROME")), vec!["a", "b"]);
         assert_eq!(ordered_ids(&items, Some("code")), vec!["b"]);
         assert_eq!(ordered_ids(&items, None), vec!["b"]);
+    }
+
+    #[test]
+    fn keeping_shows_app_tagged_row_with_its_tags() {
+        let items = vec![
+            Item {
+                tags: vec!["url".into(), "app:chrome".into()],
+                ..item("a", "one")
+            },
+            item("b", "two"),
+        ];
+        let kept = ordered_keeping(&items, Some("code"), &["a".into()]);
+        assert_eq!(
+            kept.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
+        assert_eq!(kept[1].tags, vec!["url", "app:chrome"]);
     }
 
     #[test]

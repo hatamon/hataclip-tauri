@@ -94,7 +94,7 @@ fn update_item(
     state: tauri::State<'_, AppState>,
 ) -> Vec<Item> {
     state.store.lock().expect("store").update(&id, text, tags);
-    view(&state)
+    view_keeping(&state, &[id])
 }
 
 #[tauri::command]
@@ -105,7 +105,7 @@ fn set_tag(
     state: tauri::State<'_, AppState>,
 ) -> Vec<Item> {
     state.store.lock().expect("store").set_tag(&ids, &tag, add);
-    view(&state)
+    view_keeping(&state, &ids)
 }
 
 #[tauri::command]
@@ -882,9 +882,13 @@ fn append_log(path: &str, text: &str) -> std::io::Result<()> {
 
 /// 一覧に渡す並び。ピンの下はストアの順。
 fn view(state: &AppState) -> Vec<Item> {
+    view_keeping(state, &[])
+}
+
+fn view_keeping(state: &AppState, keep: &[String]) -> Vec<Item> {
     let context = current_context(state);
     let store = state.store.lock().expect("store");
-    store::ordered(store.list(), context.as_deref())
+    store::ordered_keeping(store.list(), context.as_deref(), keep)
 }
 
 fn current_context(state: &AppState) -> Option<String> {
