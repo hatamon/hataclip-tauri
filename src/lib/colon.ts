@@ -9,6 +9,9 @@ export const COLON_COMMANDS = [
   "s",
   "@",
   "dedup",
+  "map",
+  "unmap",
+  "mapleader",
 ];
 
 export function colonCommandToken(input: string): string {
@@ -33,6 +36,9 @@ export function applyColonCompletion(input: string, command: string): string {
     return "s/";
   }
   if (command === "export" || command === "import" || command === "sh" || command === "help") {
+    return `${command} `;
+  }
+  if (command === "map" || command === "unmap" || command === "mapleader") {
     return `${command} `;
   }
   return command;

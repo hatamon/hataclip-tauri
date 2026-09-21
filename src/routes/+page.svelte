@@ -7,6 +7,23 @@
     applyColonCompletion,
     matchingColonCommands,
   } from "$lib/colon";
+  import {
+    combinePending,
+    eventToToken,
+    formatMaps,
+    hasLeaderMaps,
+    isLeaderToken,
+    matchMap,
+    parseMapArgs,
+    parseMapleaderArgs,
+    parseUnmapArgs,
+    removeMap,
+    tokenizeKeys,
+    tokenToEventKey,
+    upsertMap,
+    whichKeysForMaps,
+    type KeyMap,
+  } from "$lib/map";
   import { uniquePickSpecs, type PickSpec } from "$lib/pick";
   import { fuzzyFilter } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
@@ -94,6 +111,9 @@
   let info = $state(false);
   let whichPrefix = $state("");
   let whichTimer: ReturnType<typeof setTimeout> | null = null;
+  let maps = $state<KeyMap[]>([]);
+  let mapLeader = $state("\\");
+  let mapsEnabled = true;
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
@@ -141,6 +161,7 @@
   );
 
   const whichKeys = $derived.by(() => {
+    const mapped = whichKeysForMaps(maps, whichPrefix);
     if (whichPrefix === "g") {
       return [
         { key: "g", label: "先頭" },
@@ -152,18 +173,19 @@
         { key: "*", label: "箇条書き" },
         { key: "p", label: "直前の貼り付け" },
         { key: "?", label: "行の情報" },
+        ...mapped,
       ];
     }
     if (whichPrefix === "d") {
-      return [{ key: "d", label: "削除" }];
+      return [{ key: "d", label: "削除" }, ...mapped];
     }
     if (whichPrefix === "y") {
-      return [{ key: "y", label: "ヤンク" }];
+      return [{ key: "y", label: "ヤンク" }, ...mapped];
     }
     if (whichPrefix === "f") {
-      return [{ key: "文字", label: "その文字へ" }];
+      return [{ key: "文字", label: "その文字へ" }, ...mapped];
     }
-    return [];
+    return mapped;
   });
 
   $effect(() => {
@@ -194,7 +216,17 @@
       whichTimer = null;
     }
     whichPrefix = "";
-    if (prefix === "g" || prefix === "d" || prefix === "y" || prefix === "f") {
+    const mapWait =
+      prefix.length > 0 &&
+      maps.some((entry) => entry.lhs.startsWith(prefix) && entry.lhs.length > prefix.length);
+    if (
+      prefix === "g" ||
+      prefix === "d" ||
+      prefix === "y" ||
+      prefix === "f" ||
+      prefix === "<leader>" ||
+      mapWait
+    ) {
       whichTimer = setTimeout(() => {
         whichPrefix = prefix;
       }, 400);
@@ -768,6 +800,35 @@
     void invoke("open_target", { text: item.text });
   }
 
+  async function saveKeymaps() {
+    const next = await invoke<{ leader: string; maps: KeyMap[] }>("set_keymaps", {
+      keymaps: { leader: mapLeader, maps },
+    });
+    mapLeader = next.leader;
+    maps = next.maps;
+  }
+
+  function runMappedRhs(rhs: { kind: "keys"; keys: string } | { kind: "cmd"; command: string }) {
+    if (rhs.kind === "cmd") {
+      void runColon(rhs.command);
+      return;
+    }
+    mapsEnabled = false;
+    pending = "";
+    whichPrefix = "";
+    try {
+      for (const token of tokenizeKeys(rhs.keys)) {
+        const key = tokenToEventKey(token);
+        if (key === null) {
+          continue;
+        }
+        onDocumentKeydown(new KeyboardEvent("keydown", { key, cancelable: true, bubbles: true }));
+      }
+    } finally {
+      mapsEnabled = true;
+    }
+  }
+
   async function runColon(raw: string) {
     const line = raw.trim().replace(/^:/, "");
     mode = "normal";
@@ -854,6 +915,40 @@
         await invoke("paste_last_script");
       } catch {
         // 無ければ何もしない
+      }
+      return;
+    }
+    if (line === "mapleader" || line.startsWith("mapleader ")) {
+      const parsed = parseMapleaderArgs(line === "mapleader" ? "" : line.slice(10));
+      if (parsed?.kind === "show") {
+        helpText = formatMaps(mapLeader, maps);
+        mode = "help";
+        return;
+      }
+      if (parsed?.kind === "set") {
+        mapLeader = parsed.leader;
+        void saveKeymaps();
+      }
+      return;
+    }
+    if (line === "unmap" || line.startsWith("unmap ")) {
+      const lhs = parseUnmapArgs(line === "unmap" ? "" : line.slice(6));
+      if (lhs) {
+        maps = removeMap(maps, lhs);
+        void saveKeymaps();
+      }
+      return;
+    }
+    if (line === "map" || line.startsWith("map ")) {
+      const parsed = parseMapArgs(line === "map" ? "" : line.slice(4));
+      if (parsed?.kind === "list") {
+        helpText = formatMaps(mapLeader, maps);
+        mode = "help";
+        return;
+      }
+      if (parsed?.kind === "set") {
+        maps = upsertMap(maps, parsed.lhs, parsed.rhs);
+        void saveKeymaps();
       }
     }
   }
@@ -1118,6 +1213,39 @@
         void hidePicker();
       }
       return;
+    }
+    if (mapsEnabled) {
+      const token = eventToToken(event);
+      if (token !== null) {
+        const leaderWait =
+          pending === "<leader>" ||
+          (pending === "" && hasLeaderMaps(maps) && isLeaderToken(token, mapLeader));
+        const maybeMap =
+          leaderWait ||
+          pending.length > 0 ||
+          maps.some((entry) => entry.lhs.startsWith(token));
+        if (maybeMap) {
+          const result = matchMap(maps, pending, token, mapLeader);
+          if (result.kind === "hit") {
+            event.preventDefault();
+            pending = "";
+            whichPrefix = "";
+            runMappedRhs(result.rhs);
+            return;
+          }
+          if (result.kind === "prefix") {
+            event.preventDefault();
+            pending = combinePending(pending, token, mapLeader);
+            return;
+          }
+          if (pending === "<leader>") {
+            event.preventDefault();
+            pending = "";
+            whichPrefix = "";
+            return;
+          }
+        }
+      }
     }
     if (pending === "f") {
       event.preventDefault();
@@ -1464,6 +1592,11 @@
       items = event.payload;
     });
 
+    void invoke<{ leader: string; maps: KeyMap[] }>("get_keymaps").then((next) => {
+      mapLeader = next.leader;
+      maps = next.maps;
+    });
+
     let stopDrop: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
       void getCurrentWebview()
@@ -1545,7 +1678,7 @@
         bind:this={colonEl}
         bind:value={colonInput}
         class="search"
-        placeholder=":help  :quote  :bullet  :s/  :dedup"
+        placeholder=":help  :map  :quote  :bullet"
         onkeydown={onColonKeydown}
       />
       {#if colonSuggestions.length > 0}

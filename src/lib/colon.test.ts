@@ -15,6 +15,9 @@ describe("matchingColonCommands", () => {
       "s",
       "@",
       "dedup",
+      "map",
+      "unmap",
+      "mapleader",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
   });

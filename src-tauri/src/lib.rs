@@ -13,7 +13,7 @@ mod tray;
 use chrono::Local;
 use platform::Point;
 use serde::Serialize;
-use settings::{Settings, Shortcuts, WindowGeom};
+use settings::{KeyMaps, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -230,6 +230,18 @@ fn set_shortcuts(
     }
     state.settings.lock().expect("settings").set_shortcuts(next);
     Ok(())
+}
+
+#[tauri::command]
+fn get_keymaps(state: tauri::State<'_, AppState>) -> KeyMaps {
+    state.settings.lock().expect("settings").keymaps().clone()
+}
+
+#[tauri::command]
+fn set_keymaps(keymaps: KeyMaps, state: tauri::State<'_, AppState>) -> KeyMaps {
+    let mut settings = state.settings.lock().expect("settings");
+    settings.set_keymaps(keymaps);
+    settings.keymaps().clone()
 }
 
 /// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
@@ -1037,7 +1049,9 @@ pub fn run() {
             nudge_window,
             resize_window,
             get_shortcuts,
-            set_shortcuts
+            set_shortcuts,
+            get_keymaps,
+            set_keymaps
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

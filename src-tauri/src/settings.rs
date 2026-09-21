@@ -39,27 +39,58 @@ pub struct WindowGeom {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KeyMap {
+    pub lhs: String,
+    pub rhs: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KeyMaps {
+    #[serde(default = "default_leader")]
+    pub leader: String,
+    #[serde(default)]
+    pub maps: Vec<KeyMap>,
+}
+
+fn default_leader() -> String {
+    "\\".to_string()
+}
+
+impl Default for KeyMaps {
+    fn default() -> Self {
+        Self {
+            leader: default_leader(),
+            maps: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SettingsFile {
     version: u32,
     shortcuts: Shortcuts,
     #[serde(default)]
     window: Option<WindowGeom>,
+    #[serde(default)]
+    keymaps: KeyMaps,
 }
 
 pub struct Settings {
     path: PathBuf,
     shortcuts: Shortcuts,
     window: Option<WindowGeom>,
+    keymaps: KeyMaps,
 }
 
 impl Settings {
     pub fn load(path: PathBuf) -> Self {
-        let (shortcuts, window) = read_file(&path);
+        let (shortcuts, window, keymaps) = read_file(&path);
         Self {
             path,
             shortcuts,
             window,
+            keymaps,
         }
     }
 
@@ -69,6 +100,10 @@ impl Settings {
 
     pub fn window(&self) -> Option<WindowGeom> {
         self.window
+    }
+
+    pub fn keymaps(&self) -> &KeyMaps {
+        &self.keymaps
     }
 
     pub fn set_shortcuts(&mut self, shortcuts: Shortcuts) {
@@ -81,24 +116,29 @@ impl Settings {
         self.save();
     }
 
+    pub fn set_keymaps(&mut self, keymaps: KeyMaps) {
+        self.keymaps = sanitize_keymaps(keymaps);
+        self.save();
+    }
+
     fn save(&self) {
-        let _ = write_file(&self.path, &self.shortcuts, self.window);
+        let _ = write_file(&self.path, &self.shortcuts, self.window, &self.keymaps);
     }
 }
 
-fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>) {
+fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>, KeyMaps) {
     let Ok(data) = fs::read_to_string(path) else {
-        return (Shortcuts::default(), None);
+        return (Shortcuts::default(), None, KeyMaps::default());
     };
     let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
-        return (Shortcuts::default(), None);
+        return (Shortcuts::default(), None, KeyMaps::default());
     };
     let shortcuts = Shortcuts {
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
         quick_paste: file.shortcuts.quick_paste,
     };
-    (shortcuts, file.window)
+    (shortcuts, file.window, sanitize_keymaps(file.keymaps))
 }
 
 fn usable(value: String, fallback: &str) -> String {
@@ -109,10 +149,38 @@ fn usable(value: String, fallback: &str) -> String {
     }
 }
 
+fn usable_leader(value: String) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() == 1 && !('1'..='9').contains(&chars[0]) {
+        value
+    } else {
+        default_leader()
+    }
+}
+
+fn sanitize_keymaps(keymaps: KeyMaps) -> KeyMaps {
+    let mut seen = std::collections::HashSet::new();
+    let maps = keymaps
+        .maps
+        .into_iter()
+        .filter(|entry| {
+            !entry.lhs.is_empty()
+                && !entry.rhs.is_empty()
+                && !entry.lhs.chars().all(|ch| ('1'..='9').contains(&ch))
+                && seen.insert(entry.lhs.clone())
+        })
+        .collect();
+    KeyMaps {
+        leader: usable_leader(keymaps.leader),
+        maps,
+    }
+}
+
 fn write_file(
     path: &Path,
     shortcuts: &Shortcuts,
     window: Option<WindowGeom>,
+    keymaps: &KeyMaps,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -121,6 +189,7 @@ fn write_file(
         version: CURRENT_VERSION,
         shortcuts: shortcuts.clone(),
         window,
+        keymaps: keymaps.clone(),
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -145,6 +214,7 @@ mod tests {
         let settings = Settings::load(path);
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
         assert_eq!(settings.window(), None);
+        assert_eq!(settings.keymaps(), &KeyMaps::default());
     }
 
     #[test]
@@ -199,6 +269,25 @@ mod tests {
                 height: 300,
             })
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn keymaps_round_trip_and_keep_shortcuts() {
+        let path = temp_path("maps");
+        let _ = fs::remove_file(&path);
+        let mut settings = Settings::load(path.clone());
+        settings.set_keymaps(KeyMaps {
+            leader: ",".into(),
+            maps: vec![KeyMap {
+                lhs: "<leader>*".into(),
+                rhs: "<cmd>bullet".into(),
+            }],
+        });
+        settings.set_shortcuts(Shortcuts::default());
+        let reloaded = Settings::load(path.clone());
+        assert_eq!(reloaded.keymaps().leader, ",");
+        assert_eq!(reloaded.keymaps().maps[0].lhs, "<leader>*");
         let _ = fs::remove_file(path);
     }
 }
