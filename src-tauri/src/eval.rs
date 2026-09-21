@@ -120,6 +120,10 @@ mod tests {
             Some("date 2026/09/21")
         );
         assert_eq!(
+            resolve_selection("date {{var a}}", &ctx, None).as_deref(),
+            Some("date 2026/09/21")
+        );
+        assert_eq!(
             resolve_selection(":echo 2+3", &ctx, None).as_deref(),
             Some("5")
         );

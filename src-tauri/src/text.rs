@@ -101,10 +101,10 @@ fn token_value(
     if inner == "sel" {
         return Some(ctx.sel.clone());
     }
-    if let Some(name) = inner.strip_prefix("ask:") {
+    if let Some(name) = arg_after(inner, "ask") {
         return Some(
             ctx.answers
-                .get(name.trim())
+                .get(name)
                 .cloned()
                 .unwrap_or_default(),
         );
@@ -124,10 +124,10 @@ fn token_value(
     if inner == "front" {
         return Some(ctx.front.clone());
     }
-    if let Some(spec) = inner.strip_prefix("pick:") {
+    if let Some(spec) = arg_after(inner, "pick") {
         return Some(
             ctx.answers
-                .get(&format!("pick:{}", spec.trim()))
+                .get(&format!("pick:{spec}"))
                 .cloned()
                 .unwrap_or_default(),
         );
@@ -143,15 +143,13 @@ fn token_value(
         let body = ctx.aliases.get(name).cloned().unwrap_or_default();
         return Some(expand_seen(&body, ctx, seen));
     }
-    if let Some(name) = inner.strip_prefix("env:") {
-        let name = name.trim();
+    if let Some(name) = arg_after(inner, "env") {
         if name.is_empty() {
             return Some(String::new());
         }
         return Some(std::env::var(name).unwrap_or_default());
     }
-    if let Some(name) = inner.strip_prefix("var:") {
-        let name = name.trim();
+    if let Some(name) = arg_after(inner, "var") {
         if name.is_empty() {
             return Some(String::new());
         }
@@ -169,17 +167,30 @@ fn token_value(
     if inner == "n" {
         return Some(ctx.n.to_string());
     }
-    if let Some(width) = inner.strip_prefix("n:") {
+    if let Some(width) = arg_after(inner, "n") {
         let width: usize = width.parse().ok()?;
         return Some(format!("{:0width$}", ctx.n, width = width.min(8)));
     }
-    if let Some(fmt) = inner.strip_prefix("date:") {
+    if let Some(fmt) = arg_after(inner, "date") {
         if fmt.is_empty() {
             return None;
         }
         return Some(ctx.now.format(fmt).to_string());
     }
     None
+}
+
+/// `{{var:a}}` と `{{var a}}` の両方。`:` はエクスプローラーの名前に使えない。
+pub(crate) fn arg_after<'a>(inner: &'a str, name: &str) -> Option<&'a str> {
+    let rest = inner.strip_prefix(name)?;
+    let arg = if let Some(arg) = rest.strip_prefix(':') {
+        arg
+    } else if rest.starts_with(char::is_whitespace) {
+        rest
+    } else {
+        return None;
+    };
+    Some(arg.trim())
 }
 
 pub fn has_sel_token(text: &str) -> bool {
@@ -191,9 +202,8 @@ pub fn has_sel_token(text: &str) -> bool {
 pub fn ask_names(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     walk_tokens(text, |inner| {
-        if let Some(name) = inner.strip_prefix("ask:") {
-            let name = name.trim();
-            if !names.iter().any(|entry| entry == name) {
+        if let Some(name) = arg_after(inner, "ask") {
+            if !name.is_empty() && !names.iter().any(|entry| entry == name) {
                 names.push(name.to_string());
             }
         }
@@ -206,15 +216,14 @@ pub fn ask_names(text: &str) -> Vec<String> {
 pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
     let mut specs = Vec::new();
     walk_tokens(text, |inner| {
-        if let Some(raw) = inner.strip_prefix("pick:") {
-            let spec = raw.trim().to_string();
-            if !specs.iter().any(|(existing, _)| existing == &spec) {
+        if let Some(spec) = arg_after(inner, "pick") {
+            if !spec.is_empty() && !specs.iter().any(|(existing, _)| existing == spec) {
                 let options = spec
                     .split(',')
                     .map(|part| part.trim().to_string())
                     .filter(|part| !part.is_empty())
                     .collect();
-                specs.push((spec, options));
+                specs.push((spec.to_string(), options));
             }
         }
         false
@@ -522,6 +531,7 @@ mod tests {
     fn expands_clip_n_user_host_and_padded_n() {
         let ctx = sample_ctx();
         assert_eq!(expand_template("{{clip}}-{{n}}-{{n:2}}", &ctx), "CLIP-3-03");
+        assert_eq!(expand_template("{{n 2}}", &ctx), "03");
         assert_eq!(expand_template("{{user}}@{{host}}", &ctx), "hatamon@pc");
     }
 
@@ -530,6 +540,10 @@ mod tests {
         let ctx = sample_ctx();
         assert_eq!(
             expand_template("{{date:%Y}}", &ctx),
+            ctx.now.format("%Y").to_string()
+        );
+        assert_eq!(
+            expand_template("{{date %Y}}", &ctx),
             ctx.now.format("%Y").to_string()
         );
     }
@@ -545,6 +559,8 @@ mod tests {
         let ctx = sample_ctx();
         assert_eq!(expand_template("**{{sel}}**", &ctx), "**SEL**");
         assert_eq!(expand_template("hi {{ask:名前}}", &ctx), "hi hatamon");
+        assert_eq!(expand_template("hi {{ask 名前}}", &ctx), "hi hatamon");
+        assert_eq!(ask_names("{{ask a}} {{ask:b}}"), vec!["a", "b"]);
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
         assert!(has_sel_token("x {{sel}} y"));
         assert!(!has_sel_token("{{clip}}"));
@@ -556,6 +572,11 @@ mod tests {
         let ctx = sample_ctx();
         assert_eq!(expand_template("{{app}}/{{front}}", &ctx), "code/TODO.md");
         assert_eq!(expand_template("{{pick:prod, stg}}", &ctx), "stg");
+        assert_eq!(expand_template("{{pick prod, stg}}", &ctx), "stg");
+        assert_eq!(
+            pick_specs("{{pick a, b}} {{pick: a, b}}"),
+            vec![("a, b".into(), vec!["a".into(), "b".into()])]
+        );
         assert_eq!(
             pick_specs("{{pick: a, b}} {{pick: a, b}}"),
             vec![("a, b".into(), vec!["a".into(), "b".into()])]
@@ -569,6 +590,10 @@ mod tests {
         let ctx = sample_ctx();
         assert_eq!(
             expand_template("{{env:HATACLIP_TEST_ENV_XYZ}}", &ctx),
+            "env-value"
+        );
+        assert_eq!(
+            expand_template("{{env HATACLIP_TEST_ENV_XYZ}}", &ctx),
             "env-value"
         );
         assert_eq!(
@@ -596,6 +621,8 @@ mod tests {
     fn expands_var_nested_and_stops_cycles() {
         let ctx = sample_ctx();
         assert_eq!(expand_template("date {{var:a}}", &ctx), "date 2026/09/20");
+        assert_eq!(expand_template("date {{var a}}", &ctx), "date 2026/09/20");
+        assert_eq!(expand_template("{{var}}", &ctx), "{{var}}");
         assert_eq!(expand_template("{{var:sum}}", &ctx), "5");
         assert_eq!(expand_template("{{var:loop}}", &ctx), "");
         assert_eq!(expand_template("{{var:missing}}", &ctx), "");

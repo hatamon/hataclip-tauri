@@ -196,7 +196,7 @@ pub fn apply_sh(text: &str, run: bool) -> Result<String, ShellError> {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
             if let Some(close) = find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
-                if let Some(cmd) = inner.trim().strip_prefix("sh:") {
+                if let Some(cmd) = crate::text::arg_after(inner.trim(), "sh") {
                     if run {
                         out.push_str(&run_script(cmd)?);
                     }
@@ -223,7 +223,22 @@ fn find_close(chars: &[char], start: usize) -> Option<usize> {
 }
 
 pub fn has_sh_token(text: &str) -> bool {
-    text.contains("{{sh:")
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                if crate::text::arg_after(inner.trim(), "sh").is_some() {
+                    return true;
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 pub fn read_file_contents(path: &str) -> Result<String, ShellError> {
@@ -253,6 +268,9 @@ mod tests {
     #[test]
     fn apply_sh_clears_tokens_without_run() {
         assert_eq!(apply_sh("a{{sh: echo hi}}b", false).unwrap(), "ab");
+        assert_eq!(apply_sh("a{{sh echo hi}}b", false).unwrap(), "ab");
+        assert!(has_sh_token("{{sh echo hi}}"));
+        assert!(!has_sh_token("{{share}}"));
     }
 
     #[test]

@@ -48,7 +48,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "貼る直前だけ置き換わる。履歴の本文は変わらない。\n\
+        "貼る直前だけ置き換わる。履歴の本文は変わらない。`:` の代わりに空白でもよい（{{var a}} {{date %Y%m%d}}）。エクスプローラーの名前変更向け。\n\
 \n\
 {{date}}           2026/09/20\n\
 {{time}}           10:54\n\
@@ -78,7 +78,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -135,7 +135,7 @@ mod tests {
         assert!(render(Some("sh")).contains("#run"));
         assert!(render(Some("edit")).contains("M は V 中"));
         assert!(render(Some("template")).contains("{{@foo}}"));
-        assert!(render(Some("template")).contains("{{var:a}}"));
+        assert!(render(Some("template")).contains("{{var a}}"));
         assert!(render(Some("template")).contains("{{sh: コマンド}}"));
         assert!(render(None).contains(":help template"));
         assert!(render(Some("colon")).contains(":set a="));

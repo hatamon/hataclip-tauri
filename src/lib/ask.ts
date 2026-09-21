@@ -1,4 +1,4 @@
-const ASK = /\{\{\s*ask:([^}]*)\}\}/g;
+const ASK = /\{\{\s*ask[:\s]([^}]*)\}\}/g;
 
 export function askNames(text: string): string[] {
   const names: string[] = [];

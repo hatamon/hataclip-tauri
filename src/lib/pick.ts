@@ -1,4 +1,4 @@
-const PICK = /\{\{\s*pick:([^}]*)\}\}/g;
+const PICK = /\{\{\s*pick[:\s]([^}]*)\}\}/g;
 
 export type PickSpec = { spec: string; options: string[] };
 

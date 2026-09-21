@@ -6,6 +6,9 @@ describe("pickSpecs", () => {
     expect(pickSpecs("{{pick: prod, stg}} {{pick: prod, stg}}")).toEqual([
       { spec: "prod, stg", options: ["prod", "stg"] },
     ]);
+    expect(pickSpecs("{{pick prod, stg}}")).toEqual([
+      { spec: "prod, stg", options: ["prod", "stg"] },
+    ]);
     expect(pickSpecs("{{clip}}")).toEqual([]);
   });
 });
