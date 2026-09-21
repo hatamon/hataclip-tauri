@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:quote 引用。:bullet 箇条書き。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:quote 引用。:bullet 箇条書き。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{when chrome}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -63,6 +63,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。候補に {{var:a}} を書ける。{{pick tag:env}} はタグ env の本文\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
 {{front}}          前面ウィンドウのタイトル。無ければ空\n\
+{{when chrome}}    前面が chrome のときだけその区間。{{when excel}} と並べ、{{when}} はどれにも当たらないとき。複数は {{when chrome, msedge}}。#app: は行の出し分け\n\
 {{n}} / {{n:2}}    連番。Ctrl+Enter で増える。:n 100 で初期値。閉じると初期値に戻る。ge やコピーでは進まない\n\
 {{uuid}}           UUID v4\n\
 {{user}}           ログイン名\n\
@@ -142,6 +143,8 @@ mod tests {
         assert!(render(Some("tag")).contains("#app:chrome"));
         assert!(render(Some("tag")).contains("#slot:3"));
         assert!(render(Some("tag")).contains("#confirm"));
+        assert!(render(Some("template")).contains("{{when chrome}}"));
+        assert!(render(Some("paste")).contains("{{when chrome}}"));
         assert!(render(Some("template")).contains("{{pick tag:env}}"));
         assert!(render(Some("template")).contains("{{date+1w}}"));
         assert!(render(Some("keys")).contains("ga 前面"));

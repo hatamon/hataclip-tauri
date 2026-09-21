@@ -1001,11 +1001,12 @@ fn expand_context(
 }
 
 fn has_sel(state: &AppState, ids: &[String]) -> bool {
+    let app = foreground_app(state);
     let store = state.store.lock().expect("store");
     ids.iter().any(|id| {
         store
             .get(id)
-            .map_or(false, |item| text::has_sel_token(&item.text))
+            .map_or(false, |item| text::has_sel_token_in(&item.text, &app))
     })
 }
 

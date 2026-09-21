@@ -28,6 +28,7 @@
     type KeyMap,
   } from "$lib/map";
   import { uniquePickSpecs, type PickSpec } from "$lib/pick";
+  import { contextApp } from "$lib/when";
   import { fuzzyFilter } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
   import {
@@ -304,6 +305,10 @@
     return filtered[selected];
   }
 
+  function frontApp(): string {
+    return contextApp(contextKey);
+  }
+
   function clearSelection() {
     anchor = null;
   }
@@ -332,7 +337,7 @@
     const ids = selectedIds;
     const rows = selectedItems;
     if (!raw && !toClipboard) {
-      const names = uniqueAskNames(rows);
+      const names = uniqueAskNames(rows, frontApp());
       if (names.length > 0) {
         clearSelection();
         askQueue = names;
@@ -343,7 +348,7 @@
         mode = "ask";
         return;
       }
-      const picks = uniquePickSpecs(rows, items);
+        const picks = uniquePickSpecs(rows, items, frontApp());
       if (picks.length > 0) {
         clearSelection();
         pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed, toClipboard };
@@ -372,7 +377,7 @@
     }
     clearSelection();
     selected = index;
-    const names = uniqueAskNames([item]);
+    const names = uniqueAskNames([item], frontApp());
     if (names.length > 0) {
       askQueue = names;
       askIndex = 0;
@@ -382,7 +387,7 @@
       mode = "ask";
       return;
     }
-    const picks = uniquePickSpecs([item], items);
+    const picks = uniquePickSpecs([item], items, frontApp());
     if (picks.length > 0) {
       pendingPaste = { ids: [item.id], keepOpen, format: false, raw: false, separator: "\n" };
       void startPicks(picks);
@@ -508,7 +513,7 @@
     const rows = pending.ids
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined);
-    const remaining = uniquePickSpecs(rows, items).filter(
+    const remaining = uniquePickSpecs(rows, items, frontApp()).filter(
       (entry) => askAnswers[`pick:${entry.spec}`] === undefined,
     );
     if (remaining.length > 0 && pickQueue.length === 0) {

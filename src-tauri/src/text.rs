@@ -154,6 +154,7 @@ fn expand_seen(
     ctx: &Expand,
     seen: &mut std::collections::HashSet<String>,
 ) -> String {
+    let text = apply_when(text, &ctx.app);
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -194,6 +195,75 @@ pub(crate) fn find_close(chars: &[char], start: usize) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// `{{when chrome}}…{{when excel}}…{{when}}既定`。先頭の `{{when` より前は常に残す。
+pub fn apply_when(text: &str, app: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    struct Mark {
+        start: usize,
+        end: usize,
+        apps: Vec<String>,
+    }
+    let mut marks = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                let token = inner.trim();
+                if token == "when" || arg_after(token, "when").is_some() {
+                    let arg = if token == "when" {
+                        ""
+                    } else {
+                        arg_after(token, "when").unwrap_or("")
+                    };
+                    let apps: Vec<String> = arg
+                        .split(|ch: char| ch == ',' || ch.is_whitespace())
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    marks.push(Mark {
+                        start: i,
+                        end: close + 2,
+                        apps,
+                    });
+                    i = close + 2;
+                    continue;
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if marks.is_empty() {
+        return text.to_string();
+    }
+    let prefix: String = chars[..marks[0].start].iter().collect();
+    let mut chosen = None;
+    let mut fallback = None;
+    for (index, mark) in marks.iter().enumerate() {
+        let body_end = marks
+            .get(index + 1)
+            .map(|next| next.start)
+            .unwrap_or(chars.len());
+        let body: String = chars[mark.end..body_end].iter().collect();
+        if mark.apps.is_empty() {
+            fallback = Some(body);
+        } else if chosen.is_none()
+            && mark
+                .apps
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(app))
+        {
+            chosen = Some(body);
+        }
+    }
+    let mut out = prefix;
+    out.push_str(chosen.as_deref().or(fallback.as_deref()).unwrap_or(""));
+    out
 }
 
 fn token_value(
@@ -431,6 +501,10 @@ where
 
 pub fn has_sel_token(text: &str) -> bool {
     walk_tokens(text, |inner| inner == "sel")
+}
+
+pub fn has_sel_token_in(text: &str, app: &str) -> bool {
+    walk_tokens(&apply_when(text, app), |inner| inner == "sel")
 }
 
 /// 出現順。同じ名前は 1 回だけ。
@@ -851,6 +925,38 @@ mod tests {
         assert!(has_sel_token("x {{sel}} y"));
         assert!(!has_sel_token("{{clip}}"));
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn when_picks_matching_app_and_fallback() {
+        let ctx = sample_ctx();
+        assert_eq!(
+            expand_template("id{{when chrome}}c{{when code}}k{{when}}x", &ctx),
+            "idk"
+        );
+        assert_eq!(
+            expand_template("{{when chrome}}c{{when excel}}e{{when}}d", &ctx),
+            "d"
+        );
+        let mut excel = sample_ctx();
+        excel.app = "EXCEL".into();
+        assert_eq!(
+            expand_template("{{when chrome, excel}}hit{{when}}miss", &excel),
+            "hit"
+        );
+        assert_eq!(
+            expand_template("keep {{date}}", &ctx),
+            "keep 2026/09/20"
+        );
+        assert_eq!(apply_when("a{{whenever}}b", "code"), "a{{whenever}}b");
+        assert!(!has_sel_token_in(
+            "{{when chrome}}{{sel}}{{when}}plain",
+            "code"
+        ));
+        assert!(has_sel_token_in(
+            "{{when chrome}}{{sel}}{{when}}plain",
+            "chrome"
+        ));
     }
 
     #[test]

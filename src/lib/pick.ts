@@ -1,3 +1,5 @@
+import { applyWhen } from "./when";
+
 function findClose(text: string, start: number): number {
   let depth = 1;
   let i = start;
@@ -56,14 +58,15 @@ function tagOptions(name: string, catalog: PickCatalog[]): string[] {
   return options;
 }
 
-export function pickSpecs(text: string, catalog: PickCatalog[] = []): PickSpec[] {
+export function pickSpecs(text: string, catalog: PickCatalog[] = [], app = ""): PickSpec[] {
+  const source = applyWhen(text, app);
   const specs: PickSpec[] = [];
   let i = 0;
-  while (i < text.length) {
-    if (text[i] === "{" && text[i + 1] === "{") {
-      const close = findClose(text, i + 2);
+  while (i < source.length) {
+    if (source[i] === "{" && source[i + 1] === "{") {
+      const close = findClose(source, i + 2);
       if (close >= 0) {
-        const inner = text.slice(i + 2, close).trim();
+        const inner = source.slice(i + 2, close).trim();
         const spec = argAfter(inner, "pick");
         if (spec && spec.length > 0 && !specs.some((entry) => entry.spec === spec)) {
           const tagName = pickTagName(spec);
@@ -89,10 +92,11 @@ export function pickSpecs(text: string, catalog: PickCatalog[] = []): PickSpec[]
 export function uniquePickSpecs(
   items: { text: string }[],
   catalog: PickCatalog[] = [],
+  app = "",
 ): PickSpec[] {
   const specs: PickSpec[] = [];
   for (const item of items) {
-    for (const entry of pickSpecs(item.text, catalog)) {
+    for (const entry of pickSpecs(item.text, catalog, app)) {
       if (!specs.some((existing) => existing.spec === entry.spec)) {
         specs.push(entry);
       }
