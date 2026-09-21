@@ -55,6 +55,14 @@ pub fn apply(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
     Ok(())
 }
 
+pub fn pause(app: &AppHandle) {
+    let _ = app.global_shortcut().unregister_all();
+}
+
+pub fn resume(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
+    apply(app, shortcuts)
+}
+
 fn register_quick_paste(app: &AppHandle) {
     let global = app.global_shortcut();
     for digit in 1..=9 {

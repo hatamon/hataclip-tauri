@@ -244,6 +244,17 @@ fn set_shortcuts(
 }
 
 #[tauri::command]
+fn pause_shortcuts(app: tauri::AppHandle) {
+    shortcuts::pause(&app);
+}
+
+#[tauri::command]
+fn resume_shortcuts(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let shortcuts = state.settings.lock().expect("settings").shortcuts().clone();
+    shortcuts::resume(&app, &shortcuts)
+}
+
+#[tauri::command]
 fn get_keymaps(state: tauri::State<'_, AppState>) -> KeyMaps {
     state.settings.lock().expect("settings").keymaps().clone()
 }
@@ -1080,7 +1091,8 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
         .title("hataclip 設定")
         .inner_size(340.0, 300.0)
         .resizable(false)
-        .build();
+        .build()
+        .map(|window| window.set_focus());
 }
 
 pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
@@ -1262,6 +1274,8 @@ pub fn run() {
             resize_window,
             get_shortcuts,
             set_shortcuts,
+            pause_shortcuts,
+            resume_shortcuts,
             get_keymaps,
             set_keymaps,
             open_settings_file,
@@ -1276,6 +1290,23 @@ pub fn run() {
             ) {
                 if let Some(window) = app.get_webview_window("main") {
                     persist_geometry(&window, &app.state::<AppState>());
+                }
+            }
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                if label == "settings" {
+                    let shortcuts = app
+                        .state::<AppState>()
+                        .settings
+                        .lock()
+                        .expect("settings")
+                        .shortcuts()
+                        .clone();
+                    let _ = shortcuts::resume(app, &shortcuts);
                 }
             }
         });

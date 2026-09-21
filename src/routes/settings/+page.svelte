@@ -12,24 +12,35 @@
   let recording = $state<Slot | null>(null);
   let message = $state("");
   let error = $state("");
+  let stopListen: (() => void) | null = null;
 
-  onMount(async () => {
-    const shortcuts = await invoke<Shortcuts>("get_shortcuts");
-    register = shortcuts.register;
-    show = shortcuts.show;
-    expand = shortcuts.expand;
-    quickPaste = shortcuts.quickPaste;
+  onMount(() => {
+    void (async () => {
+      const shortcuts = await invoke<Shortcuts>("get_shortcuts");
+      register = shortcuts.register;
+      show = shortcuts.show;
+      expand = shortcuts.expand;
+      quickPaste = shortcuts.quickPaste;
+    })();
+    return () => stopRecording();
   });
 
-  $effect(() => {
-    if (recording === null) {
-      return;
+  async function startRecording(slot: Slot) {
+    stopListen?.();
+    stopListen = null;
+    try {
+      await invoke("pause_shortcuts");
+    } catch {
+      // 外せなくても録る
     }
-    const slot = recording;
+    recording = slot;
+    message = "";
+    error = "";
     const onKey = (event: KeyboardEvent) => {
       event.preventDefault();
+      event.stopPropagation();
       if (event.key === "Escape" || (event.ctrlKey && event.key === "[")) {
-        recording = null;
+        stopRecording();
         return;
       }
       const value = fromEvent(event);
@@ -43,15 +54,25 @@
       } else {
         expand = value;
       }
-      recording = null;
-      message = "";
-      error = "";
+      stopRecording();
     };
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  });
+    stopListen = () => window.removeEventListener("keydown", onKey, true);
+  }
+
+  function stopRecording() {
+    stopListen?.();
+    stopListen = null;
+    if (recording !== null) {
+      recording = null;
+    }
+    void invoke("resume_shortcuts").catch(() => {
+      // 戻せなくても次の保存で付け直す
+    });
+  }
 
   async function save() {
+    stopRecording();
     message = "";
     error = "";
     try {
@@ -75,21 +96,21 @@
 
   <div class="row">
     <span class="name">登録</span>
-    <button type="button" class:recording={recording === "register"} onclick={() => (recording = "register")}>
+    <button type="button" class:recording={recording === "register"} onclick={() => void startRecording("register")}>
       {label("register", register)}
     </button>
   </div>
 
   <div class="row">
     <span class="name">表示</span>
-    <button type="button" class:recording={recording === "show"} onclick={() => (recording = "show")}>
+    <button type="button" class:recording={recording === "show"} onclick={() => void startRecording("show")}>
       {label("show", show)}
     </button>
   </div>
 
   <div class="row">
     <span class="name">タグ</span>
-    <button type="button" class:recording={recording === "expand"} onclick={() => (recording = "expand")}>
+    <button type="button" class:recording={recording === "expand"} onclick={() => void startRecording("expand")}>
       {label("expand", expand)}
     </button>
   </div>
@@ -100,7 +121,7 @@
     <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
   </label>
 
-  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。タグは前面で `#foo` / `{{date}}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。</p>
+  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。タグは前面で `#foo` / `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。</p>
 
   <div class="actions">
     <button type="button" class="save" onclick={save}>保存</button>
