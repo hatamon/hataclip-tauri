@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{val:a}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の #foo / {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の #foo / {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -48,7 +48,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}} {{env:USERPROFILE}} {{@foo}} {{val:a}}。{{@foo}} は #alias:foo の先の行の本文。{{val:a}} は :set a= の値。同じ名前を二度辿ったら空。貼る直前だけ置き換わる。履歴の本文は変わらない。",
+        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}} {{env:USERPROFILE}} {{@foo}} {{var:a}}。{{@foo}} は #alias:foo の先の行の本文。{{var:a}} は :set a= の値。同じ名前を二度辿ったら空。貼る直前だけ置き換わる。履歴の本文は変わらない。",
     ),
     (
         "gf",
@@ -60,7 +60,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{val:a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -117,7 +117,7 @@ mod tests {
         assert!(render(Some("sh")).contains("#run"));
         assert!(render(Some("edit")).contains("M は V 中"));
         assert!(render(Some("template")).contains("{{@foo}}"));
-        assert!(render(Some("template")).contains("{{val:a}}"));
+        assert!(render(Some("template")).contains("{{var:a}}"));
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains(":sh dir"));

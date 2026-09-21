@@ -51,7 +51,7 @@
 - [x] `E` のメモ帳フォールバック / `:settings` / `:set paste` / `target_keys`
 - [x] `:type`
 - [x] `#foo` を選んでタグの行を貼る
-- [x] `:set a="text"` / `{{val:a}}`
+- [x] `:set a="text"` / `{{var:a}}`
 - [x] `:echo`
 - [x] 選んだ `{{date}}` / `:sh` / `:echo` をタグ貼りのキーで置き換える
 

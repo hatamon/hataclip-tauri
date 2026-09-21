@@ -116,7 +116,7 @@ mod tests {
             Some("2026/09/21")
         );
         assert_eq!(
-            resolve_selection("date {{val:a}}", &ctx, None).as_deref(),
+            resolve_selection("date {{var:a}}", &ctx, None).as_deref(),
             Some("date 2026/09/21")
         );
         assert_eq!(

@@ -150,12 +150,12 @@ fn token_value(
         }
         return Some(std::env::var(name).unwrap_or_default());
     }
-    if let Some(name) = inner.strip_prefix("val:") {
+    if let Some(name) = inner.strip_prefix("var:") {
         let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
         }
-        let key = format!("val:{name}");
+        let key = format!("var:{name}");
         if !seen.insert(key) {
             return Some(String::new());
         }
@@ -503,7 +503,7 @@ mod tests {
             vars: std::collections::HashMap::from([
                 ("a".into(), "{{date}}".into()),
                 ("sum".into(), ":echo 2+3".into()),
-                ("loop".into(), "{{val:loop}}".into()),
+                ("loop".into(), "{{var:loop}}".into()),
             ]),
         }
     }
@@ -593,13 +593,13 @@ mod tests {
     }
 
     #[test]
-    fn expands_val_nested_and_stops_cycles() {
+    fn expands_var_nested_and_stops_cycles() {
         let ctx = sample_ctx();
-        assert_eq!(expand_template("date {{val:a}}", &ctx), "date 2026/09/20");
-        assert_eq!(expand_template("{{val:sum}}", &ctx), "5");
-        assert_eq!(expand_template("{{val:loop}}", &ctx), "");
-        assert_eq!(expand_template("{{val:missing}}", &ctx), "");
-        assert_eq!(expand_template("{{val:}}", &ctx), "");
+        assert_eq!(expand_template("date {{var:a}}", &ctx), "date 2026/09/20");
+        assert_eq!(expand_template("{{var:sum}}", &ctx), "5");
+        assert_eq!(expand_template("{{var:loop}}", &ctx), "");
+        assert_eq!(expand_template("{{var:missing}}", &ctx), "");
+        assert_eq!(expand_template("{{var:}}", &ctx), "");
     }
 
     #[test]
