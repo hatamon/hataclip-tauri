@@ -70,7 +70,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{host}}           コンピュータ名\n\
 {{env:USERPROFILE}}  同名の環境変数。無ければ空\n\
 {{@foo}}           #alias:foo の先の行の本文。差し込んだ本文も展開する。同じ名前を二度辿ったら空。エイリアス側の #run などは見ない\n\
-{{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）\n\
+{{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない\n\
 {{tag:work}}       いまの一覧でタグ work の本文。並びどおり、改行つなぎ。差し込んだ本文も展開する。同じタグを二度辿ったら空。その行の #run などは見ない\n\
 {{type:<Tab>}}     貼る途中でキーを送る。id{{type:<Tab>}}pass は id を貼って Tab を押して pass を貼る。{{type:<Ctrl+A>abc<Enter>}} {{type:<Ctrl+Shift+A>}} も可。矢印は <Up> <Down> <Left> <Right>。F キーは <F1>〜<F24>。文字は 1 文字ずつ。Tab Enter Esc Space BS Del Home End PgUp PgDn と Ctrl/Shift/Alt+それら\n\
 {{wait:200}}       そのあと 200ms 待つ。最大 5 秒\n\
@@ -86,7 +86,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -167,6 +167,8 @@ mod tests {
         assert!(render(Some("colon")).contains(":n 100"));
         assert!(render(Some("template")).contains(":n 100"));
         assert!(render(Some("colon")).contains(":set a="));
+        assert!(render(Some("colon")).contains(":set a+=1"));
+        assert!(render(Some("template")).contains(":set a+=1"));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains("次に一覧を出すとその行"));
         assert!(render(Some("sh")).contains(":!!sh"));

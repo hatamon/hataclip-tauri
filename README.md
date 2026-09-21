@@ -203,7 +203,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 | `:map` / `:mapleader` | いまの付け替えを表示。リーダーの初期値は Space。変えるときは `:mapleader ,` |
 | `:settings` | `settings.json` を nvim（無ければメモ帳）で開く。閉じたら読み直す。壊れていたら今の設定のまま |
 | `:set paste shift+insert` | いまの前面アプリの貼り付けキー。`ctrl+v` / `ctrl+shift+v` / `shift+insert` など |
-| `:set a="{{date}}"` | 変数。値は書いたまま。`{{var:a}}` で貼るとき展開。`:set` だけで一覧。`:set a=` で消す。`paste` は名前にできない |
+| `:set a="{{date}}"` | 変数。値は書いたまま。`{{var:a}}` で貼るとき展開。`:set` だけで一覧。`:set a=` で消す。`paste` は名前にできない。`:set a+=1` は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。`:set a=100` は数を変えて、増やす印は残す |
 | `:n 100` | `{{n}}` の初期値。`settings.json` に残る。`:n` だけでいまの値。`:n 1` で 1 から。`{{n:2}}` の `2` は桁 |
 | `:tags` | いまの一覧のタグと件数 |
 

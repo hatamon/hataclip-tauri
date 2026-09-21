@@ -360,6 +360,12 @@ fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<S
             }
             Ok(None)
         }
+        Some(SetCommand::Step(name)) => {
+            if !state.settings.lock().expect("settings").arm_step(&name) {
+                return Err("数字だけ".into());
+            }
+            Ok(None)
+        }
         None => Err("書き方が違う".into()),
     }
 }
@@ -451,6 +457,7 @@ fn paste_resolved_text(
     drop_once(state, ids);
     let _ = app.emit("items-changed", view(state));
     bump_n(state);
+    bump_step_vars(state, ids);
     if !keep_open {
         reset_n(state);
     }
@@ -838,6 +845,9 @@ fn run_paste(
             reveal_picker(app, state);
         }
         bump_n(state);
+        if ctx.is_some() {
+            bump_step_vars(state, ids);
+        }
         if !keep_open {
             reset_n(state);
         }
@@ -865,6 +875,9 @@ fn run_paste(
         drop_once(state, ids);
         let _ = app.emit("items-changed", view(state));
         bump_n(state);
+        if ctx.is_some() {
+            bump_step_vars(state, ids);
+        }
     } else if was_open {
         reveal_picker(app, state);
     }
@@ -929,6 +942,30 @@ fn peek_n(state: &AppState) -> u32 {
 fn bump_n(state: &AppState) {
     let mut serial = state.paste_serial.lock().expect("paste_serial");
     *serial = serial.saturating_add(1);
+}
+
+fn bump_step_vars(state: &AppState, ids: &[String]) {
+    let app = foreground_app(state);
+    let aliases = alias_map(state);
+    let names = {
+        let store = state.store.lock().expect("store");
+        let mut names = Vec::new();
+        for id in ids {
+            let Some(item) = store.get(id) else {
+                continue;
+            };
+            for name in text::referenced_vars(&item.text, &app, &aliases) {
+                if !names.iter().any(|existing| existing == &name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    };
+    if names.is_empty() {
+        return;
+    }
+    state.settings.lock().expect("settings").bump_steps(&names);
 }
 
 fn reset_n(state: &AppState) {

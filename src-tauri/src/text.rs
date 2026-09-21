@@ -569,6 +569,53 @@ pub fn has_sel_token(text: &str) -> bool {
     walk_tokens(text, token_has_sel)
 }
 
+/// 本文と差し込んだエイリアスから、書いてある `{{var:名前}}`。
+pub fn referenced_vars(
+    text: &str,
+    app: &str,
+    aliases: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_vars(&apply_when(text, app), app, aliases, &mut seen, &mut names);
+    names
+}
+
+fn collect_vars(
+    text: &str,
+    app: &str,
+    aliases: &std::collections::HashMap<String, String>,
+    seen_alias: &mut std::collections::HashSet<String>,
+    names: &mut Vec<String>,
+) {
+    walk_tokens(text, |inner| {
+        for part in fallback_parts(inner) {
+            if let Some(name) = arg_after(&part, "var") {
+                let name = name.trim();
+                if !name.is_empty()
+                    && !name.contains('{')
+                    && !names.iter().any(|existing| existing == name)
+                {
+                    names.push(name.to_string());
+                }
+            }
+            if let Some(alias) = part.strip_prefix('@') {
+                let alias = alias.trim();
+                if !alias.is_empty() && !alias.contains('{') && seen_alias.insert(alias.to_string())
+                {
+                    if let Some(body) = aliases.get(alias) {
+                        collect_vars(&apply_when(body, app), app, aliases, seen_alias, names);
+                    }
+                }
+            }
+            if part.contains("{{") && walk_tokens(&part, |_| true) {
+                collect_vars(&part, app, aliases, seen_alias, names);
+            }
+        }
+        false
+    });
+}
+
 pub fn has_sel_token_in(text: &str, app: &str) -> bool {
     walk_tokens(&apply_when(text, app), |inner| inner == "sel")
 }
@@ -1016,6 +1063,16 @@ mod tests {
         assert_eq!(
             expand_template("{{sel|hello {{date}}}}", &empty_sel),
             "hello 2026/09/20"
+        );
+        let aliases = std::collections::HashMap::from([("foo".into(), "{{var:a}}".into())]);
+        assert_eq!(
+            referenced_vars("{{var:b}} {{@foo}}", "code", &aliases),
+            vec!["b".to_string(), "a".to_string()]
+        );
+        assert!(referenced_vars("{{when excel}}{{var:a}}{{when}}", "code", &aliases).is_empty());
+        assert_eq!(
+            referenced_vars("{{var:a|なし}}", "code", &std::collections::HashMap::new()),
+            vec!["a".to_string()]
         );
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
     }

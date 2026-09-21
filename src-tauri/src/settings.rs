@@ -1,7 +1,7 @@
 use crate::actions;
 use crate::chord;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -98,6 +98,8 @@ struct SettingsFile {
     target_keys: BTreeMap<String, TargetKeys>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     vars: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    steps: BTreeSet<String>,
     #[serde(default = "default_n", skip_serializing_if = "is_default_n")]
     n: u32,
 }
@@ -109,6 +111,7 @@ pub struct Settings {
     keymaps: KeyMaps,
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
+    steps: BTreeSet<String>,
     n: u32,
 }
 
@@ -116,6 +119,7 @@ pub enum SetCommand {
     List,
     Paste(String),
     Var { name: String, value: String },
+    Step(String),
 }
 
 pub enum NCommand {
@@ -141,6 +145,7 @@ impl Settings {
             keymaps: loaded.keymaps,
             target_keys: loaded.target_keys,
             vars: loaded.vars,
+            steps: loaded.steps,
             n: loaded.n,
         }
     }
@@ -166,6 +171,7 @@ impl Settings {
         self.keymaps = loaded.keymaps;
         self.target_keys = loaded.target_keys;
         self.vars = loaded.vars;
+        self.steps = loaded.steps;
         self.n = loaded.n;
         true
     }
@@ -180,11 +186,52 @@ impl Settings {
         }
         if value.is_empty() {
             self.vars.remove(name);
+            self.steps.remove(name);
         } else {
+            if value.parse::<i64>().is_err() {
+                self.steps.remove(name);
+            }
             self.vars.insert(name.to_string(), value);
         }
         self.save();
         true
+    }
+
+    /// 貼って成功したあと 1 増やす。無い変数は 1。数字でなければ付けない。
+    pub fn arm_step(&mut self, name: &str) -> bool {
+        if !valid_var_name(name) {
+            return false;
+        }
+        match self.vars.get(name).map(String::as_str) {
+            None => {
+                self.vars.insert(name.to_string(), "1".into());
+            }
+            Some(value) if value.parse::<i64>().is_ok() => {}
+            Some(_) => return false,
+        }
+        self.steps.insert(name.to_string());
+        self.save();
+        true
+    }
+
+    pub fn bump_steps(&mut self, names: &[String]) {
+        let mut changed = false;
+        for name in names {
+            if !self.steps.contains(name) {
+                continue;
+            }
+            let Some(raw) = self.vars.get(name) else {
+                continue;
+            };
+            let Ok(n) = raw.parse::<i64>() else {
+                continue;
+            };
+            self.vars.insert(name.clone(), n.saturating_add(1).to_string());
+            changed = true;
+        }
+        if changed {
+            self.save();
+        }
     }
 
     pub fn n(&self) -> u32 {
@@ -202,7 +249,13 @@ impl Settings {
         }
         self.vars
             .iter()
-            .map(|(name, value)| format!("{name}={value}"))
+            .map(|(name, value)| {
+                if self.steps.contains(name) {
+                    format!("{name}={value} +1")
+                } else {
+                    format!("{name}={value}")
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -269,6 +322,7 @@ impl Settings {
             &self.keymaps,
             &self.target_keys,
             &self.vars,
+            &self.steps,
             self.n,
         );
     }
@@ -280,6 +334,7 @@ struct Loaded {
     keymaps: KeyMaps,
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
+    steps: BTreeSet<String>,
     n: u32,
 }
 
@@ -290,6 +345,7 @@ fn empty_loaded() -> Loaded {
         keymaps: KeyMaps::default(),
         target_keys: BTreeMap::new(),
         vars: BTreeMap::new(),
+        steps: BTreeSet::new(),
         n: default_n(),
     }
 }
@@ -311,12 +367,14 @@ fn from_file(file: SettingsFile) -> Loaded {
         quick_paste: file.shortcuts.quick_paste,
         expand: usable_expand(file.shortcuts.expand),
     };
+    let vars = sanitize_vars(file.vars);
     Loaded {
         shortcuts,
         window: file.window,
         keymaps: sanitize_keymaps(file.keymaps),
         target_keys: sanitize_target_keys(file.target_keys),
-        vars: sanitize_vars(file.vars),
+        steps: sanitize_steps(&file.steps, &vars),
+        vars,
         n: file.n,
     }
 }
@@ -325,6 +383,15 @@ pub fn parse_set(rest: &str) -> Option<SetCommand> {
     let rest = rest.trim();
     if rest.is_empty() {
         return Some(SetCommand::List);
+    }
+    if rest.contains("+=") {
+        let (name, amount) = rest.split_once("+=")?;
+        let name = name.trim();
+        let amount = amount.trim();
+        if amount != "1" || !valid_var_name(name) {
+            return None;
+        }
+        return Some(SetCommand::Step(name.to_string()));
     }
     if let Some(spec) = rest.strip_prefix("paste") {
         let spec = spec.trim();
@@ -467,6 +534,19 @@ fn sanitize_vars(raw: BTreeMap<String, String>) -> BTreeMap<String, String> {
         .collect()
 }
 
+fn sanitize_steps(raw: &BTreeSet<String>, vars: &BTreeMap<String, String>) -> BTreeSet<String> {
+    raw.iter()
+        .filter(|name| {
+            valid_var_name(name)
+                && vars
+                    .get(name.as_str())
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .is_some()
+        })
+        .cloned()
+        .collect()
+}
+
 fn write_file(
     path: &Path,
     shortcuts: &Shortcuts,
@@ -474,6 +554,7 @@ fn write_file(
     keymaps: &KeyMaps,
     target_keys: &BTreeMap<String, TargetKeys>,
     vars: &BTreeMap<String, String>,
+    steps: &BTreeSet<String>,
     n: u32,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -486,6 +567,7 @@ fn write_file(
         keymaps: keymaps.clone(),
         target_keys: target_keys.clone(),
         vars: vars.clone(),
+        steps: steps.clone(),
         n,
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
@@ -649,6 +731,10 @@ mod tests {
             Some(SetCommand::Var { name, value }) if name == "a" && value.is_empty()
         ));
         assert!(parse_set("1a=x").is_none());
+        assert!(matches!(parse_set("a+=1"), Some(SetCommand::Step(name)) if name == "a"));
+        assert!(matches!(parse_set("a += 1"), Some(SetCommand::Step(name)) if name == "a"));
+        assert!(parse_set("a+=2").is_none());
+        assert!(parse_set("1a+=1").is_none());
         assert!(matches!(parse_n(""), Some(NCommand::Show)));
         assert!(matches!(parse_n("100"), Some(NCommand::Set(100))));
         assert!(matches!(parse_n(" 0 "), Some(NCommand::Set(0))));
@@ -677,7 +763,31 @@ mod tests {
         assert!(settings.reload());
         assert_eq!(settings.vars().get("ok").map(String::as_str), Some("1"));
         assert!(!settings.vars().contains_key("paste"));
-        assert!(!settings.vars().contains_key("1bad"));
+        assert!(settings.vars().get("1bad").is_none());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn step_starts_at_one_and_bumps_after_paste() {
+        let path = temp_path("steps");
+        let _ = fs::remove_file(&path);
+        let mut settings = Settings::load(path.clone());
+        assert!(settings.arm_step("a"));
+        assert_eq!(settings.vars().get("a").map(String::as_str), Some("1"));
+        assert_eq!(settings.format_vars(), "a=1 +1");
+        settings.bump_steps(&["a".into(), "missing".into()]);
+        assert_eq!(
+            Settings::load(path.clone()).vars().get("a").map(String::as_str),
+            Some("2")
+        );
+        assert!(settings.set_var("a", "10".into()));
+        settings.bump_steps(&["a".into()]);
+        assert_eq!(settings.vars().get("a").map(String::as_str), Some("11"));
+        assert!(settings.set_var("b", "{{date}}".into()));
+        assert!(!settings.arm_step("b"));
+        assert!(settings.set_var("a", String::new()));
+        assert!(settings.vars().get("a").is_none());
+        assert_eq!(settings.format_vars(), "b={{date}}");
         let _ = fs::remove_file(path);
     }
 }
