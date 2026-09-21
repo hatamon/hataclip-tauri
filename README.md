@@ -65,7 +65,7 @@ docker compose down -v
 
 ## キー操作
 
-一覧の中で `:help`。機能ごとなら `:help sh`。
+一覧の中で `:help`。機能ごとなら `:help sh`。`{{date}}` などのトークンは `:help template`。
 
 ### 移動
 
@@ -162,7 +162,7 @@ docker compose down -v
 
 | コマンド | 動き |
 | --- | --- |
-| `:help` / `:help sh` | 使い方。`j` / `k` でスクロール |
+| `:help` / `:help sh` / `:help template` | 使い方。`j` / `k` でスクロール。`{{date}}` などの一覧は `template` |
 | `:sh dir` | 1 行実行して標準出力を貼る。履歴には残さない |
 | `:@` | 直前の `:sh` をもう一度 |
 | `:export <path>` | 履歴を Markdown に書く |

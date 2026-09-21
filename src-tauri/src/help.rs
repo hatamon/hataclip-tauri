@@ -48,7 +48,25 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}} {{env:USERPROFILE}} {{@foo}} {{var:a}}。{{@foo}} は #alias:foo の先の行の本文。{{var:a}} は :set a= の値。同じ名前を二度辿ったら空。貼る直前だけ置き換わる。履歴の本文は変わらない。",
+        "貼る直前だけ置き換わる。履歴の本文は変わらない。\n\
+\n\
+{{date}}           2026/09/20\n\
+{{time}}           10:54\n\
+{{date:%Y%m%d}}    chrono の strftime\n\
+{{clip}}           いまのクリップボード。空なら空\n\
+{{sel}}            前面の選択。無ければ空\n\
+{{ask:名前}}       貼る前に入力。同じ名前は 1 回\n\
+{{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く\n\
+{{app}}            前面アプリのプロセス名。無ければ空\n\
+{{front}}          前面ウィンドウのタイトル。無ければ空\n\
+{{n}} / {{n:2}}    連番。Ctrl+Enter で増える。閉じると 1 に戻る\n\
+{{uuid}}           UUID v4\n\
+{{user}}           ログイン名\n\
+{{host}}           コンピュータ名\n\
+{{env:USERPROFILE}}  同名の環境変数。無ければ空\n\
+{{@foo}}           #alias:foo の先の行の本文。差し込んだ本文も展開する。同じ名前を二度辿ったら空。エイリアス側の #run などは見ない\n\
+{{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない\n\
+{{sh: コマンド}}   #run 付きの行だけ実行。標準出力。失敗したら貼らない",
     ),
     (
         "gf",
@@ -78,7 +96,7 @@ const OVERVIEW: &str = "\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
 :      help  sh  @  echo  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  settings\n\
 \n\
-詳しくは :help keys  :help paste  :help tag  :help edit  :help colon  :help map  のように。j / k でスクロール。\
+詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
 
 pub fn topics() -> Vec<String> {
@@ -118,6 +136,8 @@ mod tests {
         assert!(render(Some("edit")).contains("M は V 中"));
         assert!(render(Some("template")).contains("{{@foo}}"));
         assert!(render(Some("template")).contains("{{var:a}}"));
+        assert!(render(Some("template")).contains("{{sh: コマンド}}"));
+        assert!(render(None).contains(":help template"));
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains(":sh dir"));
