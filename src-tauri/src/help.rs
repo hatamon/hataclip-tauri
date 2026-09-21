@@ -58,7 +58,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{date:%Y%m%d}}    chrono の strftime\n\
 {{date-1d}}        昨日。{{date-1d:%Y%m%d}} {{date+2d}} {{date+1w}} {{date+1m}} も可\n\
 {{clip}}           いまのクリップボード。空なら空\n\
-{{sel}}            前面の選択。無ければ空\n\
+{{sel}}            前面の選択。無ければ空。{{sel|clip}} は空なら隣。隣がトークンなら展開し、違う文字ならそのまま。{{front|無題}} {{sel|clip|なし}}\n\
 {{ask:名前}}       貼る前に入力。同じ名前は 1 回\n\
 {{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。候補に {{var:a}} を書ける。{{pick tag:env}} はタグ env の本文\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
@@ -161,6 +161,7 @@ mod tests {
         assert!(render(Some("template")).contains("{{tag:work}}"));
         assert!(render(Some("template")).contains("{{wait:200}}"));
         assert!(render(Some("template")).contains("{{date-1d}}"));
+        assert!(render(Some("template")).contains("{{sel|clip}}"));
         assert!(render(Some("colon")).contains(":tags"));
         assert!(render(None).contains(":help template"));
         assert!(render(Some("colon")).contains(":n 100"));

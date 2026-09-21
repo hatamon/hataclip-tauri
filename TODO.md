@@ -67,6 +67,7 @@
 - [x] 貼ったあと一覧を出すと、選んでいた行に戻る
 - [x] `{{var: {{var: b}}}}` / `#lock` で削除防止
 - [x] `#slot:3` / `{{pick tag:env}}` / `#confirm` / `ga` / `{{date+1w}}` `{{date+1m}}`
+- [x] `{{sel|clip}}` 空なら隣
 - [x] `:format` / `:raw` / `:join` / `:open`（旧 Shift+Enter / g Enter / gJ / gT / gf）
 - [x] `:quote` に行頭の印を渡せる。未指定は `> `。空白は `:quote "* "`。`:bullet` は別名
 - [x] `:join` で区切り指定。未指定は `,`。タブは `:join "\\t"`。`:comma` / `:tab` は別名

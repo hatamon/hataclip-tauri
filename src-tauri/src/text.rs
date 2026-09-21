@@ -266,11 +266,71 @@ pub fn apply_when(text: &str, app: &str) -> String {
     out
 }
 
+/// `{{sel|clip}}` の `|`。入れ子の `{{ }}` の中では切らない。
+fn fallback_parts(inner: &str) -> Vec<String> {
+    let chars: Vec<char> = inner.chars().collect();
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            depth += 1;
+            buf.push(chars[i]);
+            buf.push(chars[i + 1]);
+            i += 2;
+            continue;
+        }
+        if depth > 0 && chars[i] == '}' && chars.get(i + 1) == Some(&'}') {
+            depth -= 1;
+            buf.push(chars[i]);
+            buf.push(chars[i + 1]);
+            i += 2;
+            continue;
+        }
+        if depth == 0 && chars[i] == '|' {
+            parts.push(buf.trim().to_string());
+            buf.clear();
+            i += 1;
+            continue;
+        }
+        buf.push(chars[i]);
+        i += 1;
+    }
+    parts.push(buf.trim().to_string());
+    parts
+}
+
+fn fallback_value(
+    parts: &[String],
+    ctx: &Expand,
+    seen: &mut std::collections::HashSet<String>,
+) -> String {
+    let Some((head, rest)) = parts.split_first() else {
+        return String::new();
+    };
+    if let Some(value) = token_value(head, ctx, seen) {
+        if !value.is_empty() || rest.is_empty() {
+            return value;
+        }
+        return fallback_value(rest, ctx, seen);
+    }
+    expand_seen(&parts.join("|"), ctx, seen)
+}
+
 fn token_value(
     inner: &str,
     ctx: &Expand,
     seen: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
+    let parts = fallback_parts(inner);
+    if parts.len() > 1 {
+        let head = token_value(&parts[0], ctx, seen)?;
+        if !head.is_empty() {
+            return Some(head);
+        }
+        return Some(fallback_value(&parts[1..], ctx, seen));
+    }
     if inner == "date" {
         return Some(ctx.date.clone());
     }
@@ -499,8 +559,14 @@ where
         .or_else(|| (index < items.len()).then_some(index))
 }
 
+fn token_has_sel(inner: &str) -> bool {
+    fallback_parts(inner)
+        .iter()
+        .any(|part| part == "sel" || walk_tokens(part, token_has_sel))
+}
+
 pub fn has_sel_token(text: &str) -> bool {
-    walk_tokens(text, |inner| inner == "sel")
+    walk_tokens(text, token_has_sel)
 }
 
 pub fn has_sel_token_in(text: &str, app: &str) -> bool {
@@ -933,7 +999,24 @@ mod tests {
         assert_eq!(ask_names("{{ask a}} {{ask:b}}"), vec!["a", "b"]);
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
         assert!(has_sel_token("x {{sel}} y"));
+        assert!(has_sel_token("{{sel|clip}}"));
         assert!(!has_sel_token("{{clip}}"));
+        assert!(!has_sel_token("{{clip|front}}"));
+        let mut empty_sel = sample_ctx();
+        empty_sel.sel.clear();
+        assert_eq!(expand_template("{{sel|clip}}", &empty_sel), "CLIP");
+        assert_eq!(expand_template("{{sel|clip}}", &ctx), "SEL");
+        let mut empty_front = sample_ctx();
+        empty_front.front.clear();
+        assert_eq!(expand_template("{{front|無題}}", &empty_front), "無題");
+        assert_eq!(expand_template("{{front|無題}}", &ctx), "TODO.md");
+        empty_sel.clip.clear();
+        assert_eq!(expand_template("{{sel|clip|なし}}", &empty_sel), "なし");
+        assert_eq!(expand_template("{{nope|clip}}", &ctx), "{{nope|clip}}");
+        assert_eq!(
+            expand_template("{{sel|hello {{date}}}}", &empty_sel),
+            "hello 2026/09/20"
+        );
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
     }
 
