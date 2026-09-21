@@ -203,6 +203,7 @@ fn paste_items(
             .expect("store")
             .record_context(&ids, &key);
     }
+    state.store.lock().expect("store").bump_paste(&ids);
     paste_text(&app, &state, &text, keep_open);
     if !keep_open {
         *state.paste_serial.lock().expect("paste_serial") = 0;

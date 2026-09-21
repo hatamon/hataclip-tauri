@@ -18,6 +18,8 @@ pub struct Item {
     /// 貼り付け先アプリの目印。新しい順。
     #[serde(default)]
     pub contexts: Vec<String>,
+    #[serde(default)]
+    pub paste_count: u32,
 }
 
 impl Item {
@@ -28,6 +30,7 @@ impl Item {
             tags,
             pinned: false,
             contexts: Vec::new(),
+            paste_count: 0,
         }
     }
 }
@@ -46,12 +49,18 @@ pub struct Store {
 
 impl Store {
     pub fn load(path: PathBuf) -> Self {
-        let items = read_items(&path);
-        Self {
+        let mut items = read_items(&path);
+        let before = items.len();
+        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp"));
+        let store = Self {
             path,
             items,
             undo: Vec::new(),
+        };
+        if store.items.len() != before {
+            store.save();
         }
+        store
     }
 
     pub fn list(&self) -> &[Item] {
@@ -195,12 +204,37 @@ impl Store {
         }
     }
 
+    pub fn bump_paste(&mut self, ids: &[String]) {
+        let mut changed = false;
+        for item in self.items.iter_mut() {
+            if ids.iter().any(|id| id == &item.id) {
+                item.paste_count = item.paste_count.saturating_add(1);
+                changed = true;
+            }
+        }
+        if changed {
+            self.save();
+        }
+    }
+
+    pub fn clear_unpinned(&mut self) -> bool {
+        let before = self.items.len();
+        self.items.retain(|item| item.pinned);
+        self.undo.clear();
+        if self.items.len() != before {
+            self.save();
+            true
+        } else {
+            false
+        }
+    }
+
     fn save(&self) {
         let _ = write_items(&self.path, &self.items);
     }
 }
 
-/// 一覧に出す順番。ピン留め、次に同じ貼り付け先で使ったもの、あとは新しい順のまま。
+/// 一覧に出す順番。ピン留め、同じ貼り付け先、回数の多い順、新しい順。
 pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
     let mut pinned = Vec::new();
     let mut same_context = Vec::new();
@@ -214,9 +248,16 @@ pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
             rest.push(item.clone());
         }
     }
+    sort_by_count(&mut pinned);
+    sort_by_count(&mut same_context);
+    sort_by_count(&mut rest);
     pinned.append(&mut same_context);
     pinned.append(&mut rest);
     pinned
+}
+
+fn sort_by_count(items: &mut [Item]) {
+    items.sort_by(|a, b| b.paste_count.cmp(&a.paste_count));
 }
 
 pub fn new_id() -> String {
@@ -267,6 +308,7 @@ mod tests {
             tags: Vec::new(),
             pinned: false,
             contexts: Vec::new(),
+            paste_count: 0,
         }
     }
 
@@ -433,6 +475,38 @@ mod tests {
         );
         let without = ordered_ids(&items, None);
         assert_eq!(without, vec!["c", "a", "b"]);
+    }
+
+    #[test]
+    fn ordering_puts_higher_paste_counts_first_inside_a_group() {
+        let items = vec![
+            Item {
+                paste_count: 1,
+                ..item("a", "one")
+            },
+            Item {
+                paste_count: 5,
+                ..item("b", "two")
+            },
+            item("c", "three"),
+        ];
+        assert_eq!(ordered_ids(&items, None), vec!["b", "a", "c"]);
+    }
+
+    #[test]
+    fn load_drops_tmp_tagged_rows() {
+        let path = temp_path("tmp");
+        fs::write(
+            &path,
+            r#"{"version":1,"items":[{"id":"1","text":"keep","tags":[]},{"id":"2","text":"gone","tags":["tmp"]}]}"#,
+        )
+        .unwrap();
+        let store = Store::load(path.clone());
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].id, "1");
+        let reloaded = Store::load(path.clone());
+        assert_eq!(reloaded.list().len(), 1);
+        let _ = fs::remove_file(path);
     }
 
     fn ordered_ids(items: &[Item], context: Option<&str>) -> Vec<String> {
