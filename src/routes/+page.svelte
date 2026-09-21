@@ -3,6 +3,11 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import { uniqueAskNames } from "$lib/ask";
+  import {
+    applyColonCompletion,
+    matchingColonCommands,
+  } from "$lib/colon";
+  import { uniquePickSpecs, type PickSpec } from "$lib/pick";
   import { fuzzyFilter } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
   import {
@@ -16,7 +21,7 @@
   } from "$lib/tags";
   import type { Item } from "$lib/types";
 
-  type Mode = "normal" | "search" | "editing" | "tag" | "colon" | "help" | "ask";
+  type Mode = "normal" | "search" | "editing" | "tag" | "colon" | "help" | "ask" | "pick";
 
   // `.` で繰り返せる変更。移動やヤンクは覚えない。
   type Change =
@@ -25,7 +30,10 @@
     | { kind: "tag"; tag: string; add: boolean }
     | { kind: "pin"; pinned: boolean }
     | { kind: "split" }
-    | { kind: "move"; delta: number };
+    | { kind: "move"; delta: number }
+    | { kind: "merge" }
+    | { kind: "clone" }
+    | { kind: "sub"; old: string; new: string };
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
@@ -69,7 +77,23 @@
     format: boolean;
     raw: boolean;
     separator: string;
+    prefix?: string;
   } | null>(null);
+  let lastPaste = $state<{
+    ids: string[];
+    keepOpen: boolean;
+    format: boolean;
+    raw: boolean;
+    separator: string;
+    prefix?: string;
+    answers: Record<string, string>;
+  } | null>(null);
+  let pickQueue = $state<PickSpec[]>([]);
+  let pickIndex = $state(0);
+  let pickChoice = $state(0);
+  let info = $state(false);
+  let whichPrefix = $state("");
+  let whichTimer: ReturnType<typeof setTimeout> | null = null;
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
@@ -112,6 +136,35 @@
   const editSuggestions = $derived(
     tagDraft.length === 0 ? [] : matchingTags(tagDraft, allTags.filter((tag) => !editTags.includes(tag))),
   );
+  const colonSuggestions = $derived(
+    mode === "colon" ? matchingColonCommands(colonInput) : [],
+  );
+
+  const whichKeys = $derived.by(() => {
+    if (whichPrefix === "g") {
+      return [
+        { key: "g", label: "先頭" },
+        { key: "f", label: "開く" },
+        { key: "Enter", label: "本文のまま" },
+        { key: "J", label: "カンマ" },
+        { key: "T", label: "タブ" },
+        { key: ">", label: "引用" },
+        { key: "*", label: "箇条書き" },
+        { key: "p", label: "直前の貼り付け" },
+        { key: "?", label: "行の情報" },
+      ];
+    }
+    if (whichPrefix === "d") {
+      return [{ key: "d", label: "削除" }];
+    }
+    if (whichPrefix === "y") {
+      return [{ key: "y", label: "ヤンク" }];
+    }
+    if (whichPrefix === "f") {
+      return [{ key: "文字", label: "その文字へ" }];
+    }
+    return [];
+  });
 
   $effect(() => {
     if (selected >= filtered.length) {
@@ -132,6 +185,26 @@
     if (mode === "ask") {
       queueMicrotask(() => askEl?.focus());
     }
+  });
+
+  $effect(() => {
+    const prefix = pending;
+    if (whichTimer) {
+      clearTimeout(whichTimer);
+      whichTimer = null;
+    }
+    whichPrefix = "";
+    if (prefix === "g" || prefix === "d" || prefix === "y" || prefix === "f") {
+      whichTimer = setTimeout(() => {
+        whichPrefix = prefix;
+      }, 400);
+    }
+    return () => {
+      if (whichTimer) {
+        clearTimeout(whichTimer);
+        whichTimer = null;
+      }
+    };
   });
 
   $effect(() => {
@@ -163,33 +236,35 @@
     format = false,
     raw = false,
     separator = "\n",
+    prefix?: string,
   ) {
     if (selectedIds.length === 0) {
       return;
     }
     const ids = selectedIds;
+    const rows = selectedItems;
     if (!raw) {
-      const names = uniqueAskNames(selectedItems);
+      const names = uniqueAskNames(rows);
       if (names.length > 0) {
         clearSelection();
         askQueue = names;
         askIndex = 0;
         askDraft = "";
         askAnswers = {};
-        pendingPaste = { ids, keepOpen, format, raw, separator };
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix };
         mode = "ask";
+        return;
+      }
+      const picks = uniquePickSpecs(rows);
+      if (picks.length > 0) {
+        clearSelection();
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix };
+        startPicks(picks);
         return;
       }
     }
     clearSelection();
-    await invoke("paste_items", {
-      ids,
-      keepOpen,
-      format,
-      raw,
-      separator,
-      answers: {},
-    });
+    await invokePaste({ ids, keepOpen, format, raw, separator, prefix, answers: {} });
   }
 
   async function pasteRow(index: number, keepOpen: boolean) {
@@ -209,7 +284,13 @@
       mode = "ask";
       return;
     }
-    await invoke("paste_items", {
+    const picks = uniquePickSpecs([item]);
+    if (picks.length > 0) {
+      pendingPaste = { ids: [item.id], keepOpen, format: false, raw: false, separator: "\n" };
+      startPicks(picks);
+      return;
+    }
+    await invokePaste({
       ids: [item.id],
       keepOpen,
       format: false,
@@ -217,6 +298,58 @@
       separator: "\n",
       answers: {},
     });
+  }
+
+  async function invokePaste(opts: {
+    ids: string[];
+    keepOpen: boolean;
+    format: boolean;
+    raw: boolean;
+    separator: string;
+    prefix?: string;
+    answers: Record<string, string>;
+  }) {
+    const ok = await invoke<boolean>("paste_items", {
+      ids: opts.ids,
+      keepOpen: opts.keepOpen,
+      format: opts.format,
+      raw: opts.raw,
+      separator: opts.separator,
+      answers: opts.answers,
+      prefix: opts.prefix ?? null,
+    });
+    if (ok) {
+      lastPaste = { ...opts };
+    }
+  }
+
+  function startPicks(picks: PickSpec[]) {
+    pickQueue = picks;
+    pickIndex = 0;
+    pickChoice = 0;
+    mode = "pick";
+  }
+
+  async function continueAfterPrompts() {
+    const pending = pendingPaste;
+    if (pending === null) {
+      return;
+    }
+    const rows = pending.ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter((item): item is Item => item !== undefined);
+    const remaining = uniquePickSpecs(rows).filter(
+      (entry) => askAnswers[`pick:${entry.spec}`] === undefined,
+    );
+    if (remaining.length > 0 && pickQueue.length === 0) {
+      startPicks(remaining);
+      return;
+    }
+    pendingPaste = null;
+    pickQueue = [];
+    mode = "normal";
+    await invokePaste({ ...pending, answers: askAnswers });
+    askAnswers = {};
   }
 
   async function copySelection() {
@@ -323,6 +456,15 @@
         return;
       case "move":
         await movePins(lastChange.delta);
+        return;
+      case "merge":
+        await mergeSelection();
+        return;
+      case "clone":
+        await cloneSelection();
+        return;
+      case "sub":
+        await substituteSelection(lastChange.old, lastChange.new);
     }
   }
 
@@ -349,6 +491,59 @@
     selectById(id);
     lastChange = { kind: "move", delta };
   }
+
+  async function mergeSelection() {
+    if (anchor === null || selectedIds.length < 2) {
+      return;
+    }
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("merge_items", { ids });
+    lastChange = { kind: "merge" };
+  }
+
+  async function cloneSelection() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("clone_items", { ids });
+    selectById(id);
+    lastChange = { kind: "clone" };
+  }
+
+  async function substituteSelection(old: string, next: string) {
+    if (old.length === 0 || selectedIds.length === 0) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    const ids = selectedIds;
+    clearSelection();
+    items = await invoke<Item[]>("substitute_items", { ids, old, new: next });
+    selectById(id);
+    lastChange = { kind: "sub", old, new: next };
+  }
+
+  function pageMove(direction: number) {
+    const height = listEl?.clientHeight ?? 140;
+    const step = Math.max(1, Math.floor(height / 48));
+    move(direction * step);
+  }
+
+  async function replayLastPaste() {
+    if (lastPaste === null) {
+      return;
+    }
+    if (!lastPaste.ids.every((id) => items.some((item) => item.id === id))) {
+      lastPaste = null;
+      return;
+    }
+    await invokePaste(lastPaste);
+  }
+
+  function startEdit() {
     const item = currentItem();
     if (!item) {
       return;
@@ -441,6 +636,9 @@
     findChar = "";
     askQueue = [];
     pendingPaste = null;
+    pickQueue = [];
+    info = false;
+    whichPrefix = "";
     colonHistIndex = -1;
     void invoke<string | null>("get_context").then((key) => {
       contextKey = key;
@@ -482,24 +680,17 @@
   }
 
   async function finishAsk(commit: boolean) {
-    const pending = pendingPaste;
     askQueue = [];
-    pendingPaste = null;
-    mode = "normal";
     askDraft = "";
-    if (!commit || pending === null) {
+    if (!commit) {
+      pendingPaste = null;
+      pickQueue = [];
+      mode = "normal";
       askAnswers = {};
       return;
     }
-    await invoke("paste_items", {
-      ids: pending.ids,
-      keepOpen: pending.keepOpen,
-      format: pending.format,
-      raw: pending.raw,
-      separator: pending.separator,
-      answers: askAnswers,
-    });
-    askAnswers = {};
+    mode = "normal";
+    await continueAfterPrompts();
   }
 
   function onAskKeydown(event: KeyboardEvent) {
@@ -525,6 +716,50 @@
       }
     }
   }
+
+  function onPickKeydown(event: KeyboardEvent) {
+    if (event.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (isEscape(event)) {
+      pendingPaste = null;
+      pickQueue = [];
+      askAnswers = {};
+      mode = "normal";
+      return;
+    }
+    const options = pickQueue[pickIndex]?.options ?? [];
+    if (event.key === "j" || event.key === "ArrowDown") {
+      if (options.length > 0) {
+        pickChoice = Math.min(options.length - 1, pickChoice + 1);
+      }
+      return;
+    }
+    if (event.key === "k" || event.key === "ArrowUp") {
+      pickChoice = Math.max(0, pickChoice - 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      const spec = pickQueue[pickIndex];
+      if (!spec) {
+        return;
+      }
+      const value = spec.options[pickChoice] ?? "";
+      askAnswers = { ...askAnswers, [`pick:${spec.spec}`]: value };
+      if (pickIndex + 1 >= pickQueue.length) {
+        pickQueue = [];
+        mode = "normal";
+        void continueAfterPrompts();
+      } else {
+        pickIndex += 1;
+        pickChoice = 0;
+      }
+    }
+  }
+
+  function gotoFile() {
     const item = selectedItems[0];
     if (!item) {
       return;
@@ -566,12 +801,41 @@
       }
       return;
     }
+    if (line === "clear") {
       colonInput = "clear yes";
       mode = "colon";
       return;
     }
     if (line === "clear yes") {
       items = await invoke<Item[]>("clear_unpinned");
+      return;
+    }
+    if (line === "quote") {
+      void pasteSelection(false, false, false, "\n", "> ");
+      return;
+    }
+    if (line === "bullet") {
+      void pasteSelection(false, false, false, "\n", "* ");
+      return;
+    }
+    if (line.startsWith("s/")) {
+      const rest = line.slice(2);
+      const cut = rest.indexOf("/");
+      if (cut <= 0) {
+        return;
+      }
+      const old = rest.slice(0, cut);
+      const next = rest.slice(cut + 1);
+      void substituteSelection(old, next);
+      return;
+    }
+    if (line === "dedup") {
+      colonInput = "dedup yes";
+      mode = "colon";
+      return;
+    }
+    if (line === "dedup yes") {
+      items = await invoke<Item[]>("dedup_items");
       return;
     }
     if (line === "sh" || line === "sh ") {
@@ -638,14 +902,33 @@
       event.preventDefault();
       event.stopPropagation();
       const trimmed = colonInput.trim();
-      if (!trimmed.startsWith("help")) {
+      if (trimmed.startsWith("help")) {
+        const prefix = trimmed === "help" ? "" : trimmed.slice(4).trim();
+        const list = helpTopics.filter((name) => name.startsWith(prefix));
+        if (list.length === 0) {
+          return;
+        }
+        const current = prefix;
+        let index = list.indexOf(current);
+        if (event.shiftKey) {
+          index = index <= 0 ? list.length - 1 : index - 1;
+        } else {
+          index = index < 0 || index >= list.length - 1 ? 0 : index + 1;
+        }
+        colonInput = `help ${list[index]}`;
         return;
       }
-      const prefix = trimmed === "help" ? "" : trimmed.slice(4).trim();
-      const topic = helpTopics.find((name) => name.startsWith(prefix));
-      if (topic) {
-        colonInput = `help ${topic}`;
+      if (colonSuggestions.length === 0) {
+        return;
       }
+      const token = trimmed.split(/[\s/]/)[0] ?? "";
+      let index = colonSuggestions.indexOf(token);
+      if (event.shiftKey) {
+        index = index <= 0 ? colonSuggestions.length - 1 : index - 1;
+      } else {
+        index = index < 0 || index >= colonSuggestions.length - 1 ? 0 : index + 1;
+      }
+      colonInput = applyColonCompletion(colonInput, colonSuggestions[index]);
     }
   }
 
@@ -787,6 +1070,10 @@
     if (mode === "search" || mode === "tag" || mode === "colon" || mode === "ask") {
       return;
     }
+    if (mode === "pick") {
+      onPickKeydown(event);
+      return;
+    }
     if (mode === "help") {
       if (isEscape(event)) {
         event.preventDefault();
@@ -820,7 +1107,11 @@
 
     if (isEscape(event)) {
       event.preventDefault();
-      pending = "";
+      if (pending.length > 0 || whichPrefix.length > 0) {
+        pending = "";
+        whichPrefix = "";
+        return;
+      }
       if (anchor !== null) {
         clearSelection();
       } else {
@@ -851,6 +1142,38 @@
       }
       return;
     }
+    if (pending === "g" && event.key === "T") {
+      event.preventDefault();
+      pending = "";
+      if (anchor !== null) {
+        void pasteSelection(false, false, false, "\t");
+      }
+      return;
+    }
+    if (pending === "g" && event.key === ">") {
+      event.preventDefault();
+      pending = "";
+      void pasteSelection(false, false, false, "\n", "> ");
+      return;
+    }
+    if (pending === "g" && event.key === "*") {
+      event.preventDefault();
+      pending = "";
+      void pasteSelection(false, false, false, "\n", "* ");
+      return;
+    }
+    if (pending === "g" && event.key === "p") {
+      event.preventDefault();
+      pending = "";
+      void replayLastPaste();
+      return;
+    }
+    if (pending === "g" && event.key === "?") {
+      event.preventDefault();
+      pending = "";
+      info = !info;
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       pending = "";
@@ -869,6 +1192,18 @@
       event.preventDefault();
       pending = "";
       void redoChange();
+      return;
+    }
+    if (isCtrl(event, "d")) {
+      event.preventDefault();
+      pending = "";
+      pageMove(1);
+      return;
+    }
+    if (isCtrl(event, "u")) {
+      event.preventDefault();
+      pending = "";
+      pageMove(-1);
       return;
     }
     if (isCtrl(event, "c")) {
@@ -1013,6 +1348,18 @@
       void splitSelection();
       return;
     }
+    if (event.key === "M") {
+      event.preventDefault();
+      pending = "";
+      void mergeSelection();
+      return;
+    }
+    if (event.key === "c") {
+      event.preventDefault();
+      pending = "";
+      void cloneSelection();
+      return;
+    }
     if (event.key === ";") {
       event.preventDefault();
       pending = "";
@@ -1117,10 +1464,27 @@
       items = event.payload;
     });
 
+    let stopDrop: (() => void) | undefined;
+    void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
+      void getCurrentWebview()
+        .onDragDropEvent((event) => {
+          if (event.payload.type !== "drop") {
+            return;
+          }
+          void invoke<Item[]>("drop_paths", { paths: event.payload.paths }).then((next) => {
+            items = next;
+          });
+        })
+        .then((stop) => {
+          stopDrop = stop;
+        });
+    });
+
     return () => {
       window.removeEventListener("keydown", onKey);
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
+      stopDrop?.();
     };
   });
 </script>
@@ -1181,9 +1545,24 @@
         bind:this={colonEl}
         bind:value={colonInput}
         class="search"
-        placeholder=":help  :sh  :export  :import  :clear"
+        placeholder=":help  :quote  :bullet  :s/  :dedup"
         onkeydown={onColonKeydown}
       />
+      {#if colonSuggestions.length > 0}
+        <ul class="suggest">
+          {#each colonSuggestions as name (name)}
+            <li>
+              <button
+                type="button"
+                onclick={() => {
+                  colonInput = applyColonCompletion(colonInput, name);
+                  colonEl?.focus();
+                }}>{name}</button
+              >
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
     {#if mode === "search"}
       <input
@@ -1218,6 +1597,34 @@
         onkeydown={onAskKeydown}
       />
     {/if}
+    {#if mode === "pick" && pickQueue[pickIndex]}
+      <div class="search pick">
+        <span class="hint">{pickQueue[pickIndex].spec}</span>
+        <ul class="suggest">
+          {#each pickQueue[pickIndex].options as option, index (option)}
+            <li>
+              <button
+                type="button"
+                class:active={index === pickChoice}
+                onclick={() => {
+                  pickChoice = index;
+                  const spec = pickQueue[pickIndex];
+                  askAnswers = { ...askAnswers, [`pick:${spec.spec}`]: option };
+                  if (pickIndex + 1 >= pickQueue.length) {
+                    pickQueue = [];
+                    mode = "normal";
+                    void continueAfterPrompts();
+                  } else {
+                    pickIndex += 1;
+                    pickChoice = 0;
+                  }
+                }}>{option}</button
+              >
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
     {#if mode === "tag"}
       <input
         bind:this={tagEl}
@@ -1244,6 +1651,18 @@
     {/if}
     {#if preview && currentItem()}
       <pre class="preview">{isSecret(currentItem()!) ? "••••" : currentItem()!.text}</pre>
+    {/if}
+    {#if info && currentItem()}
+      <pre class="preview">{`count ${currentItem()!.paste_count}
+context ${currentItem()!.contexts.join(" ") || "—"}
+tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
+    {/if}
+    {#if whichKeys.length > 0}
+      <ul class="suggest which">
+        {#each whichKeys as entry (entry.key)}
+          <li><span class="pin">{entry.key}</span> {entry.label}</li>
+        {/each}
+      </ul>
     {/if}
     <ul class="list" bind:this={listEl}>
       {#each filtered as item, index (item.id)}
@@ -1370,6 +1789,7 @@
     background: #234;
   }
 
+  .suggest button.active,
   li.active .row,
   .row:hover {
     background: #2c4a6e;
