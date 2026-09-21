@@ -247,6 +247,42 @@ impl Store {
         true
     }
 
+    pub fn set_app_tag(&mut self, ids: &[String], app: &str) -> bool {
+        let app = app.trim().to_lowercase();
+        if app.is_empty() || ids.is_empty() {
+            return false;
+        }
+        let tag = format!("app:{app}");
+        let mut changed = false;
+        for item in self.items.iter() {
+            if !ids.iter().any(|id| id == &item.id) {
+                continue;
+            }
+            let has = item.tags.iter().any(|entry| entry == &tag);
+            let extras = item.tags.iter().any(|entry| {
+                crate::text::tag_arg(entry, "app").is_some() && entry != &tag
+            });
+            if extras || !has {
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        for item in self.items.iter_mut() {
+            if !ids.iter().any(|id| id == &item.id) {
+                continue;
+            }
+            item.tags
+                .retain(|entry| crate::text::tag_arg(entry, "app").is_none());
+            item.tags.push(tag.clone());
+        }
+        self.save();
+        true
+    }
+
     pub fn set_pinned(&mut self, ids: &[String], pinned: bool) -> bool {
         let mut changed = false;
         for item in self.items.iter() {
@@ -960,6 +996,12 @@ mod tests {
         assert!(store.get("a").unwrap().tags.is_empty());
         assert_eq!(store.get("b").unwrap().tags, vec!["work"]);
         assert!(!store.set_tag(&ids, "  ", true));
+        assert!(store.set_tag(&["a".to_string()], "work", true));
+        assert!(store.set_app_tag(&["a".to_string()], "chrome"));
+        assert_eq!(store.get("a").unwrap().tags, vec!["work", "app:chrome"]);
+        assert!(store.set_app_tag(&["a".to_string()], "Code"));
+        assert_eq!(store.get("a").unwrap().tags, vec!["work", "app:code"]);
+        assert!(!store.set_app_tag(&["a".to_string()], "code"));
     }
 
     #[test]

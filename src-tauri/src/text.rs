@@ -312,8 +312,8 @@ fn date_token(inner: &str, ctx: &Expand) -> Option<String> {
         return Some(ctx.date.clone());
     }
     let rest = inner.strip_prefix("date")?;
-    if let Some((days, fmt)) = parse_date_shift(rest) {
-        let when = ctx.now + chrono::Duration::days(days);
+    if let Some((shift, fmt)) = parse_date_shift(rest) {
+        let when = apply_date_shift(ctx.now, shift)?;
         return Some(match fmt {
             Some(fmt) if !fmt.is_empty() => when.format(fmt).to_string(),
             _ => when.format("%Y/%m/%d").to_string(),
@@ -326,8 +326,26 @@ fn date_token(inner: &str, ctx: &Expand) -> Option<String> {
     Some(ctx.now.format(fmt).to_string())
 }
 
-/// `-1d` / `+2d:%Y%m%d` / `-1d %Y%m%d`
-fn parse_date_shift(rest: &str) -> Option<(i64, Option<&str>)> {
+/// `-1d` / `+2w` / `+1m:%Y%m` / `-1d %Y%m%d`
+enum DateShift {
+    Days(i64),
+    Months(i64),
+}
+
+fn apply_date_shift(
+    now: chrono::DateTime<chrono::Local>,
+    shift: DateShift,
+) -> Option<chrono::DateTime<chrono::Local>> {
+    match shift {
+        DateShift::Days(days) => Some(now + chrono::Duration::days(days)),
+        DateShift::Months(months) if months >= 0 => {
+            now.checked_add_months(chrono::Months::new(months as u32))
+        }
+        DateShift::Months(months) => now.checked_sub_months(chrono::Months::new((-months) as u32)),
+    }
+}
+
+fn parse_date_shift(rest: &str) -> Option<(DateShift, Option<&str>)> {
     let rest = rest.trim();
     let (sign, rest) = if let Some(rest) = rest.strip_prefix('+') {
         (1i64, rest)
@@ -344,16 +362,22 @@ fn parse_date_shift(rest: &str) -> Option<(i64, Option<&str>)> {
     }
     let amount: i64 = rest[..digits].parse().ok()?;
     let after = rest[digits..].trim_start();
-    let after = after.strip_prefix('d').or_else(|| after.strip_prefix('D'))?;
-    let fmt = after.trim_start();
-    let fmt = if fmt.is_empty() {
+    let unit = after.chars().next()?;
+    let after = after[unit.len_utf8()..].trim_start();
+    let shift = match unit {
+        'd' | 'D' => DateShift::Days(sign * amount),
+        'w' | 'W' => DateShift::Days(sign * amount * 7),
+        'm' | 'M' => DateShift::Months(sign * amount),
+        _ => return None,
+    };
+    let fmt = if after.is_empty() {
         None
-    } else if let Some(fmt) = fmt.strip_prefix(':') {
+    } else if let Some(fmt) = after.strip_prefix(':') {
         Some(fmt.trim())
     } else {
-        Some(fmt)
+        Some(after)
     };
-    Some((sign * amount, fmt.filter(|fmt| !fmt.is_empty())))
+    Some((shift, fmt.filter(|fmt| !fmt.is_empty())))
 }
 
 fn parse_wait(raw: &str) -> Option<u64> {
@@ -389,6 +413,22 @@ pub fn context_app(context: &str) -> &str {
     context.split('|').next().filter(|name| !name.is_empty()).unwrap_or(context)
 }
 
+/// Ctrl+Shift+n: `#slot:n` の先の行。無ければ位置（0始まり）。
+pub fn ranked_index<T, F>(items: &[T], index: usize, tags: F) -> Option<usize>
+where
+    F: Fn(&T) -> &[String],
+{
+    let slot = (index + 1).to_string();
+    items
+        .iter()
+        .position(|item| {
+            tags(item)
+                .iter()
+                .any(|tag| tag_arg(tag, "slot") == Some(slot.as_str()))
+        })
+        .or_else(|| (index < items.len()).then_some(index))
+}
+
 pub fn has_sel_token(text: &str) -> bool {
     walk_tokens(text, |inner| inner == "sel")
 }
@@ -414,12 +454,18 @@ pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
     walk_tokens(text, |inner| {
         if let Some(spec) = arg_after(inner, "pick") {
             if !spec.is_empty() && !specs.iter().any(|(existing, _)| existing == spec) {
-                let options = spec
-                    .split(',')
-                    .map(|part| part.trim().to_string())
-                    .filter(|part| !part.is_empty())
-                    .collect();
-                specs.push((spec.to_string(), options));
+                if arg_after(spec, "tag").is_some_and(|name| !name.is_empty()) {
+                    specs.push((spec.to_string(), Vec::new()));
+                } else {
+                    let options = spec
+                        .split(',')
+                        .map(|part| part.trim().to_string())
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>();
+                    if !options.is_empty() {
+                        specs.push((spec.to_string(), options));
+                    }
+                }
             }
         }
         false
@@ -666,7 +712,24 @@ mod tests {
         assert_eq!(tag_arg("app:", "app"), None);
         assert_eq!(tag_arg("app", "app"), None);
         assert_eq!(tag_arg("apple", "app"), None);
-        assert_eq!(tag_arg("here", "app"), None);
+        assert_eq!(tag_arg("slot:3", "slot"), Some("3"));
+        assert_eq!(tag_arg("slot 3", "slot"), Some("3"));
+    }
+
+    #[test]
+    fn ranked_index_prefers_slot_then_position() {
+        let items = vec![
+            vec!["work".to_string()],
+            vec!["slot:3".to_string()],
+            vec!["slot:3".to_string()],
+            vec!["a".to_string()],
+        ];
+        assert_eq!(ranked_index(&items, 2, |tags| tags.as_slice()), Some(1));
+        assert_eq!(ranked_index(&items, 0, |tags| tags.as_slice()), Some(0));
+        assert_eq!(ranked_index(&items, 1, |tags| tags.as_slice()), Some(1));
+        assert_eq!(ranked_index(&items, 9, |tags| tags.as_slice()), None);
+        let slot_first = vec![vec!["a".to_string()], vec!["slot:1".to_string()]];
+        assert_eq!(ranked_index(&slot_first, 0, |tags| tags.as_slice()), Some(1));
     }
 
     #[test]
@@ -757,6 +820,18 @@ mod tests {
             expand_template("{{date -1d %Y%m%d}}", &ctx),
             (ctx.now - chrono::Duration::days(1)).format("%Y%m%d").to_string()
         );
+        assert_eq!(
+            expand_template("{{date+1w}}", &ctx),
+            (ctx.now + chrono::Duration::days(7)).format("%Y/%m/%d").to_string()
+        );
+        assert_eq!(
+            expand_template("{{date+1m:%Y-%m}}", &ctx),
+            ctx.now
+                .checked_add_months(chrono::Months::new(1))
+                .unwrap()
+                .format("%Y-%m")
+                .to_string()
+        );
     }
 
     #[test]
@@ -799,6 +874,13 @@ mod tests {
                 vec!["hata007@x".into(), "{{var:a}}".into()]
             )]
         );
+        assert_eq!(
+            pick_specs("{{pick tag:env}} {{pick tag env}}"),
+            vec![("tag:env".into(), vec![]), ("tag env".into(), vec![])]
+        );
+        let mut tagged = sample_ctx();
+        tagged.answers.insert("pick:tag:env".into(), "stg".into());
+        assert_eq!(expand_template("{{pick tag:env}}", &tagged), "stg");
         let mut nested = sample_ctx();
         nested.answers.insert(
             "pick:hata007@x, {{var:a}}".into(),

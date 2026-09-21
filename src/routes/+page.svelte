@@ -53,7 +53,8 @@
     | { kind: "merge" }
     | { kind: "clone" }
     | { kind: "sub"; old: string; new: string }
-    | { kind: "sort" };
+    | { kind: "sort" }
+    | { kind: "app" };
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
@@ -187,6 +188,7 @@
         { key: ">", label: "引用" },
         { key: "*", label: "箇条書き" },
         { key: "p", label: "ピン" },
+        { key: "a", label: "#app" },
         { key: ".", label: "直前の貼り付け" },
         { key: "?", label: "行の情報" },
         ...mapped,
@@ -341,7 +343,7 @@
         mode = "ask";
         return;
       }
-      const picks = uniquePickSpecs(rows);
+      const picks = uniquePickSpecs(rows, items);
       if (picks.length > 0) {
         clearSelection();
         pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
@@ -370,7 +372,7 @@
       mode = "ask";
       return;
     }
-    const picks = uniquePickSpecs([item]);
+    const picks = uniquePickSpecs([item], items);
     if (picks.length > 0) {
       pendingPaste = { ids: [item.id], keepOpen, format: false, raw: false, separator: "\n" };
       void startPicks(picks);
@@ -399,7 +401,7 @@
     const rows = opts.ids
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined);
-    if (!opts.raw && rows.some((item) => item.tags.includes("run"))) {
+    if (!opts.raw && rows.some((item) => item.tags.includes("run") || item.tags.includes("confirm"))) {
       try {
         const text = await invoke<string | null>("expand_items", {
           ids: opts.ids,
@@ -489,7 +491,7 @@
     const rows = pending.ids
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined);
-    const remaining = uniquePickSpecs(rows).filter(
+    const remaining = uniquePickSpecs(rows, items).filter(
       (entry) => askAnswers[`pick:${entry.spec}`] === undefined,
     );
     if (remaining.length > 0 && pickQueue.length === 0) {
@@ -563,6 +565,30 @@
     lastChange = { kind: "put", above };
   }
 
+  async function applyAppTag() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    let key = contextKey;
+    if (!key) {
+      try {
+        key = await invoke<string | null>("get_context");
+      } catch {
+        return;
+      }
+    }
+    const app = key?.split("|")[0]?.trim() ?? "";
+    if (app.length === 0) {
+      return;
+    }
+    const ids = selectedIds;
+    const id = selectedItems[0].id;
+    clearSelection();
+    items = await invoke<Item[]>("set_app_tag", { ids, app });
+    selectById(id);
+    lastChange = { kind: "app" };
+  }
+
   async function applyTag(tag: string, add: boolean) {
     const value = tag.trim();
     if (value.length === 0 || selectedIds.length === 0) {
@@ -604,6 +630,9 @@
         return;
       case "pin":
         await applyPin(lastChange.pinned);
+        return;
+      case "app":
+        await applyAppTag();
         return;
       case "split":
         await splitSelection();
@@ -1549,6 +1578,12 @@
       event.preventDefault();
       pending = "";
       void applyPin(!selectedItems.every((item) => item.pinned));
+      return;
+    }
+    if (pending === "g" && event.key === "a") {
+      event.preventDefault();
+      pending = "";
+      void applyAppTag();
       return;
     }
     if (pending === "g" && event.key === ".") {

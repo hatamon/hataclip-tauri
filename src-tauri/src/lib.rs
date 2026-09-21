@@ -110,6 +110,16 @@ fn set_tag(
 }
 
 #[tauri::command]
+fn set_app_tag(
+    ids: Vec<String>,
+    app: String,
+    state: tauri::State<'_, AppState>,
+) -> Vec<Item> {
+    state.store.lock().expect("store").set_app_tag(&ids, &app);
+    view_keeping(&state, &ids)
+}
+
+#[tauri::command]
 fn set_pinned(ids: Vec<String>, pinned: bool, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").set_pinned(&ids, pinned);
     view(&state)
@@ -601,7 +611,9 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
     }
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
     let items = view(state);
-    let Some(item) = items.get(index) else {
+    let Some(item) = crate::text::ranked_index(&items, index, |item| item.tags.as_slice())
+        .and_then(|i| items.get(i))
+    else {
         return;
     };
     run_paste(
@@ -1487,6 +1499,7 @@ pub fn run() {
             put_item,
             update_item,
             set_tag,
+            set_app_tag,
             set_pinned,
             move_pins,
             split_items,

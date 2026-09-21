@@ -36,7 +36,27 @@ function argAfter(inner: string, name: string): string | null {
 
 export type PickSpec = { spec: string; options: string[] };
 
-export function pickSpecs(text: string): PickSpec[] {
+export type PickCatalog = { text: string; tags: string[] };
+
+function pickTagName(spec: string): string | null {
+  const name = argAfter(spec, "tag");
+  return name && name.length > 0 ? name : null;
+}
+
+function tagOptions(name: string, catalog: PickCatalog[]): string[] {
+  const options: string[] = [];
+  for (const item of catalog) {
+    if (!item.tags.includes(name) || item.text.length === 0) {
+      continue;
+    }
+    if (!options.includes(item.text)) {
+      options.push(item.text);
+    }
+  }
+  return options;
+}
+
+export function pickSpecs(text: string, catalog: PickCatalog[] = []): PickSpec[] {
   const specs: PickSpec[] = [];
   let i = 0;
   while (i < text.length) {
@@ -46,11 +66,16 @@ export function pickSpecs(text: string): PickSpec[] {
         const inner = text.slice(i + 2, close).trim();
         const spec = argAfter(inner, "pick");
         if (spec && spec.length > 0 && !specs.some((entry) => entry.spec === spec)) {
-          const options = spec
-            .split(",")
-            .map((part) => part.trim())
-            .filter((part) => part.length > 0);
-          specs.push({ spec, options });
+          const tagName = pickTagName(spec);
+          const options = tagName
+            ? tagOptions(tagName, catalog)
+            : spec
+                .split(",")
+                .map((part) => part.trim())
+                .filter((part) => part.length > 0);
+          if (options.length > 0) {
+            specs.push({ spec, options });
+          }
         }
         i = close + 2;
         continue;
@@ -61,10 +86,13 @@ export function pickSpecs(text: string): PickSpec[] {
   return specs;
 }
 
-export function uniquePickSpecs(items: { text: string }[]): PickSpec[] {
+export function uniquePickSpecs(
+  items: { text: string }[],
+  catalog: PickCatalog[] = [],
+): PickSpec[] {
   const specs: PickSpec[] = [];
   for (const item of items) {
-    for (const entry of pickSpecs(item.text)) {
+    for (const entry of pickSpecs(item.text, catalog)) {
       if (!specs.some((existing) => existing.spec === entry.spec)) {
         specs.push(entry);
       }
@@ -72,4 +100,3 @@ export function uniquePickSpecs(items: { text: string }[]): PickSpec[] {
   }
   return specs;
 }
-
