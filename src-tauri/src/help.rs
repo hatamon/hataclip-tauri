@@ -1,15 +1,15 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "j / k と矢印で移動。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U は半ページ。1〜9 でその行を貼り付けて閉じる。Ctrl+1〜9 は残す。u 取り消し、Ctrl+R やり直し。Esc / Ctrl+[ で閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替。/ 検索。\n見る  Space 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim。S 分割。M まとめ（V 中）。c 複製。t / T タグ。m ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。g Enter は本文そのまま。J / gJ / gT は V 中のつなぎ。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}}。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}}。#tsv タブ区切り。#log:path ファイルへ追記。#type 1 文字ずつ。#once 貼ったら消す。",
     ),
     (
         "tag",
-        "t でタグを付ける。T で外す。V 選択中は範囲の全行。#url #multi #path は登録時に自動。#here はその貼り付け先のときだけ出す。#not はそのときは出さない。#ttl:1h は期限。#tsv と #log:path と #type と #once と #run は自動では付けない。",
+        "t でタグを付ける。T で外す。V 選択中は範囲の全行。#url #multi #path は登録時に自動。#here はその貼り付け先のときだけ出す。#not はそのときは出さない（#here が優先）。#ttl:1h は期限（m / h / d）。#tmp は次回起動で消す。#secret は一覧を隠す。#alias:foo は foo でも当たる。#tsv と #log:path と #type と #once と #run と #file は自動では付けない。",
     ),
     (
         "pin",
@@ -17,11 +17,15 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter で改行つなぎ。J 空白、gJ カンマ、gT タブ。M まとめ、c 複製。dd / yy / t / T / m / S は範囲に効く。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。J 空白、gJ カンマ、gT タブ。g> 引用、g* 箇条書き。M 1 行にまとめる。c 複製。S 分割。dd / yy / t / T / m は範囲に効く。Esc で解除。",
     ),
     (
         "search",
         "/ で検索。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
+    ),
+    (
+        "edit",
+        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR）。o 空行を作って編集。S 改行で分割。M は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。. は dd p P t T m S M c :s + - を繰り返す。",
     ),
     (
         "sh",
@@ -29,11 +33,11 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}}。履歴の本文は変わらない。",
+        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}}。貼る直前だけ置き換わる。履歴の本文は変わらない。",
     ),
     (
         "gf",
-        "gf は選択行を開く。http/https はブラウザ。パスは Explorer。無いときは何もしない。",
+        "gf は選択行を開く。http/https はブラウザ。パスは Explorer。無いときは何もしない。ファイルを一覧へドロップすると、パスを本文にして #path と #file を付けた行を先頭に作る。",
     ),
     (
         "window",
@@ -41,9 +45,26 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え。:unmap。:mapleader。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 \\）。Tab でコマンド補完。↑↓ で入力履歴。",
+    ),
+    (
+        "map",
+        ":map lhs rhs で通常モードだけ付け替える。再帰しない。同じ lhs は上書き。:unmap lhs で消す。:map だけで今の付け替えを出す。lhs は j dd gT か <leader>*。rhs はキー列か :quote / <cmd>bullet（末尾 <CR> は要らない）。Esc と 1〜9 は lhs にできない。settings.json に残る。<leader> の初期値は \\。:mapleader , で変える。which-key は付け替えたあとのキーを出す。",
     ),
 ];
+
+const OVERVIEW: &str = "\
+移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /\n\
+見る   Space 全文  g? 回数・貼り付け先・タグ\n\
+貼る   Enter 閉じる  Ctrl+Enter 残す  Shift+Enter 整形  1〜9  gp 再貼\n\
+       J 空白  gJ カンマ  gT タブ  g> 引用  g* 箇条書き  g Enter 本文のまま\n\
+編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
+       o 空行  e 編集  E nvim  S 分割  M まとめ  c 複製  t T タグ  m ピン  + -\n\
+その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
+:      help  sh  @  export  import  quote  bullet  s/  clear  dedup  map  unmap  mapleader\n\
+\n\
+詳しくは :help keys  :help paste  :help edit  :help colon  :help map  のように。j / k でスクロール。\
+";
 
 pub fn topics() -> Vec<String> {
     TOPICS.iter().map(|(name, _)| (*name).to_string()).collect()
@@ -51,7 +72,10 @@ pub fn topics() -> Vec<String> {
 
 pub fn render(topic: Option<&str>) -> String {
     let Some(name) = topic.map(str::trim).filter(|name| !name.is_empty()) else {
-        return format!("トピック: {}\n\n:help sh のように指定する。", topics().join(" "));
+        return format!(
+            "{OVERVIEW}\n\nトピック: {}",
+            topics().join(" ")
+        );
     };
     if let Some((_, body)) = TOPICS.iter().find(|(key, _)| *key == name) {
         return format!(":{name}\n\n{body}");
@@ -68,8 +92,14 @@ mod tests {
 
     #[test]
     fn lists_topics_and_looks_up_sh() {
-        assert!(render(None).contains("sh"));
+        let overview = render(None);
+        assert!(overview.contains("sh"));
+        assert!(overview.contains("M まとめ"));
+        assert!(overview.contains("map"));
         assert!(render(Some("sh")).contains("#run"));
+        assert!(render(Some("edit")).contains("M は V 中"));
+        assert!(render(Some("map")).contains("<leader>"));
+        assert!(render(Some("keys")).contains("M まとめ"));
         assert!(render(Some("nope")).starts_with("ない"));
     }
 }
