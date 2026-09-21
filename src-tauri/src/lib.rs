@@ -1,8 +1,10 @@
 mod actions;
 mod clipboard;
 mod editor;
+mod help;
 mod platform;
 mod settings;
+mod shell;
 mod shortcuts;
 mod store;
 mod text;
@@ -26,6 +28,8 @@ pub(crate) struct AppState {
     foreground: Mutex<Option<platform::Foreground>>,
     last_position: Mutex<Option<Point>>,
     paste_serial: Mutex<u32>,
+    last_sh: Mutex<Option<String>>,
+    picker_open: Mutex<bool>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -169,7 +173,23 @@ fn paste_items(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) {
-    let Some(text) = joined_text(&state, &ids) else {
+    let n = {
+        let mut serial = state.paste_serial.lock().expect("paste_serial");
+        *serial += 1;
+        *serial
+    };
+    let now = Local::now();
+    let ctx = text::Expand {
+        date: now.format("%Y/%m/%d").to_string(),
+        time: now.format("%H:%M").to_string(),
+        clip: clipboard::peek_text().unwrap_or_default(),
+        n,
+        uuid: uuid::Uuid::new_v4().to_string(),
+        user: text::login_name(),
+        host: text::host_name(),
+        now,
+    };
+    let Some(text) = resolved_text(&state, &ids, &ctx) else {
         return;
     };
     let text = if format {
@@ -177,25 +197,6 @@ fn paste_items(
     } else {
         text
     };
-    let now = Local::now();
-    let n = {
-        let mut serial = state.paste_serial.lock().expect("paste_serial");
-        *serial += 1;
-        *serial
-    };
-    let text = text::expand_template(
-        &text,
-        &text::Expand {
-            date: now.format("%Y/%m/%d").to_string(),
-            time: now.format("%H:%M").to_string(),
-            clip: clipboard::peek_text().unwrap_or_default(),
-            n,
-            uuid: uuid::Uuid::new_v4().to_string(),
-            user: text::login_name(),
-            host: text::host_name(),
-            now,
-        },
-    );
     if let Some(key) = current_context(&state) {
         state
             .store
@@ -218,6 +219,135 @@ fn copy_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> bool {
     }
 }
 
+#[tauri::command]
+fn open_target(text: String) -> bool {
+    open_target_text(&text)
+}
+
+#[tauri::command]
+fn get_help(topic: Option<String>) -> String {
+    help::render(topic.as_deref())
+}
+
+#[tauri::command]
+fn help_topics() -> Vec<String> {
+    help::topics()
+}
+
+#[tauri::command]
+fn export_items(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("パスが空".into());
+    }
+    let store = state.store.lock().expect("store");
+    let mut md = String::from("# hataclip\n\n");
+    for item in store.list() {
+        md.push_str("## ");
+        let title = item.text.lines().next().unwrap_or("").trim();
+        md.push_str(if title.is_empty() { "(empty)" } else { title });
+        md.push('\n');
+        if !item.tags.is_empty() {
+            md.push_str("tags: ");
+            md.push_str(&item.tags.join(", "));
+            md.push('\n');
+        }
+        md.push_str("\n```\n");
+        md.push_str(&item.text);
+        md.push_str("\n```\n\n");
+    }
+    std::fs::write(path, md).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn clear_unpinned(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").clear_unpinned();
+    view(&state)
+}
+
+#[tauri::command]
+fn paste_script(
+    script: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let script = script.trim().to_string();
+    if script.is_empty() {
+        return Ok(());
+    }
+    let output = shell::run_script(&script).map_err(|_| "コマンドに失敗した".to_string())?;
+    *state.last_sh.lock().expect("last_sh") = Some(script);
+    paste_text(&app, &state, &output, false);
+    Ok(())
+}
+
+#[tauri::command]
+fn paste_last_script(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let Some(script) = state.last_sh.lock().expect("last_sh").clone() else {
+        return Ok(());
+    };
+    paste_script(script, app, state)
+}
+
+pub(crate) fn paste_ranked(
+    index: usize,
+    app: &tauri::AppHandle,
+    state: &AppState,
+) {
+    if *state.picker_open.lock().expect("picker_open") {
+        return;
+    }
+    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    let items = view(state);
+    let Some(item) = items.get(index) else {
+        return;
+    };
+    let ids = vec![item.id.clone()];
+    let ctx = current_expand(state);
+    let Some(text) = resolved_text(state, &ids, &ctx) else {
+        return;
+    };
+    if let Some(key) = current_context(state) {
+        state.store.lock().expect("store").record_context(&ids, &key);
+    }
+    state.store.lock().expect("store").bump_paste(&ids);
+    paste_text(app, state, &text, false);
+}
+
+fn open_target_text(text: &str) -> bool {
+    let text = text.trim();
+    if text.starts_with("http://") || text.starts_with("https://") {
+        return open_url(text);
+    }
+    if !text::looks_like_path(text) {
+        return false;
+    }
+    let path = std::path::Path::new(text);
+    if path.is_file() {
+        return std::process::Command::new("explorer")
+            .arg(format!("/select,{text}"))
+            .spawn()
+            .is_ok();
+    }
+    if path.is_dir() {
+        return std::process::Command::new("explorer")
+            .arg(text)
+            .spawn()
+            .is_ok();
+    }
+    false
+}
+
+fn open_url(url: &str) -> bool {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+        .is_ok()
+}
+
 fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
     let store = state.store.lock().expect("store");
     let texts: Vec<String> = ids
@@ -228,6 +358,53 @@ fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
         None
     } else {
         Some(texts.join("\n"))
+    }
+}
+
+fn resolved_text(state: &AppState, ids: &[String], ctx: &text::Expand) -> Option<String> {
+    let store = state.store.lock().expect("store");
+    let mut parts = Vec::new();
+    for id in ids {
+        let item = store.get(id)?;
+        parts.push(resolve_item(item, ctx)?);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<String> {
+    let run = item.tags.iter().any(|tag| tag == "run");
+    let file = item.tags.iter().any(|tag| tag == "file");
+    if run && !shell::has_sh_token(&item.text) {
+        let expanded = text::expand_template(&item.text, ctx);
+        return shell::run_script(&expanded).ok();
+    }
+    let expanded = text::expand_template(&item.text, ctx);
+    let expanded = shell::apply_sh(&expanded, run).ok()?;
+    if file && !run {
+        return shell::read_file_contents(&expanded).ok();
+    }
+    Some(expanded)
+}
+
+fn current_expand(state: &AppState) -> text::Expand {
+    let now = Local::now();
+    let n = {
+        let serial = state.paste_serial.lock().expect("paste_serial");
+        (*serial).max(1)
+    };
+    text::Expand {
+        date: now.format("%Y/%m/%d").to_string(),
+        time: now.format("%H:%M").to_string(),
+        clip: clipboard::peek_text().unwrap_or_default(),
+        n,
+        uuid: uuid::Uuid::new_v4().to_string(),
+        user: text::login_name(),
+        host: text::host_name(),
+        now,
     }
 }
 
@@ -346,6 +523,9 @@ fn show_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.picker_open.lock().expect("picker_open") = true;
+    }
     let _ = window.set_always_on_top(true);
     let _ = window.unminimize();
     let _ = window.show();
@@ -353,6 +533,7 @@ fn show_window(app: &tauri::AppHandle) {
 }
 
 fn hide_window(app: &tauri::AppHandle, state: &AppState) {
+    *state.picker_open.lock().expect("picker_open") = false;
     if let Some(window) = app.get_webview_window("main") {
         persist_geometry(&window, state);
         let _ = window.hide();
@@ -520,6 +701,8 @@ pub fn run() {
                 foreground: Mutex::new(None),
                 last_position,
                 paste_serial: Mutex::new(0),
+                last_sh: Mutex::new(None),
+                picker_open: Mutex::new(false),
             });
             tray::setup(app)?;
             if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {
@@ -542,6 +725,13 @@ pub fn run() {
             hide_picker,
             paste_items,
             copy_items,
+            open_target,
+            get_help,
+            help_topics,
+            export_items,
+            clear_unpinned,
+            paste_script,
+            paste_last_script,
             nudge_window,
             resize_window,
             get_shortcuts,

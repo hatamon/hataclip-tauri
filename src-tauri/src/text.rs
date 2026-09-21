@@ -14,7 +14,7 @@ pub fn auto_tags(text: &str) -> Vec<String> {
     tags
 }
 
-fn looks_like_path(text: &str) -> bool {
+pub fn looks_like_path(text: &str) -> bool {
     if text.contains('\n') || text.chars().count() > 260 {
         return false;
     }
