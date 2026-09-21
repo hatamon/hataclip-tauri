@@ -49,6 +49,14 @@ pub fn context_key(fg: &Foreground) -> Option<String> {
     Some(process)
 }
 
+pub fn app_and_title(fg: &Foreground) -> (String, String) {
+    let hwnd = fg.hwnd as HWND;
+    (
+        process_name(hwnd).unwrap_or_default(),
+        window_title(hwnd).unwrap_or_default(),
+    )
+}
+
 fn process_name(hwnd: HWND) -> Option<String> {
     unsafe {
         let mut pid = 0u32;

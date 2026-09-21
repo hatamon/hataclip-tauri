@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{capture_foreground, context_key, restore_foreground, Foreground};
+pub use windows::{app_and_title, capture_foreground, context_key, restore_foreground, Foreground};
 
 #[cfg(not(windows))]
 mod unsupported;
 #[cfg(not(windows))]
-pub use unsupported::{capture_foreground, context_key, restore_foreground, Foreground};
+pub use unsupported::{app_and_title, capture_foreground, context_key, restore_foreground, Foreground};
 
 #[derive(Clone, Copy)]
 pub struct Point {

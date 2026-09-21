@@ -12,3 +12,7 @@ pub fn restore_foreground(_fg: &Foreground) -> bool {
 pub fn context_key(_fg: &Foreground) -> Option<String> {
     None
 }
+
+pub fn app_and_title(_fg: &Foreground) -> (String, String) {
+    (String::new(), String::new())
+}

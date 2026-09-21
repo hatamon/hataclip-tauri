@@ -36,6 +36,8 @@ pub struct Expand {
     pub uuid: String,
     pub user: String,
     pub host: String,
+    pub app: String,
+    pub front: String,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
 }
@@ -102,6 +104,20 @@ fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
     if inner == "host" {
         return Some(ctx.host.clone());
     }
+    if inner == "app" {
+        return Some(ctx.app.clone());
+    }
+    if inner == "front" {
+        return Some(ctx.front.clone());
+    }
+    if let Some(spec) = inner.strip_prefix("pick:") {
+        return Some(
+            ctx.answers
+                .get(&format!("pick:{}", spec.trim()))
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
     if inner == "n" {
         return Some(ctx.n.to_string());
     }
@@ -136,6 +152,132 @@ pub fn ask_names(text: &str) -> Vec<String> {
         false
     });
     names
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut specs = Vec::new();
+    walk_tokens(text, |inner| {
+        if let Some(raw) = inner.strip_prefix("pick:") {
+            let spec = raw.trim().to_string();
+            if !specs.iter().any(|(existing, _)| existing == &spec) {
+                let options = spec
+                    .split(',')
+                    .map(|part| part.trim().to_string())
+                    .filter(|part| !part.is_empty())
+                    .collect();
+                specs.push((spec, options));
+            }
+        }
+        false
+    });
+    specs
+}
+
+pub fn prefix_lines(text: &str, prefix: &str, already: &str) -> String {
+    text.lines()
+        .map(|line| {
+            if line.starts_with(already) {
+                line.to_string()
+            } else {
+                format!("{prefix}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn to_tsv(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.starts_with('[') {
+        let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+        let arr = value.as_array()?;
+        if arr.is_empty() {
+            return None;
+        }
+        if arr.iter().all(|entry| entry.is_string()) {
+            return Some(
+                arr.iter()
+                    .map(|entry| entry.as_str().unwrap_or(""))
+                    .collect::<Vec<_>>()
+                    .join("\t"),
+            );
+        }
+        if arr.iter().all(|entry| entry.is_object()) {
+            let first = arr[0].as_object()?;
+            let keys: Vec<String> = first.keys().cloned().collect();
+            if keys.is_empty() {
+                return None;
+            }
+            let same = arr.iter().all(|entry| {
+                entry.as_object().map_or(false, |object| {
+                    object.len() == keys.len() && keys.iter().all(|key| object.contains_key(key))
+                })
+            });
+            if !same {
+                return None;
+            }
+            let rows: Vec<String> = arr
+                .iter()
+                .map(|entry| {
+                    let object = entry.as_object().unwrap();
+                    keys.iter()
+                        .map(|key| json_cell(&object[key]))
+                        .collect::<Vec<_>>()
+                        .join("\t")
+                })
+                .collect();
+            return Some(rows.join("\n"));
+        }
+        return None;
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\t"))
+    }
+}
+
+fn json_cell(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+pub fn log_path(tags: &[String]) -> Option<String> {
+    tags.iter().find_map(|tag| {
+        tag.strip_prefix("log:")
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+pub fn ttl_secs(tag: &str) -> Option<u64> {
+    let rest = tag.strip_prefix("ttl:")?;
+    if rest.len() < 2 {
+        return None;
+    }
+    let (digits, unit) = rest.split_at(rest.len() - 1);
+    let amount: u64 = digits.parse().ok()?;
+    match unit {
+        "m" => Some(amount.saturating_mul(60)),
+        "h" => Some(amount.saturating_mul(3600)),
+        "d" => Some(amount.saturating_mul(86400)),
+        _ => None,
+    }
+}
+
+pub fn expired(tags: &[String], created_at: u64, now: u64) -> bool {
+    if created_at == 0 {
+        return false;
+    }
+    tags.iter().any(|tag| {
+        ttl_secs(tag).map_or(false, |secs| now.saturating_sub(created_at) >= secs)
+    })
 }
 
 fn walk_tokens(text: &str, mut visit: impl FnMut(&str) -> bool) -> bool {
@@ -278,8 +420,13 @@ mod tests {
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),
+            app: "code".into(),
+            front: "TODO.md".into(),
             now: chrono::Local::now(),
-            answers: std::collections::HashMap::from([("名前".into(), "hatamon".into())]),
+            answers: std::collections::HashMap::from([
+                ("名前".into(), "hatamon".into()),
+                ("pick:prod, stg".into(), "stg".into()),
+            ]),
         }
     }
 
@@ -324,6 +471,47 @@ mod tests {
         assert!(has_sel_token("x {{sel}} y"));
         assert!(!has_sel_token("{{clip}}"));
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn expands_app_front_and_pick() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("{{app}}/{{front}}", &ctx), "code/TODO.md");
+        assert_eq!(expand_template("{{pick:prod, stg}}", &ctx), "stg");
+        assert_eq!(
+            pick_specs("{{pick: a, b}} {{pick: a, b}}"),
+            vec![("a, b".into(), vec!["a".into(), "b".into()])]
+        );
+    }
+
+    #[test]
+    fn prefixes_lines_unless_already_marked() {
+        assert_eq!(prefix_lines("a\nb", "> ", ">"), "> a\n> b");
+        assert_eq!(prefix_lines("> a\nb", "> ", ">"), "> a\n> b");
+        assert_eq!(prefix_lines("a\n* b", "* ", "* "), "* a\n* b");
+    }
+
+    #[test]
+    fn tsv_from_json_and_lines() {
+        assert_eq!(to_tsv("[\"a\",\"b\"]").as_deref(), Some("a\tb"));
+        assert_eq!(
+            to_tsv("[{\"x\":1,\"y\":\"z\"}]").as_deref(),
+            Some("1\tz")
+        );
+        assert_eq!(to_tsv("one\ntwo").as_deref(), Some("one\ttwo"));
+        assert_eq!(to_tsv("[]"), None);
+        assert_eq!(to_tsv("[1,2]"), None);
+    }
+
+    #[test]
+    fn ttl_parses_units_and_expiry() {
+        assert_eq!(ttl_secs("ttl:30m"), Some(1800));
+        assert_eq!(ttl_secs("ttl:1h"), Some(3600));
+        assert_eq!(ttl_secs("ttl:1d"), Some(86400));
+        assert_eq!(ttl_secs("ttl:nope"), None);
+        assert!(expired(&["ttl:1h".into()], 10, 10 + 3600));
+        assert!(!expired(&["ttl:1h".into()], 10, 10 + 3599));
+        assert!(!expired(&["ttl:1h".into()], 0, 10_000));
     }
 
     #[test]
