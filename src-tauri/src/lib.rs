@@ -25,6 +25,7 @@ pub(crate) struct AppState {
     settings: Mutex<Settings>,
     foreground: Mutex<Option<platform::Foreground>>,
     last_position: Mutex<Option<Point>>,
+    paste_serial: Mutex<u32>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -130,6 +131,7 @@ fn edit_external(
 
 #[tauri::command]
 fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    *state.paste_serial.lock().expect("paste_serial") = 0;
     hide_window(&app, &state);
 }
 
@@ -176,10 +178,23 @@ fn paste_items(
         text
     };
     let now = Local::now();
+    let n = {
+        let mut serial = state.paste_serial.lock().expect("paste_serial");
+        *serial += 1;
+        *serial
+    };
     let text = text::expand_template(
         &text,
-        &now.format("%Y/%m/%d").to_string(),
-        &now.format("%H:%M").to_string(),
+        &text::Expand {
+            date: now.format("%Y/%m/%d").to_string(),
+            time: now.format("%H:%M").to_string(),
+            clip: clipboard::peek_text().unwrap_or_default(),
+            n,
+            uuid: uuid::Uuid::new_v4().to_string(),
+            user: text::login_name(),
+            host: text::host_name(),
+            now,
+        },
     );
     if let Some(key) = current_context(&state) {
         state
@@ -189,6 +204,9 @@ fn paste_items(
             .record_context(&ids, &key);
     }
     paste_text(&app, &state, &text, keep_open);
+    if !keep_open {
+        *state.paste_serial.lock().expect("paste_serial") = 0;
+    }
 }
 
 #[tauri::command]
@@ -400,6 +418,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
         return;
     };
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    *state.paste_serial.lock().expect("paste_serial") = 0;
     apply_saved_size(&window, state);
 
     let position = (*state.last_position.lock().expect("last_position"))
@@ -499,6 +518,7 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 foreground: Mutex::new(None),
                 last_position,
+                paste_serial: Mutex::new(0),
             });
             tray::setup(app)?;
             if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {

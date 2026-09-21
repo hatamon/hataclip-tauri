@@ -27,8 +27,94 @@ fn looks_like_path(text: &str) -> bool {
 }
 
 /// 貼り付け直前のテンプレート展開。履歴の本文自体は書き換えない。
-pub fn expand_template(text: &str, date: &str, time: &str) -> String {
-    text.replace("{{date}}", date).replace("{{time}}", time)
+pub struct Expand {
+    pub date: String,
+    pub time: String,
+    pub clip: String,
+    pub n: u32,
+    pub uuid: String,
+    pub user: String,
+    pub host: String,
+    pub now: chrono::DateTime<chrono::Local>,
+}
+
+pub fn expand_template(text: &str, ctx: &Expand) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                if let Some(value) = token_value(inner.trim(), ctx) {
+                    out.push_str(&value);
+                    i = close + 2;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn find_close(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    while i + 1 < chars.len() {
+        if chars[i] == '}' && chars[i + 1] == '}' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
+    if inner == "date" {
+        return Some(ctx.date.clone());
+    }
+    if inner == "time" {
+        return Some(ctx.time.clone());
+    }
+    if inner == "clip" {
+        return Some(ctx.clip.clone());
+    }
+    if inner == "uuid" {
+        return Some(ctx.uuid.clone());
+    }
+    if inner == "user" {
+        return Some(ctx.user.clone());
+    }
+    if inner == "host" {
+        return Some(ctx.host.clone());
+    }
+    if inner == "n" {
+        return Some(ctx.n.to_string());
+    }
+    if let Some(width) = inner.strip_prefix("n:") {
+        let width: usize = width.parse().ok()?;
+        return Some(format!("{:0width$}", ctx.n, width = width.min(8)));
+    }
+    if let Some(fmt) = inner.strip_prefix("date:") {
+        if fmt.is_empty() {
+            return None;
+        }
+        return Some(ctx.now.format(fmt).to_string());
+    }
+    None
+}
+
+pub fn login_name() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_default()
+}
+
+pub fn host_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_default()
 }
 
 /// Shift+Enter 用の整形。行頭の引用符号を外し、余分な空行と前後の空白を落とす。
@@ -130,16 +216,49 @@ mod tests {
         assert_eq!(auto_tags("https://example.com/a/b"), vec!["url"]);
     }
 
+    fn sample_ctx() -> Expand {
+        Expand {
+            date: "2026/09/20".into(),
+            time: "10:54".into(),
+            clip: "CLIP".into(),
+            n: 3,
+            uuid: "uuid-here".into(),
+            user: "hatamon".into(),
+            host: "pc".into(),
+            now: chrono::Local::now(),
+        }
+    }
+
     #[test]
     fn expands_date_and_time() {
+        let ctx = sample_ctx();
         assert_eq!(
-            expand_template("{{date}} {{time}} 提出", "2026/09/20", "10:54"),
+            expand_template("{{date}} {{time}} 提出", &ctx),
             "2026/09/20 10:54 提出"
         );
+        assert_eq!(expand_template("そのまま", &ctx), "そのまま");
+    }
+
+    #[test]
+    fn expands_clip_n_user_host_and_padded_n() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("{{clip}}-{{n}}-{{n:2}}", &ctx), "CLIP-3-03");
+        assert_eq!(expand_template("{{user}}@{{host}}", &ctx), "hatamon@pc");
+    }
+
+    #[test]
+    fn expands_strftime_date() {
+        let ctx = sample_ctx();
         assert_eq!(
-            expand_template("そのまま", "2026/09/20", "10:54"),
-            "そのまま"
+            expand_template("{{date:%Y}}", &ctx),
+            ctx.now.format("%Y").to_string()
         );
+    }
+
+    #[test]
+    fn leaves_unknown_tokens_alone() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("{{nope}}", &ctx), "{{nope}}");
     }
 
     #[test]

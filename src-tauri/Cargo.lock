@@ -1354,6 +1354,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
+ "uuid",
  "windows-sys 0.59.0",
 ]
 
