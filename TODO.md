@@ -46,6 +46,8 @@
 - [x] `M` / `c` / `g?` / `#not` / `:s` / `Ctrl+D` `Ctrl+U` / ドロップ / `:dedup`
 - [x] `:` の Tab 補完と `g` / `d` / `y` / `f` の which-key
 - [x] `:map` / `:unmap` / `:mapleader`
+- [x] `{{@foo}}` / `{{env:USERPROFILE}}`
+- [x] `:sort`
 
 ## やりたいこと
 

@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}}。#tsv タブ区切り。#log:path ファイルへ追記。#type 1 文字ずつ。#once 貼ったら消す。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}}。#tsv タブ区切り。#log:path ファイルへ追記。#type 1 文字ずつ。#once 貼ったら消す。",
     ),
     (
         "tag",
@@ -15,7 +15,7 @@ const TOPICS: &[(&str, &str)] = &[
 #pin相当 m で付ける。先頭に固定。+ / - で順\n\
 #secret  一覧を ••••。貼り付けは普通\n\
 #tmp     次回起動で消す\n\
-#alias:foo  /foo でも当たる\n\
+#alias:foo  /foo でも当たる。{{@foo}} でその本文\n\
 #here    覚えている貼り付け先が前面のときだけ出す\n\
 #not     その貼り付け先のときは出さない。#here と両方なら #here だけ\n\
 #ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す\n\
@@ -33,7 +33,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter 改行つなぎ。J 空白、gJ カンマ、gT タブ。g> 引用、g* 箇条書き。M 1 行にまとめる。c 複製。S 分割。dd / yy / t / T / m は範囲に効く。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。J 空白、gJ カンマ、gT タブ。g> 引用、g* 箇条書き。M 1 行にまとめる。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / m は範囲に効く。Esc で解除。",
     ),
     (
         "search",
@@ -41,7 +41,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "edit",
-        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR）。o 空行を作って編集。S 改行で分割。M は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。. は dd p P t T m S M c :s + - を繰り返す。",
+        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR）。o 空行を作って編集。S 改行で分割。M は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。:sort は V 中なら本文の順。. は dd p P t T m S M c :s :sort + - を繰り返す。",
     ),
     (
         "sh",
@@ -49,7 +49,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "template",
-        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}}。貼る直前だけ置き換わる。履歴の本文は変わらない。",
+        "{{date}} {{time}} {{date:%Y%m%d}} {{clip}} {{sel}} {{n}} {{n:2}} {{uuid}} {{user}} {{host}} {{app}} {{front}} {{ask:名前}} {{pick: a, b}} {{env:USERPROFILE}} {{@foo}}。{{@foo}} は #alias:foo の先の行の本文。同じ名前を二度辿ったら空。貼る直前だけ置き換わる。履歴の本文は変わらない。",
     ),
     (
         "gf",
@@ -61,7 +61,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -77,7 +77,7 @@ const OVERVIEW: &str = "\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  M まとめ  c 複製  t T タグ  m ピン  + -\n\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  export  import  quote  bullet  s/  clear  dedup  map  unmap  mapleader\n\
+:      help  sh  @  export  import  quote  bullet  s/  sort  clear  dedup  map  unmap  mapleader\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -117,6 +117,9 @@ mod tests {
         assert!(render(Some("tag")).contains("#log:path"));
         assert!(render(Some("sh")).contains("#run"));
         assert!(render(Some("edit")).contains("M は V 中"));
+        assert!(render(Some("template")).contains("{{@foo}}"));
+        assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
+        assert!(render(Some("colon")).contains(":sort"));
         assert!(render(Some("map")).contains("<leader>"));
         assert!(render(Some("keys")).contains("M まとめ"));
         assert!(render(Some("nope")).starts_with("ない"));
