@@ -9,7 +9,23 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "tag",
-        "t でタグを付ける。T で外す。V 選択中は範囲の全行。#url #multi #path は登録時に自動。#here はその貼り付け先のときだけ出す。#not はそのときは出さない（#here が優先）。#ttl:1h は期限（m / h / d）。#tmp は次回起動で消す。#secret は一覧を隠す。#alias:foo は foo でも当たる。#tsv と #log:path と #type と #once と #run と #file は自動では付けない。",
+        "t で付ける。T で外す。V 中は範囲の全行。/ のあと #tag で絞る。Tab / Shift+Tab でよく使うタグ切替。編集中はチップで付け外し。\n\
+自動  Ctrl+4 のとき http(s) なら #url、改行なら #multi、パスなら #path。ほかは自分で付ける。\n\
+\n\
+#pin相当 m で付ける。先頭に固定。+ / - で順\n\
+#secret  一覧を ••••。貼り付けは普通\n\
+#tmp     次回起動で消す\n\
+#alias:foo  /foo でも当たる\n\
+#here    覚えている貼り付け先が前面のときだけ出す\n\
+#not     その貼り付け先のときは出さない。#here と両方なら #here だけ\n\
+#ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す\n\
+#run     貼るときコマンドを実行。自動では付けない。詳しくは :help sh\n\
+#file    本文のパスのファイル内容を貼る。#run が先。ドロップすると #path と一緒に付く\n\
+#type    Ctrl+V ではなく 1 文字ずつ送る\n\
+#once    貼って成功したら消す\n\
+#tsv     展開後をタブ区切り。JSON 配列か 1 行 1 値。壊れそうなら貼らない。#run が先\n\
+#log:path  前面へ貼らずファイル末尾へ追記。パスに空白は使えない。#run があるときはその標準出力を追記\n\
+#url #multi #path  登録時の自動タグ。動きは目印だけ",
     ),
     (
         "pin",
@@ -63,7 +79,7 @@ const OVERVIEW: &str = "\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
 :      help  sh  @  export  import  quote  bullet  s/  clear  dedup  map  unmap  mapleader\n\
 \n\
-詳しくは :help keys  :help paste  :help edit  :help colon  :help map  のように。j / k でスクロール。\
+詳しくは :help keys  :help paste  :help tag  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
 
 pub fn topics() -> Vec<String> {
@@ -96,6 +112,9 @@ mod tests {
         assert!(overview.contains("sh"));
         assert!(overview.contains("M まとめ"));
         assert!(overview.contains("map"));
+        assert!(render(Some("tag")).contains("#run"));
+        assert!(render(Some("tag")).contains(":help sh"));
+        assert!(render(Some("tag")).contains("#log:path"));
         assert!(render(Some("sh")).contains("#run"));
         assert!(render(Some("edit")).contains("M は V 中"));
         assert!(render(Some("map")).contains("<leader>"));
