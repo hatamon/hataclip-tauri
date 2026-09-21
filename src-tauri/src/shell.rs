@@ -43,8 +43,7 @@ pub fn run_script(script: &str) -> Result<String, ShellError> {
         return Err(ShellError::Failed);
     };
     let _ = out.read_to_end(&mut buf);
-    let text = String::from_utf8_lossy(&buf);
-    Ok(trim_output(&text))
+    Ok(trim_output(&strip_ansi(&decode_output(&buf))))
 }
 
 fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
@@ -52,8 +51,16 @@ fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
     {
         for program in ["pwsh", "powershell"] {
             let mut command = Command::new(program);
-            command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+            let utf8 = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; ";
+            let script = if program == "pwsh" {
+                format!("{utf8}$PSStyle.OutputRendering='PlainText'; {script}")
+            } else {
+                format!("{utf8}{script}")
+            };
+            command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
             command.stdout(Stdio::piped()).stderr(Stdio::null());
+            command.env("NO_COLOR", "1");
+            command.env("TERM", "dumb");
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             command.creation_flags(CREATE_NO_WINDOW);
@@ -72,8 +79,54 @@ fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
+        command.env("NO_COLOR", "1");
+        command.env("TERM", "dumb");
         command.spawn()
     }
+}
+
+fn decode_output(buf: &[u8]) -> String {
+    let buf = buf.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(buf);
+    if let Ok(text) = std::str::from_utf8(buf) {
+        return text.to_string();
+    }
+    decode_windows_acp(buf)
+}
+
+#[cfg(windows)]
+fn decode_windows_acp(buf: &[u8]) -> String {
+    use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_OEMCP};
+    unsafe {
+        let needed = MultiByteToWideChar(
+            CP_OEMCP,
+            0,
+            buf.as_ptr(),
+            buf.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        );
+        if needed <= 0 {
+            return String::from_utf8_lossy(buf).into_owned();
+        }
+        let mut wide = vec![0u16; needed as usize];
+        let written = MultiByteToWideChar(
+            CP_OEMCP,
+            0,
+            buf.as_ptr(),
+            buf.len() as i32,
+            wide.as_mut_ptr(),
+            needed,
+        );
+        if written <= 0 {
+            return String::from_utf8_lossy(buf).into_owned();
+        }
+        String::from_utf16_lossy(&wide[..written as usize])
+    }
+}
+
+#[cfg(not(windows))]
+fn decode_windows_acp(buf: &[u8]) -> String {
+    String::from_utf8_lossy(buf).into_owned()
 }
 
 pub fn trim_output(text: &str) -> String {
@@ -87,6 +140,51 @@ pub fn trim_output(text: &str) -> String {
         .strip_suffix('\n')
         .unwrap_or(&joined)
         .to_string()
+}
+
+fn strip_ansi(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '\u{1b}' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        let Some(next) = chars.get(i) else {
+            break;
+        };
+        if *next == '[' {
+            i += 1;
+            while i < chars.len() {
+                let ch = chars[i];
+                i += 1;
+                if ('@'..='~').contains(&ch) {
+                    break;
+                }
+            }
+            continue;
+        }
+        if *next == ']' {
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\u{7}' {
+                    i += 1;
+                    break;
+                }
+                if chars[i] == '\u{1b}' && chars.get(i + 1) == Some(&'\\') {
+                    i += 2;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
 }
 
 /// `#run` なしなら `{{sh: ...}}` を空に。ありなら実行して埋め込む。
@@ -155,5 +253,32 @@ mod tests {
     #[test]
     fn apply_sh_clears_tokens_without_run() {
         assert_eq!(apply_sh("a{{sh: echo hi}}b", false).unwrap(), "ab");
+    }
+
+    #[test]
+    fn strips_ansi_color_codes() {
+        assert_eq!(strip_ansi("\u{1b}[32;1mMode\u{1b}[0m"), "Mode");
+        assert_eq!(strip_ansi("\u{1b}[44;1m.cargo\u{1b}[0m"), ".cargo");
+        assert_eq!(
+            trim_output(&strip_ansi("\u{1b}[32;1mhi\u{1b}[0m\n")),
+            "hi"
+        );
+    }
+
+    #[test]
+    fn decodes_utf8_directory_header() {
+        assert_eq!(
+            decode_output("ディレクトリ:".as_bytes()),
+            "ディレクトリ:"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn decodes_shift_jis_directory_header() {
+        let bytes = [
+            0x83, 0x66, 0x83, 0x42, 0x83, 0x8C, 0x83, 0x4E, 0x83, 0x67, 0x83, 0x8A, 0x3A,
+        ];
+        assert_eq!(decode_output(&bytes), "ディレクトリ:");
     }
 }
