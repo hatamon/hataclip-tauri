@@ -56,6 +56,7 @@
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
+  let lastSelectedId = $state<string | null>(null);
   let mode = $state<Mode>("normal");
   let query = $state("");
   let pending = $state("");
@@ -205,6 +206,13 @@
   $effect(() => {
     if (selected >= filtered.length) {
       selected = Math.max(0, filtered.length - 1);
+    }
+  });
+
+  $effect(() => {
+    const id = filtered[selected]?.id;
+    if (id) {
+      lastSelectedId = id;
     }
   });
 
@@ -779,8 +787,15 @@
   }
 
   function openPicker(next: Item[]) {
+    const keepId = lastSelectedId;
     items = next;
     selected = 0;
+    if (keepId) {
+      const index = next.findIndex((item) => item.id === keepId);
+      if (index >= 0) {
+        selected = index;
+      }
+    }
     mode = "normal";
     query = "";
     pending = "";

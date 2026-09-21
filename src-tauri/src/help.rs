@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -153,6 +153,7 @@ mod tests {
         assert!(render(Some("template")).contains(":n 100"));
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
+        assert!(render(Some("paste")).contains("次に一覧を出すとその行"));
         assert!(render(Some("paste")).contains(":sh dir"));
         assert!(render(Some("colon")).contains(":echo"));
         assert!(render(Some("colon")).contains(":type"));
