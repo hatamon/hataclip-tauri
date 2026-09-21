@@ -32,6 +32,7 @@
     applyTagCompletion,
     currentTagPrefix,
     isSecret,
+    isLocked,
     matchesAlias,
     matchingTags,
     tagsByCount,
@@ -514,14 +515,15 @@
   }
 
   async function deleteSelection() {
-    if (selectedIds.length === 0) {
+    const rows = selectedItems.filter((item) => !isLocked(item));
+    if (rows.length === 0) {
       return;
     }
     yanked = {
-      text: selectedItems.map((item) => item.text).join("\n"),
-      tags: selectedItems.length === 1 ? [...selectedItems[0].tags] : [],
+      text: rows.map((item) => item.text).join("\n"),
+      tags: rows.length === 1 ? [...rows[0].tags] : [],
     };
-    const ids = selectedIds;
+    const ids = rows.map((item) => item.id);
     clearSelection();
     items = await invoke<Item[]>("delete_items", { ids });
     lastChange = { kind: "delete" };

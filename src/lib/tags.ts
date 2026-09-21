@@ -53,6 +53,10 @@ export function isSecret(item: { tags: string[] }): boolean {
   return item.tags.includes("secret");
 }
 
+export function isLocked(item: { tags: string[] }): boolean {
+  return item.tags.includes("lock");
+}
+
 export function matchesAlias(item: { tags: string[] }, text: string): boolean {
   return text.length > 0 && item.tags.includes(`alias:${text}`);
 }

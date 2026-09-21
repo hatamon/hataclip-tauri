@@ -245,6 +245,7 @@ fn token_value(
         );
     }
     if let Some(name) = inner.strip_prefix('@') {
+        let name = expand_seen(name.trim(), ctx, seen);
         let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
@@ -256,12 +257,16 @@ fn token_value(
         return Some(expand_seen(&body, ctx, seen));
     }
     if let Some(name) = arg_after(inner, "env") {
+        let name = expand_seen(name, ctx, seen);
+        let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
         }
         return Some(std::env::var(name).unwrap_or_default());
     }
     if let Some(name) = arg_after(inner, "var") {
+        let name = expand_seen(name, ctx, seen);
+        let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
         }
@@ -277,6 +282,8 @@ fn token_value(
         return Some(expanded);
     }
     if let Some(name) = arg_after(inner, "tag") {
+        let name = expand_seen(name, ctx, seen);
+        let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
         }
@@ -698,6 +705,7 @@ mod tests {
             ]),
             vars: std::collections::HashMap::from([
                 ("a".into(), "{{date}}".into()),
+                ("b".into(), "a".into()),
                 ("sum".into(), ":echo 2+3".into()),
                 ("loop".into(), "{{var:loop}}".into()),
             ]),
@@ -846,6 +854,9 @@ mod tests {
         assert_eq!(expand_template("{{var:loop}}", &ctx), "");
         assert_eq!(expand_template("{{var:missing}}", &ctx), "");
         assert_eq!(expand_template("{{var:}}", &ctx), "");
+        assert_eq!(expand_template("{{var: {{var: b}}}}", &ctx), "2026/09/20");
+        assert_eq!(expand_template("{{var:{{var:b}}}}", &ctx), "2026/09/20");
+        assert_eq!(expand_template("{{var {{var b}}}}", &ctx), "2026/09/20");
     }
 
     #[test]

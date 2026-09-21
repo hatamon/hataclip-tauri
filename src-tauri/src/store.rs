@@ -41,6 +41,10 @@ impl Item {
             created_at: now_secs(),
         }
     }
+
+    pub fn locked(&self) -> bool {
+        self.tags.iter().any(|tag| tag == "lock")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,9 +66,9 @@ impl Store {
     pub fn load(path: PathBuf) -> Self {
         let mut items = read_items(&path);
         let before = items.len();
-        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp"));
+        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp") || item.locked());
         let now = now_secs();
-        items.retain(|item| !crate::text::expired(&item.tags, item.created_at, now));
+        items.retain(|item| item.locked() || !crate::text::expired(&item.tags, item.created_at, now));
         let store = Self {
             path,
             items,
@@ -163,11 +167,19 @@ impl Store {
     }
 
     pub fn delete_many(&mut self, ids: &[String]) -> bool {
+        let ids: Vec<String> = ids
+            .iter()
+            .filter(|id| self.get(id).is_some_and(|item| !item.locked()))
+            .cloned()
+            .collect();
+        if ids.is_empty() {
+            return false;
+        }
         if !self.items.iter().any(|item| ids.iter().any(|id| id == &item.id)) {
             return false;
         }
         self.push_undo();
-        self.remove_ids(ids);
+        self.remove_ids(&ids);
         true
     }
 
@@ -302,11 +314,11 @@ impl Store {
     }
 
     pub fn clear_unpinned(&mut self) -> bool {
-        if self.items.iter().all(|item| item.pinned) {
+        if self.items.iter().all(|item| item.pinned || item.locked()) {
             return false;
         }
         self.push_undo();
-        self.items.retain(|item| item.pinned);
+        self.items.retain(|item| item.pinned || item.locked());
         self.save();
         true
     }
@@ -445,6 +457,9 @@ impl Store {
         if rows.len() < 2 {
             return false;
         }
+        if rows.iter().any(|item| item.locked()) {
+            return false;
+        }
         self.push_undo();
         let Some(index) = self.items.iter().position(|item| item.id == rows[0].id) else {
             return false;
@@ -578,14 +593,17 @@ impl Store {
             let key = item.text.replace("\r\n", "\n").trim().to_string();
             match seen.get(&key) {
                 None => {
-                    seen.insert(key, (item.pinned, index));
+                    seen.insert(key, (item.pinned || item.locked(), index));
                     keep.push(item.id.clone());
                 }
                 Some((pinned, prev)) => {
-                    if item.pinned && !*pinned {
+                    if self.items[*prev].locked() {
+                        continue;
+                    }
+                    if (item.locked() || (item.pinned && !*pinned)) && !self.items[*prev].locked() {
                         keep.retain(|id| id != &self.items[*prev].id);
                         keep.push(item.id.clone());
-                        seen.insert(key, (true, index));
+                        seen.insert(key, (item.pinned || item.locked(), index));
                     }
                 }
             }
@@ -831,6 +849,25 @@ mod tests {
     }
 
     #[test]
+    fn lock_skips_delete_and_clear() {
+        let mut store = fresh("lock");
+        store.insert(Item {
+            tags: vec!["lock".into()],
+            ..item("a", "keep")
+        });
+        store.insert(item("b", "gone"));
+        assert!(!store.delete_many(&["a".to_string()]));
+        assert!(store.delete_many(&["a".to_string(), "b".to_string()]));
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].id, "a");
+        store.insert(item("c", "also"));
+        assert!(!store.merge_items(&["a".into(), "c".into()]));
+        assert!(store.clear_unpinned());
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].id, "a");
+    }
+
+    #[test]
     fn insert_promotes_same_text_to_front() {
         let mut store = fresh("promote");
         store.insert(Item {
@@ -986,6 +1023,19 @@ mod tests {
         assert_eq!(store.list()[0].id, "1");
         let reloaded = Store::load(path.clone());
         assert_eq!(reloaded.list().len(), 1);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn load_keeps_locked_tmp_rows() {
+        let path = temp_path("lock-tmp");
+        fs::write(
+            &path,
+            r#"{"version":1,"items":[{"id":"1","text":"keep","tags":["tmp","lock"]}]}"#,
+        )
+        .unwrap();
+        let store = Store::load(path.clone());
+        assert_eq!(store.list().len(), 1);
         let _ = fs::remove_file(path);
     }
 

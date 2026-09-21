@@ -938,7 +938,9 @@ fn drop_once(state: &AppState, ids: &[String]) {
         .filter(|id| {
             store
                 .get(id)
-                .map_or(false, |item| item.tags.iter().any(|tag| tag == "once"))
+                .map_or(false, |item| {
+                    item.tags.iter().any(|tag| tag == "once") && !item.locked()
+                })
         })
         .cloned()
         .collect();

@@ -1,7 +1,7 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 展開して全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 展開して全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除（#lock は残す）。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
@@ -14,14 +14,15 @@ const TOPICS: &[(&str, &str)] = &[
 \n\
 #pin相当 gp で付ける。先頭に固定。+ / - で順\n\
 #secret  一覧を ••••。貼り付けは普通\n\
-#tmp     次回起動で消す\n\
+#tmp     次回起動で消す。#lock があれば残す\n\
 #alias:foo  /foo でも当たる。{{@foo}} でその本文\n\
 #app:chrome  前面のアプリ名が chrome のときだけ出す。#app:code と複数ならどれか。ブラウザはページが違っても当たる\n\
 #not:chrome  そのアプリのときは出さない。#app: と両方なら、アプリに当たって #not に当たらないときだけ\n\
-#ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す\n\
+#ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す。#lock があれば残す\n\
 #run     貼るときコマンドを実行。自動では付けない。詳しくは :help sh\n\
 #file    本文のパスのファイル内容を貼る。#run が先。ドロップすると #path と一緒に付く\n\
-#once    貼って成功したら消す\n\
+#once    貼って成功したら消す。#lock があれば残す\n\
+#lock    dd / :clear / J で消えない。外すのは T\n\
 #tsv     展開後をタブ区切り。JSON 配列か 1 行 1 値。壊れそうなら貼らない。#run が先\n\
 #log:path  前面へ貼らずファイル末尾へ追記。パスに空白は使えない。#run があるときはその標準出力を追記\n\
 #url #path  登録時の自動タグ。動きは目印だけ",
@@ -32,7 +33,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter 改行つなぎ。gJ カンマ、gT タブ。g> 引用、g* 箇条書き。J 1 行にまとめる。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / gp は範囲に効く。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。gJ カンマ、gT タブ。g> 引用、g* 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / gp は範囲に効く。dd は #lock を残す。Esc で解除。",
     ),
     (
         "search",
@@ -66,7 +67,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{host}}           コンピュータ名\n\
 {{env:USERPROFILE}}  同名の環境変数。無ければ空\n\
 {{@foo}}           #alias:foo の先の行の本文。差し込んだ本文も展開する。同じ名前を二度辿ったら空。エイリアス側の #run などは見ない\n\
-{{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない\n\
+{{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）\n\
 {{tag:work}}       いまの一覧でタグ work の本文。並びどおり、改行つなぎ。差し込んだ本文も展開する。同じタグを二度辿ったら空。その行の #run などは見ない\n\
 {{type:<Tab>}}     貼る途中でキーを送る。id{{type:<Tab>}}pass は id を貼って Tab を押して pass を貼る。{{type:<Ctrl+A>abc<Enter>}} {{type:<Ctrl+Shift+A>}} も可。矢印は <Up> <Down> <Left> <Right>。F キーは <F1>〜<F24>。文字は 1 文字ずつ。Tab Enter Esc Space BS Del Home End PgUp PgDn と Ctrl/Shift/Alt+それら\n\
 {{wait:200}}       そのあと 200ms 待つ。最大 5 秒\n\
@@ -82,7 +83,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -137,7 +138,8 @@ mod tests {
         assert!(render(Some("tag")).contains(":help sh"));
         assert!(render(Some("tag")).contains("#log:path"));
         assert!(render(Some("tag")).contains("#app:chrome"));
-        assert!(render(Some("tag")).contains("#not:chrome"));
+        assert!(render(Some("tag")).contains("#lock"));
+        assert!(render(Some("template")).contains("{{var: {{var: b}}}}"));
         assert!(!render(Some("tag")).contains("#here"));
         assert!(render(Some("sh")).contains("#run"));
         assert!(render(Some("edit")).contains("J は V 中"));
