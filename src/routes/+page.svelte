@@ -7,12 +7,15 @@
   import {
     applyTagCompletion,
     currentTagPrefix,
+    isSecret,
+    matchesAlias,
     matchingTags,
+    tagsByCount,
     uniqueTags,
   } from "$lib/tags";
   import type { Item } from "$lib/types";
 
-  type Mode = "normal" | "search" | "editing" | "tag";
+  type Mode = "normal" | "search" | "editing" | "tag" | "colon" | "help";
 
   // `.` で繰り返せる変更。移動やヤンクは覚えない。
   type Change =
@@ -38,12 +41,27 @@
   let tagInput = $state("");
   let tagAdd = $state(true);
   let lastChange = $state<Change | null>(null);
+  let preview = $state(false);
+  let tagCycle = $state(-1);
+  let draftNewId = $state<string | null>(null);
+  let colonEl = $state<HTMLInputElement | undefined>(undefined);
+  let colonInput = $state("");
+  let helpText = $state("");
+  let helpEl = $state<HTMLPreElement | undefined>(undefined);
+  let helpTopics = $state<string[]>([]);
 
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
     let list = items.filter((item) => parsed.tags.every((tag) => item.tags.includes(tag)));
     if (parsed.text.length > 0) {
-      list = fuzzyFilter(parsed.text, list);
+      const fuzzy = fuzzyFilter(parsed.text, list);
+      const seen = new Set(fuzzy.map((item) => item.id));
+      for (const item of list) {
+        if (!seen.has(item.id) && matchesAlias(item, parsed.text)) {
+          fuzzy.push(item);
+        }
+      }
+      list = fuzzy;
     }
     return list;
   });
@@ -59,6 +77,7 @@
   const selectedIds = $derived(selectedItems.map((item) => item.id));
 
   const allTags = $derived(uniqueTags(items));
+  const rankedTags = $derived(tagsByCount(items));
   const searchTagPrefix = $derived(mode === "search" ? currentTagPrefix(query) : null);
   const searchSuggestions = $derived(
     searchTagPrefix === null ? [] : matchingTags(searchTagPrefix, allTags),
@@ -82,6 +101,9 @@
     }
     if (mode === "tag") {
       queueMicrotask(() => tagEl?.focus());
+    }
+    if (mode === "colon") {
+      queueMicrotask(() => colonEl?.focus());
     }
   });
 
@@ -230,6 +252,7 @@
     if (!item) {
       return;
     }
+    draftNewId = null;
     clearSelection();
     editingId = item.id;
     editText = item.text;
@@ -252,9 +275,16 @@
   }
 
   function cancelEdit() {
+    const created = draftNewId;
     editingId = null;
+    draftNewId = null;
     mode = "normal";
     pending = "";
+    if (created) {
+      void invoke<Item[]>("delete_items", { ids: [created] }).then((next) => {
+        items = next;
+      });
+    }
   }
 
   async function saveEdit() {
@@ -263,6 +293,7 @@
     }
     const tags = tagDraft.trim().length > 0 ? [...editTags, tagDraft.trim()] : editTags;
     items = await invoke<Item[]>("update_item", { id: editingId, text: editText, tags });
+    draftNewId = null;
     cancelEdit();
   }
 
@@ -299,7 +330,136 @@
     query = "";
     pending = "";
     editingId = null;
+    draftNewId = null;
     anchor = null;
+    preview = false;
+    tagCycle = -1;
+    colonInput = "";
+    helpText = "";
+  }
+
+  async function openBlank() {
+    const result = await invoke<{ item: Item; items: Item[] }>("put_item", {
+      text: "",
+      tags: [],
+      anchorId: null,
+      above: true,
+    });
+    items = result.items;
+    draftNewId = result.item.id;
+    editingId = result.item.id;
+    editText = "";
+    editTags = [];
+    tagDraft = "";
+    mode = "editing";
+    clearSelection();
+    selectById(result.item.id);
+  }
+
+  function cycleTag(direction: number) {
+    if (rankedTags.length === 0) {
+      return;
+    }
+    const next = tagCycle + direction;
+    if (next < -1) {
+      tagCycle = rankedTags.length - 1;
+    } else if (next >= rankedTags.length) {
+      tagCycle = -1;
+    } else {
+      tagCycle = next;
+    }
+    query = tagCycle < 0 ? "" : `#${rankedTags[tagCycle]} `;
+    selected = 0;
+  }
+
+  function gotoFile() {
+    const item = selectedItems[0];
+    if (!item) {
+      return;
+    }
+    clearSelection();
+    void invoke("open_target", { text: item.text });
+  }
+
+  async function runColon(raw: string) {
+    const line = raw.trim().replace(/^:/, "");
+    mode = "normal";
+    colonInput = "";
+    if (line === "help" || line.startsWith("help ")) {
+      const topic = line === "help" ? null : line.slice(5).trim();
+      helpText = await invoke<string>("get_help", { topic });
+      helpTopics = await invoke<string[]>("help_topics");
+      mode = "help";
+      return;
+    }
+    if (line.startsWith("export ")) {
+      const path = line.slice(7).trim();
+      try {
+        await invoke("export_items", { path });
+      } catch {
+        // 書けなければそのまま
+      }
+      return;
+    }
+    if (line === "clear") {
+      colonInput = "clear yes";
+      mode = "colon";
+      return;
+    }
+    if (line === "clear yes") {
+      items = await invoke<Item[]>("clear_unpinned");
+      return;
+    }
+    if (line === "sh" || line === "sh ") {
+      return;
+    }
+    if (line.startsWith("sh ")) {
+      try {
+        await invoke("paste_script", { script: line.slice(3) });
+      } catch {
+        // 失敗したら貼らない
+      }
+      return;
+    }
+    if (line === "@") {
+      try {
+        await invoke("paste_last_script");
+      } catch {
+        // 無ければ何もしない
+      }
+    }
+  }
+
+  function onColonKeydown(event: KeyboardEvent) {
+    if (event.isComposing) {
+      return;
+    }
+    if (isEscape(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      mode = "normal";
+      colonInput = "";
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      void runColon(colonInput);
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      const trimmed = colonInput.trim();
+      if (!trimmed.startsWith("help")) {
+        return;
+      }
+      const prefix = trimmed === "help" ? "" : trimmed.slice(4).trim();
+      const topic = helpTopics.find((name) => name.startsWith(prefix));
+      if (topic) {
+        colonInput = `help ${topic}`;
+      }
+    }
   }
 
   function isCtrl(event: KeyboardEvent, key: string) {
@@ -422,7 +582,26 @@
     if (event.isComposing || event.defaultPrevented) {
       return;
     }
-    if (mode === "search" || mode === "tag") {
+    if (mode === "search" || mode === "tag" || mode === "colon") {
+      return;
+    }
+    if (mode === "help") {
+      if (isEscape(event)) {
+        event.preventDefault();
+        mode = "normal";
+        helpText = "";
+        return;
+      }
+      if (event.key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        helpEl?.scrollBy(0, 24);
+        return;
+      }
+      if (event.key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        helpEl?.scrollBy(0, -24);
+        return;
+      }
       return;
     }
     if (mode === "editing") {
@@ -504,6 +683,36 @@
       anchor = anchor === null ? selected : null;
       return;
     }
+    if (event.key === " ") {
+      event.preventDefault();
+      pending = "";
+      preview = !preview;
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      pending = "";
+      cycleTag(event.shiftKey ? -1 : 1);
+      return;
+    }
+    if (event.key === "o") {
+      event.preventDefault();
+      pending = "";
+      void openBlank();
+      return;
+    }
+    if (event.key === ":") {
+      event.preventDefault();
+      pending = "";
+      colonInput = "";
+      mode = "colon";
+      if (helpTopics.length === 0) {
+        void invoke<string[]>("help_topics").then((topics) => {
+          helpTopics = topics;
+        });
+      }
+      return;
+    }
     if (event.key === "e") {
       event.preventDefault();
       pending = "";
@@ -552,6 +761,12 @@
       if (filtered.length > 0) {
         selected = filtered.length - 1;
       }
+      return;
+    }
+    if (event.key === "f" && pending === "g") {
+      event.preventDefault();
+      pending = "";
+      gotoFile();
       return;
     }
     if (event.key === "g") {
@@ -672,7 +887,18 @@
       {/if}
       <p class="hint">Ctrl+Enter save · Esc cancel</p>
     </div>
+  {:else if mode === "help"}
+    <pre class="help" bind:this={helpEl}>{helpText}</pre>
   {:else}
+    {#if mode === "colon"}
+      <input
+        bind:this={colonEl}
+        bind:value={colonInput}
+        class="search"
+        placeholder=":help  :sh  :export  :clear"
+        onkeydown={onColonKeydown}
+      />
+    {/if}
     {#if mode === "search"}
       <input
         bind:this={searchEl}
@@ -721,6 +947,9 @@
         </ul>
       {/if}
     {/if}
+    {#if preview && currentItem()}
+      <pre class="preview">{isSecret(currentItem()!) ? "••••" : currentItem()!.text}</pre>
+    {/if}
     <ul class="list" bind:this={listEl}>
       {#each filtered as item, index (item.id)}
         <li
@@ -741,7 +970,7 @@
           >
             <span class="gutter">{index < 9 ? index + 1 : ""}</span>
             <span class="body">
-              <span class="text">{item.text}</span>
+              <span class="text">{isSecret(item) ? "••••" : item.text}</span>
               {#if item.pinned || item.tags.length > 0}
                 <span class="meta">
                   {#if item.pinned}<span class="pin">pin</span>{/if}
@@ -937,5 +1166,22 @@
     list-style: none;
     margin: 0;
     padding: 4px 8px;
+  }
+
+  .help,
+  .preview {
+    margin: 0;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    overflow: auto;
+    font: 12px/1.4 ui-monospace, monospace;
+    background: #111;
+    border-bottom: 1px solid #333;
+    max-height: 40%;
+  }
+
+  .help {
+    flex: 1;
+    max-height: none;
   }
 </style>

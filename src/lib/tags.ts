@@ -33,3 +33,26 @@ export function applyTagCompletion(query: string, tag: string): string {
 export function matchingTags(prefix: string, tags: string[]): string[] {
   return tags.filter((tag) => tag.startsWith(prefix)).slice(0, 8);
 }
+
+export function tagsByCount(items: { tags: string[] }[]): string[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    for (const tag of item.tags) {
+      if (tag.length === 0) {
+        continue;
+      }
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([tag]) => tag);
+}
+
+export function isSecret(item: { tags: string[] }): boolean {
+  return item.tags.includes("secret");
+}
+
+export function matchesAlias(item: { tags: string[] }, text: string): boolean {
+  return text.length > 0 && item.tags.includes(`alias:${text}`);
+}

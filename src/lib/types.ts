@@ -4,4 +4,5 @@ export type Item = {
   tags: string[];
   pinned: boolean;
   contexts: string[];
+  paste_count: number;
 };
