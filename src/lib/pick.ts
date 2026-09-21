@@ -89,6 +89,20 @@ export function pickSpecs(text: string, catalog: PickCatalog[] = [], app = ""): 
   return specs;
 }
 
+export function pickByDigit(optionCount: number, key: string): number | null {
+  if (optionCount === 0 || optionCount > 9) {
+    return null;
+  }
+  if (!/^[1-9]$/.test(key)) {
+    return null;
+  }
+  const index = Number(key) - 1;
+  if (index >= optionCount) {
+    return null;
+  }
+  return index;
+}
+
 export function uniquePickSpecs(
   items: { text: string }[],
   catalog: PickCatalog[] = [],

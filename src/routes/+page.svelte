@@ -29,7 +29,7 @@
     DEFAULT_LEADER,
     type KeyMap,
   } from "$lib/map";
-  import { uniquePickSpecs, type PickSpec } from "$lib/pick";
+  import { pickByDigit, uniquePickSpecs, type PickSpec } from "$lib/pick";
   import { contextApp } from "$lib/when";
   import { fuzzyFilter } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
@@ -979,6 +979,11 @@
       return;
     }
     const options = pickQueue[pickIndex]?.options ?? [];
+    const digit = pickByDigit(options.length, event.key);
+    if (digit !== null) {
+      choosePick(digit);
+      return;
+    }
     if (event.key === "j" || event.key === "ArrowDown") {
       if (options.length > 0) {
         pickChoice = Math.min(options.length - 1, pickChoice + 1);
@@ -990,20 +995,24 @@
       return;
     }
     if (event.key === "Enter") {
-      const spec = pickQueue[pickIndex];
-      if (!spec) {
-        return;
-      }
-      const value = spec.options[pickChoice] ?? "";
-      askAnswers = { ...askAnswers, [`pick:${spec.spec}`]: value };
-      if (pickIndex + 1 >= pickQueue.length) {
-        pickQueue = [];
-        mode = "normal";
-        void continueAfterPrompts();
-      } else {
-        pickIndex += 1;
-        pickChoice = 0;
-      }
+      choosePick(pickChoice);
+    }
+  }
+
+  function choosePick(index: number) {
+    const spec = pickQueue[pickIndex];
+    if (!spec) {
+      return;
+    }
+    const value = spec.options[index] ?? "";
+    askAnswers = { ...askAnswers, [`pick:${spec.spec}`]: value };
+    if (pickIndex + 1 >= pickQueue.length) {
+      pickQueue = [];
+      mode = "normal";
+      void continueAfterPrompts();
+    } else {
+      pickIndex += 1;
+      pickChoice = 0;
     }
   }
 
@@ -2091,18 +2100,9 @@
                 type="button"
                 class:active={index === pickChoice}
                 onclick={() => {
-                  pickChoice = index;
-                  const spec = pickQueue[pickIndex];
-                  askAnswers = { ...askAnswers, [`pick:${spec.spec}`]: option };
-                  if (pickIndex + 1 >= pickQueue.length) {
-                    pickQueue = [];
-                    mode = "normal";
-                    void continueAfterPrompts();
-                  } else {
-                    pickIndex += 1;
-                    pickChoice = 0;
-                  }
-                }}>{option}</button
+                  choosePick(index);
+                }}
+                >{pickQueue[pickIndex].options.length <= 9 ? `${index + 1} ` : ""}{option}</button
               >
             </li>
           {/each}

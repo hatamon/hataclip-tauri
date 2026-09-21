@@ -60,7 +60,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{clip}}           いまのクリップボード。空なら空\n\
 {{sel}}            前面の選択。無ければ空。{{sel|clip}} は空なら隣。隣がトークンなら展開し、違う文字ならそのまま。{{front|無題}} {{sel|clip|なし}}\n\
 {{ask:名前}}       貼る前に入力。同じ名前は 1 回\n\
-{{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。候補に {{var:a}} を書ける。{{pick tag:env}} はタグ env の本文\n\
+{{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。候補が 9 個までなら 1〜9 でその番。10 個以上は j / k。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。候補に {{var:a}} を書ける。{{pick tag:env}} はタグ env の本文\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
 {{front}}          前面ウィンドウのタイトル。無ければ空\n\
 {{when chrome}}    前面が chrome のときだけその区間。{{when excel}} と並べ、{{when}} はどれにも当たらないとき。複数は {{when chrome, msedge}}。#app: は行の出し分け\n\
@@ -146,6 +146,7 @@ mod tests {
         assert!(render(Some("template")).contains("{{when chrome}}"));
         assert!(render(Some("paste")).contains("{{when chrome}}"));
         assert!(render(Some("template")).contains("{{pick tag:env}}"));
+        assert!(render(Some("template")).contains("候補が 9 個までなら 1〜9"));
         assert!(render(Some("template")).contains("{{date+1w}}"));
         assert!(render(Some("keys")).contains("ga 前面"));
         assert!(render(None).contains("ga #app"));

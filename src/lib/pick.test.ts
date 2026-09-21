@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickSpecs, uniquePickSpecs } from "./pick";
+import { pickByDigit, pickSpecs, uniquePickSpecs } from "./pick";
 
 describe("pickSpecs", () => {
   it("parses options and drops duplicates", () => {
@@ -41,5 +41,16 @@ describe("uniquePickSpecs", () => {
         ],
       ),
     ).toEqual([{ spec: "tag:env", options: ["stg", "prod"] }]);
+  });
+});
+
+describe("pickByDigit", () => {
+  it("confirms 1 through the option count when there are at most nine", () => {
+    expect(pickByDigit(3, "1")).toBe(0);
+    expect(pickByDigit(3, "3")).toBe(2);
+    expect(pickByDigit(3, "4")).toBeNull();
+    expect(pickByDigit(3, "j")).toBeNull();
+    expect(pickByDigit(10, "1")).toBeNull();
+    expect(pickByDigit(0, "1")).toBeNull();
   });
 });
