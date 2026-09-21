@@ -12,6 +12,12 @@ const CURRENT_VERSION: u32 = 1;
 pub struct Shortcuts {
     pub register: String,
     pub show: String,
+    #[serde(default = "bool_true")]
+    pub quick_paste: bool,
+}
+
+fn bool_true() -> bool {
+    true
 }
 
 impl Default for Shortcuts {
@@ -19,6 +25,7 @@ impl Default for Shortcuts {
         Self {
             register: DEFAULT_REGISTER.to_string(),
             show: DEFAULT_SHOW.to_string(),
+            quick_paste: true,
         }
     }
 }
@@ -89,6 +96,7 @@ fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>) {
     let shortcuts = Shortcuts {
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
+        quick_paste: file.shortcuts.quick_paste,
     };
     (shortcuts, file.window)
 }
@@ -170,6 +178,7 @@ mod tests {
         settings.set_shortcuts(Shortcuts {
             register: "Alt+KeyC".to_string(),
             show: "Alt+KeyV".to_string(),
+            quick_paste: false,
         });
         settings.set_window(WindowGeom {
             x: 10,

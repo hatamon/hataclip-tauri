@@ -1,6 +1,7 @@
 export type Shortcuts = {
   register: string;
   show: string;
+  quickPaste: boolean;
 };
 
 type KeyCombo = Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">;

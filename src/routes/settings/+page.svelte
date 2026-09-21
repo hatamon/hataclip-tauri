@@ -7,6 +7,7 @@
 
   let register = $state("");
   let show = $state("");
+  let quickPaste = $state(true);
   let recording = $state<Slot | null>(null);
   let message = $state("");
   let error = $state("");
@@ -15,6 +16,7 @@
     const shortcuts = await invoke<Shortcuts>("get_shortcuts");
     register = shortcuts.register;
     show = shortcuts.show;
+    quickPaste = shortcuts.quickPaste;
   });
 
   $effect(() => {
@@ -49,7 +51,7 @@
     message = "";
     error = "";
     try {
-      await invoke("set_shortcuts", { register, show });
+      await invoke("set_shortcuts", { register, show, quickPaste });
       message = "保存した";
     } catch (reason) {
       error = String(reason);
@@ -80,6 +82,12 @@
       {label("show", show)}
     </button>
   </div>
+
+  <label class="row">
+    <span class="name">速貼</span>
+    <input type="checkbox" bind:checked={quickPaste} />
+    <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
+  </label>
 
   <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。</p>
 

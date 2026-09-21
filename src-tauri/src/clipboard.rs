@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub fn read_clipboard_text() -> Option<String> {
     let text = peek_text()?;
     if text.trim().is_empty() {

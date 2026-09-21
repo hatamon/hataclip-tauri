@@ -148,10 +148,15 @@ fn get_shortcuts(state: tauri::State<'_, AppState>) -> Shortcuts {
 fn set_shortcuts(
     register: String,
     show: String,
+    quick_paste: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let next = Shortcuts { register, show };
+    let next = Shortcuts {
+        register,
+        show,
+        quick_paste,
+    };
     let previous = state.settings.lock().expect("settings").shortcuts().clone();
     if next == previous {
         return Ok(());
@@ -570,7 +575,7 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
         .title("hataclip 設定")
-        .inner_size(340.0, 260.0)
+        .inner_size(340.0, 300.0)
         .resizable(false)
         .build();
 }

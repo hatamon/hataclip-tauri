@@ -33,5 +33,27 @@ pub fn apply(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
         })
         .map_err(|error| format!("{} を登録できない: {error}", shortcuts.show))?;
 
+    if shortcuts.quick_paste {
+        register_quick_paste(app);
+    }
+
     Ok(())
+}
+
+fn register_quick_paste(app: &AppHandle) {
+    let global = app.global_shortcut();
+    for digit in 1..=9 {
+        let spec = format!("Control+Shift+Digit{digit}");
+        let Ok(shortcut) = actions::parse(&spec) else {
+            continue;
+        };
+        let index = digit - 1;
+        let _ = global.on_shortcut(shortcut, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let state = app.state::<AppState>();
+            crate::paste_ranked(index, app, &state);
+        });
+    }
 }
