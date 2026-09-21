@@ -20,6 +20,7 @@ use serde::Serialize;
 use settings::{KeyMaps, NCommand, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(windows)]
 use std::time::Duration;
 use store::{Item, Store};
 use tauri::{
@@ -532,7 +533,7 @@ fn expand_ids(
 
 #[tauri::command]
 fn open_target(text: String) -> bool {
-    open_target_text(&text)
+    platform::open_target(&text)
 }
 
 #[tauri::command]
@@ -690,14 +691,7 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         return;
     }
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-    let previous = clipboard::peek_text();
-    let spec = copy_spec(state);
-    let _ = platform::simulate_copy(&spec);
-    std::thread::sleep(Duration::from_millis(70));
-    let captured = clipboard::peek_text();
-    if let Some(previous) = previous.as_ref() {
-        let _ = clipboard::write_clipboard_text(previous);
-    }
+    let captured = capture_front_text(state);
     let Some(text) = captured else {
         return;
     };
@@ -720,35 +714,24 @@ fn remember_last_sh(text: &str, state: &AppState) {
     }
 }
 
-fn open_target_text(text: &str) -> bool {
-    let text = text.trim();
-    if text.starts_with("http://") || text.starts_with("https://") {
-        return open_url(text);
+fn capture_front_text(state: &AppState) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let previous = clipboard::peek_text();
+        let spec = copy_spec(state);
+        let _ = platform::simulate_copy(&spec);
+        std::thread::sleep(Duration::from_millis(70));
+        let captured = clipboard::peek_text();
+        if let Some(previous) = previous.as_ref() {
+            let _ = clipboard::write_clipboard_text(previous);
+        }
+        captured
     }
-    if !text::looks_like_path(text) {
-        return false;
+    #[cfg(not(windows))]
+    {
+        let _ = state;
+        clipboard::peek_text()
     }
-    let path = std::path::Path::new(text);
-    if path.is_file() {
-        return std::process::Command::new("explorer")
-            .arg(format!("/select,{text}"))
-            .spawn()
-            .is_ok();
-    }
-    if path.is_dir() {
-        return std::process::Command::new("explorer")
-            .arg(text)
-            .spawn()
-            .is_ok();
-    }
-    false
-}
-
-fn open_url(url: &str) -> bool {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn()
-        .is_ok()
 }
 
 fn run_paste(
@@ -1023,6 +1006,7 @@ fn drop_once(state: &AppState, ids: &[String]) {
     }
 }
 
+#[cfg(windows)]
 fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     let previous = clipboard::peek_text();
     let wait = *state.picker_open.lock().expect("picker_open");
@@ -1044,6 +1028,11 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
         Some(text) if previous.as_ref() != Some(&text) => text,
         _ => String::new(),
     }
+}
+
+#[cfg(not(windows))]
+fn capture_selection(_app: &tauri::AppHandle, _state: &AppState) -> String {
+    String::new()
 }
 
 fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<text::PasteOp>> {
@@ -1103,6 +1092,7 @@ fn play_resolved(
     play_ops(app, state, &ops, keep_open, typed)
 }
 
+#[cfg(windows)]
 fn play_ops(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -1162,6 +1152,17 @@ fn play_ops(
         reveal_picker(app, state);
     }
     true
+}
+
+#[cfg(not(windows))]
+fn play_ops(
+    _app: &tauri::AppHandle,
+    _state: &AppState,
+    _ops: &[text::PasteOp],
+    _keep_open: bool,
+    _typed: bool,
+) -> bool {
+    false
 }
 
 fn apply_tsv(item: &Item, text: String) -> Option<String> {
@@ -1279,11 +1280,13 @@ fn foreground_app(state: &AppState) -> String {
         .unwrap_or_default()
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn copy_spec(state: &AppState) -> String {
     let app = foreground_app(state);
     state.settings.lock().expect("settings").copy_for(&app)
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn paste_spec(state: &AppState) -> String {
     let app = foreground_app(state);
     state.settings.lock().expect("settings").paste_for(&app)
@@ -1305,6 +1308,7 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
     }
 }
 
+#[cfg(windows)]
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
     let previous = clipboard::peek_text();
     let _ = clipboard::write_clipboard_text(text);
@@ -1329,6 +1333,13 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     }
 }
 
+#[cfg(not(windows))]
+fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: bool) {
+    let _ = clipboard::write_clipboard_text(text);
+    let _ = yield_target(app, state, false);
+}
+
+#[cfg(windows)]
 fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
     let wait = *state.picker_open.lock().expect("picker_open");
     if !yield_target(app, state, keep_open) {
@@ -1344,6 +1355,11 @@ fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bo
         reveal_picker(app, state);
     }
     ok
+}
+
+#[cfg(not(windows))]
+fn type_text(_app: &tauri::AppHandle, _state: &AppState, _text: &str, _keep_open: bool) -> bool {
+    false
 }
 
 fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
@@ -1409,6 +1425,20 @@ pub(crate) fn open_settings(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) {
+    let Some(text) = capture_register_text(state) else {
+        return;
+    };
+    let tags = text::auto_tags(&text);
+    state
+        .store
+        .lock()
+        .expect("store")
+        .insert(Item::new(text, tags));
+    let _ = app.emit("items-changed", view(state));
+}
+
+#[cfg(windows)]
+fn capture_register_text(state: &AppState) -> Option<String> {
     let previous = clipboard::peek_text();
     let spec = {
         let app_name = platform::capture_foreground()
@@ -1422,16 +1452,12 @@ pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) 
     if let Some(previous) = previous {
         let _ = clipboard::write_clipboard_text(&previous);
     }
-    let Some(text) = captured.filter(|text| !text.trim().is_empty()) else {
-        return;
-    };
-    let tags = text::auto_tags(&text);
-    state
-        .store
-        .lock()
-        .expect("store")
-        .insert(Item::new(text, tags));
-    let _ = app.emit("items-changed", view(state));
+    captured.filter(|text| !text.trim().is_empty())
+}
+
+#[cfg(not(windows))]
+fn capture_register_text(_state: &AppState) -> Option<String> {
+    clipboard::peek_text().filter(|text| !text.trim().is_empty())
 }
 
 pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {

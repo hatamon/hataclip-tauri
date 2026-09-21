@@ -18,6 +18,10 @@ services:
     <<: *build-env
     command: ["bash", "scripts/build-windows.sh"]
 
+  linux-build:
+    <<: *build-env
+    command: ["bash", "scripts/build-linux.sh"]
+
   test:
     <<: *build-env
     command: ["bash", "scripts/test.sh"]

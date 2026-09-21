@@ -1124,7 +1124,7 @@ mod tests {
         assert_eq!(prefix_lines("a\nb", "> "), "> a\n> b");
         assert_eq!(prefix_lines("> a\nb", "> "), "> a\n> b");
         assert_eq!(prefix_lines("a\n* b", "* "), "* a\n* b");
-        assert_eq!(prefix_lines("- a\nb", "- [ ] "), "- a\n- [ ] b");
+        assert_eq!(prefix_lines("- [ ] a\nb", "- [ ] "), "- [ ] a\n- [ ] b");
     }
 
     #[test]

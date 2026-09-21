@@ -1,8 +1,8 @@
 # hataclip
 
-Windows 向けのテキスト専用クリップボードピッカー。常時監視はしない。
+Windows / Ubuntu 向けのテキスト専用クリップボードピッカー。常時監視はしない。
 
-ホストに入れるのは **Docker だけ**。Rust / Node の開発パッケージは不要。成果物は Windows の `exe` のみ。
+ホストに入れるのは **Docker だけ**。Rust / Node の開発パッケージは不要。成果物は Windows の `exe` と Ubuntu のバイナリ。
 
 ## clone 直後のビルド
 
@@ -11,6 +11,7 @@ git clone <this-repo>
 cd hataclip-tauri
 docker compose run --rm test
 docker compose run --rm windows-build
+docker compose run --rm linux-build
 ```
 
 Windows（PowerShell 7）:
@@ -32,25 +33,36 @@ docker compose down -v
 
 ## 成果物
 
-`dist/windows/hataclip.exe` と、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
+- Windows: `dist/windows/hataclip.exe` と、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
+- Ubuntu: `dist/linux/hataclip`
 
 インストーラ（`.msi` など）は出さない。
 
 ## 実行
 
-`dist/windows` ごとコピーしてから:
+Windows は `dist/windows` ごとコピーしてから:
 
 ```powershell
 .\dist\windows\hataclip.exe
 ```
 
+Ubuntu は:
+
+```bash
+./dist/linux/hataclip
+```
+
+実行時は `libwebkit2gtk-4.1-0` と AppIndicator（`libayatana-appindicator3-1`）が要る。
+
 起動後はトレイに常駐する。ショートカットでも出す。トレイの右クリックから設定と終了。
 
-- `Ctrl+4` 前面の選択を登録（選択が無ければクリップボード）。登録後クリップボードは元に戻る
+- `Ctrl+4` 前面の選択を登録（選択が無ければクリップボード）。登録後クリップボードは元に戻る。Ubuntu ではクリップボードだけ
 - `Ctrl+7` ドロップダウンを表示。前回選んでいた行があればそこを選ぶ
-- `Ctrl+Shift+H` 前面で選んだ `{{date}}` / `:sh dir` / `:echo 2+3` を置き換えて貼る。無ければ何もしない。一覧は出さない
+- `Ctrl+Shift+H` 前面で選んだ `{{date}}` / `:sh dir` / `:echo 2+3` を置き換えて貼る。無ければ何もしない。一覧は出さない。Ubuntu ではクリップボード上のテキストを対象にする
 - `Ctrl+Shift+1`〜`9` 一覧を出さずに貼る。`#slot:3` があればその行（複数ならいまの並びの先）。無ければ今までの番号（設定の「速貼」で on/off）
 - トレイを左クリックしてもドロップダウンを表示
+
+Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はクリップボードに置いて一覧を閉じる。自分で貼る。クリップボードは戻さない。`:type` / `{{type:}}` / `{{sel}}` / `#app:` / `{{app}}` / `{{front}}` / `a` / `ga` / `target_keys` は動かない。グローバルショートカットは compositor 次第。取れなければトレイから出す。
 
 `Ctrl+4` と `Ctrl+7` と展開はトレイの `Settings` から変更できる。設定は `settings.json` に残る。位置とサイズもここに残る。ほかのアプリに取られているキーは登録に失敗して、元のキーに戻る。
 
@@ -98,7 +110,7 @@ docker compose down -v
 | `:join` | `V` 中なら区切りでつないで 1 行にして貼る。未指定は `,`。タブは `:join "\\t"`。`V` でなければ何もしない。`:comma` / `:tab` は別名 |
 | `:quote` | 各行先頭に付ける。未指定は `> `。空白も含めて指定するときは `:quote "* "`。すでに同じ印ならそのまま。履歴は触らない。`:quote > clip` 可。`:bullet` は `:quote "* "` の別名 |
 | `:type` | `Ctrl+V` ではなく 1 文字ずつ送る。履歴のタグは触らない |
-| `:open` | URL ならブラウザ、パスなら Explorer |
+| `:open` | URL ならブラウザ、パスなら Explorer（Ubuntu は `xdg-open`） |
 | `g.` | 直前に貼った行をもう一度。失敗したとき・`#once` で消えたあと・終了後は何もしない |
 | `Ctrl+C` | 展開してクリップボードへ。`{{sh: dir}}` も実行する。履歴の本文は書き換えない |
 
@@ -179,7 +191,7 @@ docker compose down -v
 | `:join` | `V` 中なら区切りでつないで貼る。未指定は `,`。タブは `:join "\\t"` |
 | `:format` | 整形して貼る |
 | `:raw` | 本文のまま貼る |
-| `:open` | URL ならブラウザ、パスなら Explorer |
+| `:open` | URL ならブラウザ、パスなら Explorer（Ubuntu は `xdg-open`） |
 | `:type` | `Ctrl+V` ではなく 1 文字ずつ送る。履歴のタグは触らない |
 | `:echo 2+3` | 四則演算の結果を貼る。`*` `/` が先。`()` で変えられる。`:set a=2` の変数も使える。失敗したら貼らない |
 | `:s/old/new` | 選択行の本文の `old` を全部 `new` に。正規表現は使わない |
