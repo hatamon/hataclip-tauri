@@ -45,6 +45,7 @@
 - [x] `{{app}}` / `{{front}}` / `{{pick:}}` / `#tsv` / `#log:path` / `#ttl:1h`
 - [x] `M` / `c` / `g?` / `#not` / `:s` / `Ctrl+D` `Ctrl+U` / ドロップ / `:dedup`
 - [x] `:` の Tab 補完と `g` / `d` / `y` / `f` の which-key
+- [x] `:map` / `:unmap` / `:mapleader`
 
 ## やりたいこと
 
