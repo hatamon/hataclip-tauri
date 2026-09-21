@@ -298,6 +298,7 @@ fn paste_items(
     separator: Option<String>,
     answers: Option<HashMap<String, String>>,
     prefix: Option<String>,
+    typed: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> bool {
@@ -311,6 +312,8 @@ fn paste_items(
         separator.as_deref().unwrap_or("\n"),
         answers.unwrap_or_default(),
         prefix.as_deref(),
+        typed.unwrap_or(false),
+        false,
     )
 }
 
@@ -435,6 +438,8 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         "\n",
         HashMap::new(),
         None,
+        false,
+        false,
     );
 }
 
@@ -496,10 +501,11 @@ fn run_paste(
     separator: &str,
     answers: HashMap<String, String>,
     prefix: Option<&str>,
+    typed: bool,
+    quiet: bool,
 ) -> bool {
     let was_open = *state.picker_open.lock().expect("picker_open");
-    let typed = !raw && has_tag(state, ids, "type");
-    let needs_sel = !raw && has_sel(state, ids);
+    let needs_sel = !raw && !quiet && has_sel(state, ids);
     let sel = if needs_sel {
         capture_selection(app, state)
     } else {
@@ -655,15 +661,6 @@ fn alias_map(state: &AppState) -> HashMap<String, String> {
         }
     }
     map
-}
-
-fn has_tag(state: &AppState, ids: &[String], tag: &str) -> bool {
-    let store = state.store.lock().expect("store");
-    ids.iter().any(|id| {
-        store
-            .get(id)
-            .map_or(false, |item| item.tags.iter().any(|entry| entry == tag))
-    })
 }
 
 fn has_sel(state: &AppState, ids: &[String]) -> bool {

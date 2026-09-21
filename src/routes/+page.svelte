@@ -97,6 +97,7 @@
     raw: boolean;
     separator: string;
     prefix?: string;
+    typed?: boolean;
   } | null>(null);
   let lastPaste = $state<{
     ids: string[];
@@ -105,6 +106,7 @@
     raw: boolean;
     separator: string;
     prefix?: string;
+    typed?: boolean;
     answers: Record<string, string>;
   } | null>(null);
   let pickQueue = $state<PickSpec[]>([]);
@@ -275,6 +277,7 @@
     raw = false,
     separator = "\n",
     prefix?: string,
+    typed = false,
   ) {
     if (selectedIds.length === 0) {
       return;
@@ -289,20 +292,20 @@
         askIndex = 0;
         askDraft = "";
         askAnswers = {};
-        pendingPaste = { ids, keepOpen, format, raw, separator, prefix };
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
         mode = "ask";
         return;
       }
       const picks = uniquePickSpecs(rows);
       if (picks.length > 0) {
         clearSelection();
-        pendingPaste = { ids, keepOpen, format, raw, separator, prefix };
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
         startPicks(picks);
         return;
       }
     }
     clearSelection();
-    await invokePaste({ ids, keepOpen, format, raw, separator, prefix, answers: {} });
+    await invokePaste({ ids, keepOpen, format, raw, separator, prefix, typed, answers: {} });
   }
 
   async function pasteRow(index: number, keepOpen: boolean) {
@@ -345,6 +348,7 @@
     raw: boolean;
     separator: string;
     prefix?: string;
+    typed?: boolean;
     answers: Record<string, string>;
   }) {
     const ok = await invoke<boolean>("paste_items", {
@@ -355,6 +359,7 @@
       separator: opts.separator,
       answers: opts.answers,
       prefix: opts.prefix ?? null,
+      typed: opts.typed ?? false,
     });
     if (ok) {
       lastPaste = { ...opts };
@@ -898,6 +903,10 @@
     }
     if (line === "bullet") {
       void pasteSelection(false, false, false, "\n", "* ");
+      return;
+    }
+    if (line === "type") {
+      void pasteSelection(false, false, false, "\n", undefined, true);
       return;
     }
     if (line.startsWith("s/")) {

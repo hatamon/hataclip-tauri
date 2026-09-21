@@ -6,6 +6,7 @@ export const COLON_COMMANDS = [
   "clear",
   "quote",
   "bullet",
+  "type",
   "s",
   "@",
   "dedup",
