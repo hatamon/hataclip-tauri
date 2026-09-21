@@ -489,6 +489,7 @@ fn run_paste(
             front,
             now,
             answers,
+            aliases: alias_map(state),
         })
     };
     let store = state.store.lock().expect("store");
@@ -592,6 +593,24 @@ fn run_paste(
         *state.paste_serial.lock().expect("paste_serial") = 0;
     }
     ok
+}
+
+/// いまの一覧の並びで、先に出てきた `#alias:name` の本文。
+fn alias_map(state: &AppState) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for item in view(state) {
+        for tag in &item.tags {
+            if let Some(name) = tag.strip_prefix("alias:") {
+                let name = name.trim();
+                if name.is_empty() {
+                    continue;
+                }
+                map.entry(name.to_string())
+                    .or_insert_with(|| item.text.clone());
+            }
+        }
+    }
+    map
 }
 
 fn has_tag(state: &AppState, ids: &[String], tag: &str) -> bool {

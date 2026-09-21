@@ -40,9 +40,18 @@ pub struct Expand {
     pub front: String,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
+    pub aliases: std::collections::HashMap<String, String>,
 }
 
 pub fn expand_template(text: &str, ctx: &Expand) -> String {
+    expand_seen(text, ctx, &mut std::collections::HashSet::new())
+}
+
+fn expand_seen(
+    text: &str,
+    ctx: &Expand,
+    seen: &mut std::collections::HashSet<String>,
+) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -50,7 +59,7 @@ pub fn expand_template(text: &str, ctx: &Expand) -> String {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
             if let Some(close) = find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
-                if let Some(value) = token_value(inner.trim(), ctx) {
+                if let Some(value) = token_value(inner.trim(), ctx, seen) {
                     out.push_str(&value);
                     i = close + 2;
                     continue;
@@ -74,7 +83,11 @@ fn find_close(chars: &[char], start: usize) -> Option<usize> {
     None
 }
 
-fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
+fn token_value(
+    inner: &str,
+    ctx: &Expand,
+    seen: &mut std::collections::HashSet<String>,
+) -> Option<String> {
     if inner == "date" {
         return Some(ctx.date.clone());
     }
@@ -117,6 +130,24 @@ fn token_value(inner: &str, ctx: &Expand) -> Option<String> {
                 .cloned()
                 .unwrap_or_default(),
         );
+    }
+    if let Some(name) = inner.strip_prefix('@') {
+        let name = name.trim();
+        if name.is_empty() {
+            return Some(String::new());
+        }
+        if !seen.insert(name.to_string()) {
+            return Some(String::new());
+        }
+        let body = ctx.aliases.get(name).cloned().unwrap_or_default();
+        return Some(expand_seen(&body, ctx, seen));
+    }
+    if let Some(name) = inner.strip_prefix("env:") {
+        let name = name.trim();
+        if name.is_empty() {
+            return Some(String::new());
+        }
+        return Some(std::env::var(name).unwrap_or_default());
     }
     if inner == "n" {
         return Some(ctx.n.to_string());
@@ -427,6 +458,11 @@ mod tests {
                 ("名前".into(), "hatamon".into()),
                 ("pick:prod, stg".into(), "stg".into()),
             ]),
+            aliases: std::collections::HashMap::from([
+                ("foo".into(), "X{{date}}Y".into()),
+                ("bar".into(), "BB{{@foo}}".into()),
+                ("loop".into(), "{{@loop}}".into()),
+            ]),
         }
     }
 
@@ -482,6 +518,36 @@ mod tests {
             pick_specs("{{pick: a, b}} {{pick: a, b}}"),
             vec![("a, b".into(), vec!["a".into(), "b".into()])]
         );
+    }
+
+    #[test]
+    fn expands_env_var() {
+        let key = "HATACLIP_TEST_ENV_XYZ";
+        unsafe { std::env::set_var(key, "env-value") };
+        let ctx = sample_ctx();
+        assert_eq!(
+            expand_template("{{env:HATACLIP_TEST_ENV_XYZ}}", &ctx),
+            "env-value"
+        );
+        assert_eq!(
+            expand_template("{{env:  HATACLIP_TEST_ENV_XYZ  }}", &ctx),
+            "env-value"
+        );
+        assert_eq!(expand_template("{{env:HATACLIP_NO_SUCH_VAR_ZZZ}}", &ctx), "");
+        assert_eq!(expand_template("{{env:}}", &ctx), "");
+        assert_eq!(expand_template("{{env}}", &ctx), "{{env}}");
+    }
+
+    #[test]
+    fn expands_alias_nested_and_stops_cycles() {
+        let ctx = sample_ctx();
+        assert_eq!(expand_template("{{@foo}}", &ctx), "X2026/09/20Y");
+        assert_eq!(expand_template("{{@bar}}", &ctx), "BBX2026/09/20Y");
+        assert_eq!(expand_template("{{@foo}} {{@foo}}", &ctx), "X2026/09/20Y ");
+        assert_eq!(expand_template("{{@loop}}", &ctx), "");
+        assert_eq!(expand_template("{{@missing}}", &ctx), "");
+        assert_eq!(expand_template("{{@}}", &ctx), "");
+        assert_eq!(expand_template("{{@ foo }}", &ctx), "X2026/09/20Y");
     }
 
     #[test]
