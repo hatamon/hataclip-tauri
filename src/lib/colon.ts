@@ -9,8 +9,7 @@ export const COLON_COMMANDS = [
   "type",
   "format",
   "raw",
-  "comma",
-  "tab",
+  "join",
   "open",
   "echo",
   "s",
@@ -66,7 +65,7 @@ export function applyColonCompletion(input: string, command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join") {
     return `${command} `;
   }
   return command;
@@ -82,7 +81,53 @@ export function bangFilterScript(line: string): string | null {
   return null;
 }
 
-/** `:quote` の行頭。未指定なら `> `。`:bullet` は `* `。 */
+/** `"* "` や `"\\t"`。閉じられていなければ null。 */
+export function unquoteColonArg(raw: string): string | null {
+  const text = raw.trimStart();
+  const quote = text[0];
+  if (quote !== '"' && quote !== "'") {
+    return null;
+  }
+  let out = "";
+  let escaped = false;
+  for (let i = 1; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escaped) {
+      if (ch === "t") {
+        out += "\t";
+      } else if (ch === "n") {
+        out += "\n";
+      } else {
+        out += ch;
+      }
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === quote) {
+      if (text.slice(i + 1).trim().length > 0) {
+        return null;
+      }
+      return out;
+    }
+    out += ch;
+  }
+  return null;
+}
+
+function colonArg(rest: string, fallback: string): string {
+  const quoted = unquoteColonArg(rest);
+  if (quoted !== null) {
+    return quoted;
+  }
+  const plain = rest.trim();
+  return plain.length === 0 ? fallback : plain;
+}
+
+/** `:quote` の行頭。未指定なら `> `。`:quote "* "` で空白も含めて指定。`:bullet` は `"* "`。 */
 export function quotePrefix(line: string): string | null {
   if (line === "bullet") {
     return "* ";
@@ -91,8 +136,24 @@ export function quotePrefix(line: string): string | null {
     return "> ";
   }
   if (line.startsWith("quote ") || line.startsWith("quote\t")) {
-    const rest = line.slice(6);
-    return rest.trim().length === 0 ? "> " : rest;
+    return colonArg(line.slice(6), "> ");
+  }
+  return null;
+}
+
+/** `:join` の区切り。未指定なら `,`。`:join "\\t"` はタブ。`:comma` / `:tab` は別名。 */
+export function joinSeparator(line: string): string | null {
+  if (line === "comma") {
+    return ",";
+  }
+  if (line === "tab") {
+    return "\t";
+  }
+  if (line === "join") {
+    return ",";
+  }
+  if (line.startsWith("join ") || line.startsWith("join\t")) {
+    return colonArg(line.slice(5), ",");
   }
   return null;
 }

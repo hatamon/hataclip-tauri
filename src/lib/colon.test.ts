@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, bangFilterScript, matchingColonCommands, quotePrefix, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, joinSeparator, matchingColonCommands, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -15,8 +15,7 @@ describe("matchingColonCommands", () => {
       "type",
       "format",
       "raw",
-      "comma",
-      "tab",
+      "join",
       "open",
       "echo",
       "s",
@@ -43,6 +42,7 @@ describe("matchingColonCommands", () => {
 describe("stripClipSink", () => {
   it("splits > clip from the command", () => {
     expect(stripClipSink("quote > clip")).toEqual({ cmd: "quote", clip: true });
+    expect(stripClipSink('quote "* " > clip')).toEqual({ cmd: 'quote "* "', clip: true });
     expect(stripClipSink(":sh dir>clip")).toEqual({ cmd: "sh dir", clip: true });
     expect(stripClipSink("echo 2+3")).toEqual({ cmd: "echo 2+3", clip: false });
   });
@@ -52,6 +52,7 @@ describe("applyColonCompletion", () => {
   it("adds a trailing slash for substitute", () => {
     expect(applyColonCompletion("", "s")).toBe("s/");
     expect(applyColonCompletion("", "quote")).toBe("quote ");
+    expect(applyColonCompletion("", "join")).toBe("join ");
     expect(applyColonCompletion("", "!!")).toBe("!!sh ");
   });
 });
@@ -66,12 +67,34 @@ describe("bangFilterScript", () => {
 });
 
 describe("quotePrefix", () => {
-  it("defaults to >  and keeps a custom marker", () => {
+  it("defaults to >  and keeps quoted spaces", () => {
     expect(quotePrefix("quote")).toBe("> ");
     expect(quotePrefix("quote ")).toBe("> ");
-    expect(quotePrefix("quote * ")).toBe("* ");
-    expect(quotePrefix("quote - [ ] ")).toBe("- [ ] ");
+    expect(quotePrefix('quote "* "')).toBe("* ");
+    expect(quotePrefix('quote ">"')).toBe(">");
+    expect(quotePrefix("quote - [ ] ")).toBe("- [ ]");
+    expect(quotePrefix(stripClipSink('quote "* " > clip').cmd)).toBe("* ");
     expect(quotePrefix("bullet")).toBe("* ");
     expect(quotePrefix("format")).toBeNull();
+  });
+});
+
+describe("joinSeparator", () => {
+  it("defaults to comma and reads quoted separators", () => {
+    expect(joinSeparator("join")).toBe(",");
+    expect(joinSeparator('join "\\t"')).toBe("\t");
+    expect(joinSeparator('join ", "')).toBe(", ");
+    expect(joinSeparator("comma")).toBe(",");
+    expect(joinSeparator("tab")).toBe("\t");
+    expect(joinSeparator("quote")).toBeNull();
+  });
+});
+
+describe("unquoteColonArg", () => {
+  it("keeps spaces and escapes inside quotes", () => {
+    expect(unquoteColonArg('" * "')).toBe(" * ");
+    expect(unquoteColonArg("'\\t'")).toBe("\t");
+    expect(unquoteColonArg('"* " extra')).toBeNull();
+    expect(unquoteColonArg("* ")).toBeNull();
   });
 });

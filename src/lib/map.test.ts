@@ -21,6 +21,11 @@ describe("parseMapArgs", () => {
       lhs: "<leader>*",
       rhs: ":bullet",
     });
+    expect(parseMapArgs('<leader>* :quote "* "')).toEqual({
+      kind: "set",
+      lhs: "<leader>*",
+      rhs: ':quote "* "',
+    });
     expect(parseMapArgs("j k")).toEqual({ kind: "set", lhs: "j", rhs: "k" });
     expect(parseMapArgs("gT :quote")).toEqual({ kind: "set", lhs: "gT", rhs: ":quote" });
     expect(parseMapArgs("1 dd")).toBeNull();
@@ -31,6 +36,7 @@ describe("parseMapArgs", () => {
 describe("parseRhs", () => {
   it("treats :quote and <cmd>bullet as commands", () => {
     expect(parseRhs(":bullet")).toEqual({ kind: "cmd", command: "bullet" });
+    expect(parseRhs(':quote "* "')).toEqual({ kind: "cmd", command: 'quote "* "' });
     expect(parseRhs("<cmd>bullet")).toEqual({ kind: "cmd", command: "bullet" });
     expect(parseRhs("dd")).toEqual({ kind: "keys", keys: "dd" });
   });

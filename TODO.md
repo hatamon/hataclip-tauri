@@ -67,8 +67,9 @@
 - [x] 貼ったあと一覧を出すと、選んでいた行に戻る
 - [x] `{{var: {{var: b}}}}` / `#lock` で削除防止
 - [x] `#slot:3` / `{{pick tag:env}}` / `#confirm` / `ga` / `{{date+1w}}` `{{date+1m}}`
-- [x] `:format` / `:raw` / `:comma` / `:tab` / `:open`（旧 Shift+Enter / g Enter / gJ / gT / gf）
-- [x] `:quote` に行頭の印を渡せる。未指定は `> `。`:bullet` は `:quote * ` の別名
+- [x] `:format` / `:raw` / `:join` / `:open`（旧 Shift+Enter / g Enter / gJ / gT / gf）
+- [x] `:quote` に行頭の印を渡せる。未指定は `> `。空白は `:quote "* "`。`:bullet` は別名
+- [x] `:join` で区切り指定。未指定は `,`。タブは `:join "\\t"`。`:comma` / `:tab` は別名
 - [x] 末尾 `> clip` で結果をクリップボードへ
 - [x] `:.!sh xxx` でカレント行を stdin に渡す（`:sh` は stdin なしのまま）
 - [x] `:!!sh xxx` で選択行をフィルタして本文を書き換える

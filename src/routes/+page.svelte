@@ -6,6 +6,7 @@
   import {
     applyColonCompletion,
     bangFilterScript,
+    joinSeparator,
     matchingColonCommands,
     quotePrefix,
     stripClipSink,
@@ -1109,15 +1110,10 @@
       void pasteSelection(false, false, true, "\n", undefined, false, clip);
       return;
     }
-    if (line === "comma") {
+    const separator = joinSeparator(line);
+    if (separator !== null) {
       if (anchor !== null) {
-        void pasteSelection(false, false, false, ",", undefined, false, clip);
-      }
-      return;
-    }
-    if (line === "tab") {
-      if (anchor !== null) {
-        void pasteSelection(false, false, false, "\t", undefined, false, clip);
+        void pasteSelection(false, false, false, separator, undefined, false, clip);
       }
       return;
     }
@@ -2025,7 +2021,7 @@
         bind:this={colonEl}
         bind:value={colonInput}
         class="search"
-        placeholder=":help  :map  :quote  :quote * "
+        placeholder={':help  :map  :quote  :quote "* "'}
         onkeydown={onColonKeydown}
       />
       {#if colonSuggestions.length > 0}
