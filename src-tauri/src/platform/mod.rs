@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{app_and_title, capture_foreground, context_key, restore_foreground, Foreground};
+pub use windows::{
+    app_and_title, capture_foreground, context_key, restore_foreground, Foreground,
+};
 
 #[cfg(not(windows))]
 mod unsupported;
@@ -34,6 +36,17 @@ pub fn simulate_chord(spec: &str) -> bool {
         return false;
     };
     send_chord(chord)
+}
+
+fn modifiers_held() -> (bool, bool) {
+    #[cfg(windows)]
+    {
+        windows::modifiers_held()
+    }
+    #[cfg(not(windows))]
+    {
+        unsupported::modifiers_held()
+    }
 }
 
 /// 本文を 1 文字ずつ前面へ送る。2 秒を超えたら中止。
@@ -66,11 +79,14 @@ fn send_chord(chord: Chord) -> bool {
         Ok(enigo) => enigo,
         Err(_) => return false,
     };
+    let (ctrl_held, shift_held) = modifiers_held();
+    let press_ctrl = chord.ctrl && !ctrl_held;
+    let press_shift = chord.shift && !shift_held;
     let mut ok = true;
-    if chord.ctrl {
+    if press_ctrl {
         ok &= enigo.key(Key::Control, Press).is_ok();
     }
-    if chord.shift {
+    if press_shift {
         ok &= enigo.key(Key::Shift, Press).is_ok();
     }
     let key = match chord.key {
@@ -78,10 +94,10 @@ fn send_chord(chord: Chord) -> bool {
         ChordKey::Insert => Key::Insert,
     };
     ok &= enigo.key(key, Click).is_ok();
-    if chord.shift {
+    if press_shift {
         ok &= enigo.key(Key::Shift, Release).is_ok();
     }
-    if chord.ctrl {
+    if press_ctrl {
         ok &= enigo.key(Key::Control, Release).is_ok();
     }
     ok

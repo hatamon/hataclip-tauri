@@ -6,6 +6,9 @@ use windows_sys::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_SHIFT,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetForegroundWindow,
 };
@@ -90,5 +93,14 @@ fn window_title(hwnd: HWND) -> Option<String> {
             return None;
         }
         Some(String::from_utf16_lossy(&buffer[..length as usize]))
+    }
+}
+
+/// 物理的に押したままの修飾キー。コピーの SendInput で離すと、次の Ctrl+7 が 7 だけになる。
+pub(crate) fn modifiers_held() -> (bool, bool) {
+    unsafe {
+        let ctrl = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
+        let shift = GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000 != 0;
+        (ctrl, shift)
     }
 }

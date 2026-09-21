@@ -16,3 +16,7 @@ pub fn context_key(_fg: &Foreground) -> Option<String> {
 pub fn app_and_title(_fg: &Foreground) -> (String, String) {
     (String::new(), String::new())
 }
+
+pub(crate) fn modifiers_held() -> (bool, bool) {
+    (false, false)
+}
