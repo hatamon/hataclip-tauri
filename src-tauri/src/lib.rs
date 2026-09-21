@@ -359,9 +359,11 @@ fn paste_items(
     prefix: Option<String>,
     typed: Option<bool>,
     resolved: Option<String>,
+    to_clipboard: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> bool {
+    let to_clipboard = to_clipboard.unwrap_or(false);
     if let Some(text) = resolved {
         return paste_resolved_text(
             &app,
@@ -371,6 +373,7 @@ fn paste_items(
             keep_open,
             format,
             prefix.as_deref(),
+            to_clipboard,
         );
     }
     run_paste(
@@ -385,6 +388,7 @@ fn paste_items(
         prefix.as_deref(),
         typed.unwrap_or(false),
         false,
+        to_clipboard,
     )
 }
 
@@ -396,6 +400,7 @@ fn paste_resolved_text(
     keep_open: bool,
     format: bool,
     prefix: Option<&str>,
+    to_clipboard: bool,
 ) -> bool {
     let mut text = if format {
         text::format_for_paste(text)
@@ -406,6 +411,9 @@ fn paste_resolved_text(
         let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
         let already = if prefix == "* " { "* " } else { already.as_str() };
         text = text::prefix_lines(&text, prefix, already);
+    }
+    if to_clipboard {
+        return clipboard::write_clipboard_text(&text);
     }
     if let Some(key) = current_context(state) {
         state.store.lock().expect("store").record_context(ids, &key);
@@ -565,6 +573,8 @@ fn clear_unpinned(state: tauri::State<'_, AppState>) -> Vec<Item> {
 #[tauri::command]
 fn paste_script(
     script: String,
+    to_clipboard: Option<bool>,
+    stdin: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -572,8 +582,15 @@ fn paste_script(
     if script.is_empty() {
         return Ok(());
     }
-    let output = shell::run_script(&script).map_err(|_| "コマンドに失敗した".to_string())?;
+    let output = shell::run_script_with_stdin(&script, stdin.as_deref())
+        .map_err(|_| "コマンドに失敗した".to_string())?;
     *state.last_sh.lock().expect("last_sh") = Some(script);
+    if to_clipboard.unwrap_or(false) {
+        if !clipboard::write_clipboard_text(&output) {
+            return Err("クリップボードに書けない".into());
+        }
+        return Ok(());
+    }
     paste_text(&app, &state, &output, false);
     Ok(())
 }
@@ -581,6 +598,7 @@ fn paste_script(
 #[tauri::command]
 fn paste_echo(
     expr: String,
+    to_clipboard: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -590,19 +608,27 @@ fn paste_echo(
     }
     let vars = var_map(&state);
     let value = expr::eval_with(expr, &vars).ok_or("計算できない")?;
-    paste_text(&app, &state, &expr::format_number(value), false);
+    let text = expr::format_number(value);
+    if to_clipboard.unwrap_or(false) {
+        if !clipboard::write_clipboard_text(&text) {
+            return Err("クリップボードに書けない".into());
+        }
+        return Ok(());
+    }
+    paste_text(&app, &state, &text, false);
     Ok(())
 }
 
 #[tauri::command]
 fn paste_last_script(
+    to_clipboard: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let Some(script) = state.last_sh.lock().expect("last_sh").clone() else {
         return Ok(());
     };
-    paste_script(script, app, state)
+    paste_script(script, to_clipboard, None, app, state)
 }
 
 pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppState) {
@@ -626,6 +652,7 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         "\n",
         HashMap::new(),
         None,
+        false,
         false,
         false,
     );
@@ -709,6 +736,7 @@ fn run_paste(
     prefix: Option<&str>,
     typed: bool,
     quiet: bool,
+    to_clipboard: bool,
 ) -> bool {
     let was_open = *state.picker_open.lock().expect("picker_open");
     let needs_sel = !raw && !quiet && has_sel(state, ids);
@@ -780,6 +808,12 @@ fn run_paste(
         ops = map_text_ops(ops, |text| text::prefix_lines(text, prefix, &already));
     }
     if paste_parts.is_empty() {
+        if to_clipboard {
+            if was_open {
+                show_window(app);
+            }
+            return false;
+        }
         if !logged {
             if was_open {
                 show_window(app);
@@ -807,6 +841,9 @@ fn run_paste(
             show_window(app);
         }
         return false;
+    }
+    if to_clipboard {
+        return clipboard::write_clipboard_text(&text::flatten_ops(&ops));
     }
     if let Some(key) = current_context(state) {
         state

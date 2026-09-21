@@ -15,11 +15,22 @@ pub enum ShellError {
 
 /// `{{sh: ...}}` と `:sh` と `#run` 本文の実行。失敗は貼らない。
 pub fn run_script(script: &str) -> Result<String, ShellError> {
+    run_script_with_stdin(script, None)
+}
+
+/// stdin に本文を流す（`:.!sh`）。`stdin` が `None` なら今までの `:sh` と同じ。
+pub fn run_script_with_stdin(script: &str, stdin: Option<&str>) -> Result<String, ShellError> {
     let script = script.trim();
     if script.is_empty() {
         return Err(ShellError::Empty);
     }
-    let mut child = spawn_shell(script).map_err(|_| ShellError::Failed)?;
+    let mut child = spawn_shell(script, stdin.is_some()).map_err(|_| ShellError::Failed)?;
+    if let Some(input) = stdin {
+        if let Some(mut pipe) = child.stdin.take() {
+            use std::io::Write;
+            let _ = pipe.write_all(input.as_bytes());
+        }
+    }
     let started = Instant::now();
     loop {
         match child.try_wait() {
@@ -46,7 +57,7 @@ pub fn run_script(script: &str) -> Result<String, ShellError> {
     Ok(trim_output(&strip_ansi(&decode_output(&buf))))
 }
 
-fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
+fn spawn_shell(script: &str, pipe_stdin: bool) -> std::io::Result<std::process::Child> {
     #[cfg(windows)]
     {
         for program in ["pwsh", "powershell"] {
@@ -59,6 +70,11 @@ fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
             };
             command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
             command.stdout(Stdio::piped()).stderr(Stdio::null());
+            command.stdin(if pipe_stdin {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            });
             command.env("NO_COLOR", "1");
             command.env("TERM", "dumb");
             use std::os::windows::process::CommandExt;
@@ -79,6 +95,11 @@ fn spawn_shell(script: &str) -> std::io::Result<std::process::Child> {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
+        command.stdin(if pipe_stdin {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
         command.env("NO_COLOR", "1");
         command.env("TERM", "dumb");
         command.spawn()
@@ -252,6 +273,13 @@ mod tests {
         assert_eq!(trim_output("hello\n"), "hello");
         let many = (0..1200).map(|i| format!("{i}")).collect::<Vec<_>>().join("\n");
         assert_eq!(trim_output(&many).lines().count(), 1000);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn run_script_reads_stdin() {
+        let out = run_script_with_stdin("cat", Some("hello\n")).expect("cat");
+        assert_eq!(out, "hello");
     }
 
     #[test]

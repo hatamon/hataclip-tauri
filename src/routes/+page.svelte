@@ -6,6 +6,7 @@
   import {
     applyColonCompletion,
     matchingColonCommands,
+    stripClipSink,
   } from "$lib/colon";
   import {
     combinePending,
@@ -105,6 +106,7 @@
     separator: string;
     prefix?: string;
     typed?: boolean;
+    toClipboard?: boolean;
     answers?: Record<string, string>;
   } | null>(null);
   let lastPaste = $state<{
@@ -115,6 +117,7 @@
     separator: string;
     prefix?: string;
     typed?: boolean;
+    toClipboard?: boolean;
     answers: Record<string, string>;
   } | null>(null);
   let pickQueue = $state<PickSpec[]>([]);
@@ -319,13 +322,14 @@
     separator = "\n",
     prefix?: string,
     typed = false,
+    toClipboard = false,
   ) {
     if (selectedIds.length === 0) {
       return;
     }
     const ids = selectedIds;
     const rows = selectedItems;
-    if (!raw) {
+    if (!raw && !toClipboard) {
       const names = uniqueAskNames(rows);
       if (names.length > 0) {
         clearSelection();
@@ -333,20 +337,30 @@
         askIndex = 0;
         askDraft = "";
         askAnswers = {};
-        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed, toClipboard };
         mode = "ask";
         return;
       }
       const picks = uniquePickSpecs(rows, items);
       if (picks.length > 0) {
         clearSelection();
-        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
+        pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed, toClipboard };
         void startPicks(picks);
         return;
       }
     }
     clearSelection();
-    await invokePaste({ ids, keepOpen, format, raw, separator, prefix, typed, answers: {} });
+    await invokePaste({
+      ids,
+      keepOpen,
+      format,
+      raw,
+      separator,
+      prefix,
+      typed,
+      toClipboard,
+      answers: {},
+    });
   }
 
   async function pasteRow(index: number, keepOpen: boolean) {
@@ -390,12 +404,17 @@
     separator: string;
     prefix?: string;
     typed?: boolean;
+    toClipboard?: boolean;
     answers: Record<string, string>;
   }) {
     const rows = opts.ids
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined);
-    if (!opts.raw && rows.some((item) => item.tags.includes("run") || item.tags.includes("confirm"))) {
+    if (
+      !opts.raw &&
+      !opts.toClipboard &&
+      rows.some((item) => item.tags.includes("run") || item.tags.includes("confirm"))
+    ) {
       try {
         const text = await invoke<string | null>("expand_items", {
           ids: opts.ids,
@@ -425,6 +444,7 @@
       prefix: opts.prefix ?? null,
       typed: opts.typed ?? false,
       resolved: null,
+      toClipboard: opts.toClipboard ?? false,
     });
     if (ok) {
       lastPaste = { ...opts };
@@ -452,6 +472,7 @@
       prefix: pending.prefix ?? null,
       typed: pending.typed ?? false,
       resolved,
+      toClipboard: pending.toClipboard ?? false,
     });
     if (ok) {
       lastPaste = { ...pending, answers: pending.answers ?? {} };
@@ -997,12 +1018,15 @@
   }
 
   async function runColon(raw: string) {
-    const line = raw.trim().replace(/^:/, "");
+    const historyLine = raw.trim().replace(/^:/, "");
+    const stripped = stripClipSink(historyLine);
+    const line = stripped.cmd;
+    const clip = stripped.clip;
     mode = "normal";
     colonInput = "";
     colonHistIndex = -1;
-    if (line.length > 0 && colonHistory[colonHistory.length - 1] !== line) {
-      colonHistory = [...colonHistory, line];
+    if (historyLine.length > 0 && colonHistory[colonHistory.length - 1] !== historyLine) {
+      colonHistory = [...colonHistory, historyLine];
     }
     if (line === "help" || line.startsWith("help ")) {
       const topic = line === "help" ? null : line.slice(5).trim();
@@ -1039,34 +1063,37 @@
       return;
     }
     if (line === "quote") {
-      void pasteSelection(false, false, false, "\n", "> ");
+      void pasteSelection(false, false, false, "\n", "> ", false, clip);
       return;
     }
     if (line === "bullet") {
-      void pasteSelection(false, false, false, "\n", "* ");
+      void pasteSelection(false, false, false, "\n", "* ", false, clip);
       return;
     }
     if (line === "type") {
+      if (clip) {
+        return;
+      }
       void pasteSelection(false, false, false, "\n", undefined, true);
       return;
     }
     if (line === "format") {
-      void pasteSelection(false, true);
+      void pasteSelection(false, true, false, "\n", undefined, false, clip);
       return;
     }
     if (line === "raw") {
-      void pasteSelection(false, false, true);
+      void pasteSelection(false, false, true, "\n", undefined, false, clip);
       return;
     }
     if (line === "comma") {
       if (anchor !== null) {
-        void pasteSelection(false, false, false, ",");
+        void pasteSelection(false, false, false, ",", undefined, false, clip);
       }
       return;
     }
     if (line === "tab") {
       if (anchor !== null) {
-        void pasteSelection(false, false, false, "\t");
+        void pasteSelection(false, false, false, "\t", undefined, false, clip);
       }
       return;
     }
@@ -1080,7 +1107,7 @@
         return;
       }
       try {
-        await invoke("paste_echo", { expr });
+        await invoke("paste_echo", { expr, toClipboard: clip });
       } catch {
         // 計算できなければ貼らない
       }
@@ -1152,9 +1179,31 @@
     if (line === "sh" || line === "sh ") {
       return;
     }
+    if (line.startsWith(".!sh ") || line.startsWith(".! sh ")) {
+      const script = line.startsWith(".! sh ") ? line.slice(6) : line.slice(5);
+      const stdin = selectedItems.map((item) => item.text).join("\n");
+      if (script.trim().length === 0 || selectedIds.length === 0) {
+        return;
+      }
+      try {
+        await invoke("paste_script", {
+          script,
+          toClipboard: clip,
+          stdin,
+        });
+        clearSelection();
+      } catch {
+        // 失敗したら貼らない
+      }
+      return;
+    }
     if (line.startsWith("sh ")) {
       try {
-        await invoke("paste_script", { script: line.slice(3) });
+        await invoke("paste_script", {
+          script: line.slice(3),
+          toClipboard: clip,
+          stdin: null,
+        });
       } catch {
         // 失敗したら貼らない
       }
@@ -1162,7 +1211,7 @@
     }
     if (line === "@") {
       try {
-        await invoke("paste_last_script");
+        await invoke("paste_last_script", { toClipboard: clip });
       } catch {
         // 無ければ何もしない
       }

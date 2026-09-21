@@ -26,8 +26,18 @@ export const COLON_COMMANDS = [
   "tags",
 ];
 
+/** 末尾の `> clip` を行き先として外す。 */
+export function stripClipSink(line: string): { cmd: string; clip: boolean } {
+  const trimmed = line.trim().replace(/^:/, "");
+  const match = /^(.*?)\s*>\s*clip\s*$/i.exec(trimmed);
+  if (match) {
+    return { cmd: match[1].trim(), clip: true };
+  }
+  return { cmd: trimmed, clip: false };
+}
+
 export function colonCommandToken(input: string): string {
-  const line = input.trim().replace(/^:/, "");
+  const line = stripClipSink(input).cmd;
   if (line.startsWith("help")) {
     return "help";
   }
@@ -35,7 +45,7 @@ export function colonCommandToken(input: string): string {
 }
 
 export function matchingColonCommands(input: string): string[] {
-  const line = input.trim().replace(/^:/, "");
+  const line = stripClipSink(input).cmd;
   if (line.startsWith("help ") || line === "help") {
     return [];
   }

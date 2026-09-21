@@ -47,7 +47,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "sh",
-        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る。:@ は直前の :sh をもう一度。失敗したら貼らない。",
+        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る（stdin なし）。:.!sh xxx はカレント行（V なら改行つなぎ）を stdin に流す。:@ は直前の :sh / :.!sh のスクリプトをもう一度（stdin はいまの選択）。失敗したら貼らない。末尾に > clip でクリップボードへ（貼らない）。",
     ),
     (
         "template",
@@ -85,7 +85,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -165,6 +165,13 @@ mod tests {
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains("次に一覧を出すとその行"));
+        assert!(render(Some("sh")).contains(":.!sh"));
+        assert!(render(Some("sh")).contains("> clip"));
+        assert!(render(Some("colon")).contains(":.!sh"));
+        assert!(render(Some("colon")).contains("> clip"));
+        assert!(render(Some("colon")).contains(":format"));
+        assert!(render(Some("paste")).contains(":open"));
+        assert!(render(Some("open")).contains(":open"));
         assert!(render(Some("paste")).contains(":sh dir"));
         assert!(render(Some("colon")).contains(":echo"));
         assert!(render(Some("colon")).contains(":type"));

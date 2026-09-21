@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, matchingColonCommands } from "./colon";
+import { applyColonCompletion, matchingColonCommands, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -32,6 +32,18 @@ describe("matchingColonCommands", () => {
       "tags",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
+  });
+
+  it("ignores a trailing clip sink when matching", () => {
+    expect(matchingColonCommands("quote > clip")).toEqual(["quote"]);
+  });
+});
+
+describe("stripClipSink", () => {
+  it("splits > clip from the command", () => {
+    expect(stripClipSink("quote > clip")).toEqual({ cmd: "quote", clip: true });
+    expect(stripClipSink(":sh dir>clip")).toEqual({ cmd: "sh dir", clip: true });
+    expect(stripClipSink("echo 2+3")).toEqual({ cmd: "echo 2+3", clip: false });
   });
 });
 
