@@ -483,7 +483,7 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
     );
 }
 
-pub(crate) fn paste_tag_from_selection(app: &tauri::AppHandle, state: &AppState) {
+pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     if *state.picker_open.lock().expect("picker_open") {
         return;
     }
@@ -499,28 +499,45 @@ pub(crate) fn paste_tag_from_selection(app: &tauri::AppHandle, state: &AppState)
     let Some(text) = captured else {
         return;
     };
-    let Some(tag) = text::selection_tag(&text) else {
+    if let Some(tag) = text::selection_tag(&text) {
+        let Some(item) = view(state)
+            .into_iter()
+            .find(|item| item.tags.iter().any(|entry| entry == tag))
+        else {
+            return;
+        };
+        run_paste(
+            app,
+            state,
+            &[item.id],
+            false,
+            false,
+            false,
+            "\n",
+            HashMap::new(),
+            None,
+            false,
+            true,
+        );
+        return;
+    }
+    let ctx = expand_context(state, String::new(), HashMap::new());
+    let last_sh = state.last_sh.lock().expect("last_sh").clone();
+    let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
         return;
     };
-    let Some(item) = view(state)
-        .into_iter()
-        .find(|item| item.tags.iter().any(|entry| entry == tag))
-    else {
-        return;
-    };
-    run_paste(
-        app,
-        state,
-        &[item.id],
-        false,
-        false,
-        false,
-        "\n",
-        HashMap::new(),
-        None,
-        false,
-        true,
-    );
+    remember_last_sh(&text, state);
+    paste_text(app, state, &out, false);
+}
+
+fn remember_last_sh(text: &str, state: &AppState) {
+    let body = text.trim().strip_prefix(':').unwrap_or(text.trim()).trim();
+    if let Some(script) = body.strip_prefix("sh ") {
+        let script = script.trim();
+        if !script.is_empty() {
+            *state.last_sh.lock().expect("last_sh") = Some(script.to_string());
+        }
+    }
 }
 
 fn open_target_text(text: &str) -> bool {
@@ -591,37 +608,10 @@ fn run_paste(
     } else {
         String::new()
     };
-    let (app_name, front) = {
-        let foreground = *state.foreground.lock().expect("foreground");
-        foreground
-            .map(|foreground| platform::app_and_title(&foreground))
-            .unwrap_or_default()
-    };
     let ctx = if raw {
         None
     } else {
-        let n = {
-            let mut serial = state.paste_serial.lock().expect("paste_serial");
-            *serial += 1;
-            *serial
-        };
-        let now = Local::now();
-        Some(text::Expand {
-            date: now.format("%Y/%m/%d").to_string(),
-            time: now.format("%H:%M").to_string(),
-            clip: clipboard::peek_text().unwrap_or_default(),
-            sel,
-            n,
-            uuid: uuid::Uuid::new_v4().to_string(),
-            user: text::login_name(),
-            host: text::host_name(),
-            app: app_name,
-            front,
-            now,
-            answers,
-            aliases: alias_map(state),
-            vars: var_map(state),
-        })
+        Some(expand_context(state, sel, answers))
     };
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
@@ -753,6 +743,41 @@ fn var_map(state: &AppState) -> HashMap<String, String> {
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect()
+}
+
+fn expand_context(
+    state: &AppState,
+    sel: String,
+    answers: HashMap<String, String>,
+) -> text::Expand {
+    let (app_name, front) = {
+        let foreground = *state.foreground.lock().expect("foreground");
+        foreground
+            .map(|foreground| platform::app_and_title(&foreground))
+            .unwrap_or_default()
+    };
+    let n = {
+        let mut serial = state.paste_serial.lock().expect("paste_serial");
+        *serial += 1;
+        *serial
+    };
+    let now = Local::now();
+    text::Expand {
+        date: now.format("%Y/%m/%d").to_string(),
+        time: now.format("%H:%M").to_string(),
+        clip: clipboard::peek_text().unwrap_or_default(),
+        sel,
+        n,
+        uuid: uuid::Uuid::new_v4().to_string(),
+        user: text::login_name(),
+        host: text::host_name(),
+        app: app_name,
+        front,
+        now,
+        answers,
+        aliases: alias_map(state),
+        vars: var_map(state),
+    }
 }
 
 fn has_sel(state: &AppState, ids: &[String]) -> bool {

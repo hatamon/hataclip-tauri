@@ -1,5 +1,5 @@
 use crate::settings::Shortcuts;
-use crate::{actions, paste_tag_from_selection, register_from_clipboard, show_picker, AppState};
+use crate::{actions, paste_from_selection, register_from_clipboard, show_picker, AppState};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -47,7 +47,7 @@ pub fn apply(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
                     return;
                 }
                 let state = app.state::<AppState>();
-                paste_tag_from_selection(app, &state);
+                paste_from_selection(app, &state);
             });
         }
     }
