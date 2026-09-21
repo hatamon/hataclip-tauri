@@ -47,6 +47,7 @@ pub struct Expand {
 pub enum PasteOp {
     Text(String),
     Type(Vec<crate::keys::TypeAtom>),
+    Wait(u64),
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -68,13 +69,24 @@ fn take_type_ops_raw(text: &str) -> Vec<PasteOp> {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
             if let Some(close) = find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
-                if let Some(script) = arg_after(inner.trim(), "type") {
+                let token = inner.trim();
+                if let Some(script) = arg_after(token, "type") {
                     if !buf.is_empty() {
                         ops.push(PasteOp::Text(std::mem::take(&mut buf)));
                     }
                     ops.push(PasteOp::Type(crate::keys::parse_type_script(script)));
                     i = close + 2;
                     continue;
+                }
+                if let Some(ms) = arg_after(token, "wait") {
+                    if let Some(wait) = parse_wait(ms) {
+                        if !buf.is_empty() {
+                            ops.push(PasteOp::Text(std::mem::take(&mut buf)));
+                        }
+                        ops.push(PasteOp::Wait(wait));
+                        i = close + 2;
+                        continue;
+                    }
                 }
             }
         }
@@ -93,6 +105,7 @@ pub fn compact_ops(ops: Vec<PasteOp>) -> Vec<PasteOp> {
         match op {
             PasteOp::Text(text) if text.is_empty() => {}
             PasteOp::Type(atoms) if atoms.is_empty() => {}
+            PasteOp::Wait(0) => {}
             PasteOp::Text(text) => {
                 if let Some(PasteOp::Text(last)) = out.last_mut() {
                     last.push_str(&text);
@@ -107,6 +120,7 @@ pub fn compact_ops(ops: Vec<PasteOp>) -> Vec<PasteOp> {
                     out.push(PasteOp::Type(atoms));
                 }
             }
+            other => out.push(other),
         }
     }
     out
@@ -123,7 +137,8 @@ pub fn flatten_ops(ops: &[PasteOp]) -> String {
 }
 
 pub fn has_keys(ops: &[PasteOp]) -> bool {
-    ops.iter().any(|op| matches!(op, PasteOp::Type(_)))
+    ops.iter()
+        .any(|op| matches!(op, PasteOp::Type(_) | PasteOp::Wait(_)))
 }
 
 pub fn has_type_token(text: &str) -> bool {
@@ -159,11 +174,22 @@ fn expand_seen(
     out
 }
 
-fn find_close(chars: &[char], start: usize) -> Option<usize> {
+pub(crate) fn find_close(chars: &[char], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
     let mut i = start;
     while i + 1 < chars.len() {
+        if chars[i] == '{' && chars[i + 1] == '{' {
+            depth += 1;
+            i += 2;
+            continue;
+        }
         if chars[i] == '}' && chars[i + 1] == '}' {
-            return Some(i);
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+            i += 2;
+            continue;
         }
         i += 1;
     }
@@ -268,13 +294,64 @@ fn token_value(
         let width: usize = width.parse().ok()?;
         return Some(format!("{:0width$}", ctx.n, width = width.min(8)));
     }
-    if let Some(fmt) = arg_after(inner, "date") {
-        if fmt.is_empty() {
-            return None;
-        }
-        return Some(ctx.now.format(fmt).to_string());
+    if let Some(formatted) = date_token(inner, ctx) {
+        return Some(formatted);
     }
     None
+}
+
+fn date_token(inner: &str, ctx: &Expand) -> Option<String> {
+    if inner == "date" {
+        return Some(ctx.date.clone());
+    }
+    let rest = inner.strip_prefix("date")?;
+    if let Some((days, fmt)) = parse_date_shift(rest) {
+        let when = ctx.now + chrono::Duration::days(days);
+        return Some(match fmt {
+            Some(fmt) if !fmt.is_empty() => when.format(fmt).to_string(),
+            _ => when.format("%Y/%m/%d").to_string(),
+        });
+    }
+    let fmt = arg_after(inner, "date")?;
+    if fmt.is_empty() {
+        return None;
+    }
+    Some(ctx.now.format(fmt).to_string())
+}
+
+/// `-1d` / `+2d:%Y%m%d` / `-1d %Y%m%d`
+fn parse_date_shift(rest: &str) -> Option<(i64, Option<&str>)> {
+    let rest = rest.trim();
+    let (sign, rest) = if let Some(rest) = rest.strip_prefix('+') {
+        (1i64, rest)
+    } else if let Some(rest) = rest.strip_prefix('-') {
+        (-1i64, rest)
+    } else {
+        return None;
+    };
+    let digits = rest
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(rest.len());
+    if digits == 0 {
+        return None;
+    }
+    let amount: i64 = rest[..digits].parse().ok()?;
+    let after = rest[digits..].trim_start();
+    let after = after.strip_prefix('d').or_else(|| after.strip_prefix('D'))?;
+    let fmt = after.trim_start();
+    let fmt = if fmt.is_empty() {
+        None
+    } else if let Some(fmt) = fmt.strip_prefix(':') {
+        Some(fmt.trim())
+    } else {
+        Some(fmt)
+    };
+    Some((sign * amount, fmt.filter(|fmt| !fmt.is_empty())))
+}
+
+fn parse_wait(raw: &str) -> Option<u64> {
+    let ms: u64 = raw.trim().parse().ok()?;
+    Some(ms.min(5_000))
 }
 
 /// `{{var:a}}` と `{{var a}}` の両方。`:` はエクスプローラーの名前に使えない。
@@ -662,6 +739,16 @@ mod tests {
             expand_template("{{date %Y}}", &ctx),
             ctx.now.format("%Y").to_string()
         );
+        let yesterday = (ctx.now - chrono::Duration::days(1)).format("%Y/%m/%d").to_string();
+        assert_eq!(expand_template("{{date-1d}}", &ctx), yesterday);
+        assert_eq!(
+            expand_template("{{date-1d:%Y%m%d}}", &ctx),
+            (ctx.now - chrono::Duration::days(1)).format("%Y%m%d").to_string()
+        );
+        assert_eq!(
+            expand_template("{{date -1d %Y%m%d}}", &ctx),
+            (ctx.now - chrono::Duration::days(1)).format("%Y%m%d").to_string()
+        );
     }
 
     #[test]
@@ -696,6 +783,22 @@ mod tests {
         assert_eq!(
             pick_specs("{{pick: a, b}} {{pick: a, b}}"),
             vec![("a, b".into(), vec!["a".into(), "b".into()])]
+        );
+        assert_eq!(
+            pick_specs("{{pick hata007@x, {{var:a}}}}"),
+            vec![(
+                "hata007@x, {{var:a}}".into(),
+                vec!["hata007@x".into(), "{{var:a}}".into()]
+            )]
+        );
+        let mut nested = sample_ctx();
+        nested.answers.insert(
+            "pick:hata007@x, {{var:a}}".into(),
+            "chose".into(),
+        );
+        assert_eq!(
+            expand_template("{{pick hata007@x, {{var:a}}}}end", &nested),
+            "choseend"
         );
     }
 
@@ -794,6 +897,14 @@ mod tests {
             ))]
         );
         assert_eq!(expand_ops("plain", &ctx), vec![PasteOp::Text("plain".into())]);
+        assert_eq!(
+            expand_ops("a{{wait:200}}b", &ctx),
+            vec![
+                PasteOp::Text("a".into()),
+                PasteOp::Wait(200),
+                PasteOp::Text("b".into()),
+            ]
+        );
         assert!(has_type_token("id{{type:<Tab>}}pass"));
         assert!(has_type_token("{{type <Tab>}}"));
         assert!(!has_type_token("{{date}}"));

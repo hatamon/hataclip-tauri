@@ -17,7 +17,7 @@ mod tray;
 use chrono::Local;
 use platform::Point;
 use serde::Serialize;
-use settings::{KeyMaps, SetCommand, Settings, Shortcuts, WindowGeom};
+use settings::{KeyMaps, NCommand, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -208,7 +208,7 @@ fn edit_external(
 
 #[tauri::command]
 fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
-    *state.paste_serial.lock().expect("paste_serial") = 0;
+    reset_n(&state);
     hide_window(&app, &state);
 }
 
@@ -324,6 +324,19 @@ fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<S
     }
 }
 
+#[tauri::command]
+fn apply_n(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    match settings::parse_n(&rest) {
+        Some(NCommand::Show) => Ok(Some(format_n(&state))),
+        Some(NCommand::Set(n)) => {
+            state.settings.lock().expect("settings").set_n(n);
+            *state.paste_serial.lock().expect("paste_serial") = n;
+            Ok(None)
+        }
+        None => Err("書き方が違う".into()),
+    }
+}
+
 /// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
 #[tauri::command]
 fn paste_items(
@@ -335,9 +348,21 @@ fn paste_items(
     answers: Option<HashMap<String, String>>,
     prefix: Option<String>,
     typed: Option<bool>,
+    resolved: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> bool {
+    if let Some(text) = resolved {
+        return paste_resolved_text(
+            &app,
+            &state,
+            &ids,
+            &text,
+            keep_open,
+            format,
+            prefix.as_deref(),
+        );
+    }
     run_paste(
         &app,
         &state,
@@ -353,12 +378,111 @@ fn paste_items(
     )
 }
 
+fn paste_resolved_text(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    text: &str,
+    keep_open: bool,
+    format: bool,
+    prefix: Option<&str>,
+) -> bool {
+    let mut text = if format {
+        text::format_for_paste(text)
+    } else {
+        text.to_string()
+    };
+    if let Some(prefix) = prefix {
+        let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
+        let already = if prefix == "* " { "* " } else { already.as_str() };
+        text = text::prefix_lines(&text, prefix, already);
+    }
+    if let Some(key) = current_context(state) {
+        state.store.lock().expect("store").record_context(ids, &key);
+    }
+    state.store.lock().expect("store").bump_paste(ids);
+    paste_text(app, state, &text, keep_open);
+    drop_once(state, ids);
+    let _ = app.emit("items-changed", view(state));
+    bump_n(state);
+    if !keep_open {
+        reset_n(state);
+    }
+    true
+}
+
 #[tauri::command]
 fn copy_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> bool {
-    match joined_text(&state, &ids) {
+    match expand_ids(&state, &ids, true, HashMap::new()) {
         Some(text) => clipboard::write_clipboard_text(&text),
         None => false,
     }
+}
+
+#[tauri::command]
+fn expand_items(
+    ids: Vec<String>,
+    answers: Option<HashMap<String, String>>,
+    force_sh: Option<bool>,
+    state: tauri::State<'_, AppState>,
+) -> Option<String> {
+    expand_ids(
+        &state,
+        &ids,
+        force_sh.unwrap_or(false),
+        answers.unwrap_or_default(),
+    )
+}
+
+#[tauri::command]
+fn expand_text(text: String, state: tauri::State<'_, AppState>) -> String {
+    let ctx = expand_context(&state, String::new(), HashMap::new());
+    text::expand_template(&text, &ctx)
+}
+
+#[tauri::command]
+fn list_tags(state: tauri::State<'_, AppState>) -> String {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for item in view(&state) {
+        for tag in &item.tags {
+            if tag.is_empty() {
+                continue;
+            }
+            *counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+    if counts.is_empty() {
+        return "タグはない".to_string();
+    }
+    counts
+        .iter()
+        .map(|(name, count)| format!("#{name}  {count}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn expand_ids(
+    state: &AppState,
+    ids: &[String],
+    force_sh: bool,
+    answers: HashMap<String, String>,
+) -> Option<String> {
+    let ctx = expand_context(state, String::new(), answers);
+    let store = state.store.lock().expect("store");
+    let rows: Vec<Item> = ids
+        .iter()
+        .filter_map(|id| store.get(id).cloned())
+        .collect();
+    drop(store);
+    if rows.len() != ids.len() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for item in &rows {
+        let ops = resolve_item(item, &ctx, force_sh)?;
+        parts.push(text::flatten_ops(&ops));
+    }
+    Some(parts.join("\n"))
 }
 
 #[tauri::command]
@@ -561,23 +685,6 @@ fn open_url(url: &str) -> bool {
         .is_ok()
 }
 
-fn joined_text(state: &AppState, ids: &[String]) -> Option<String> {
-    joined_raw(state, ids, "\n")
-}
-
-fn joined_raw(state: &AppState, ids: &[String], separator: &str) -> Option<String> {
-    let store = state.store.lock().expect("store");
-    let texts: Vec<String> = ids
-        .iter()
-        .filter_map(|id| store.get(id).map(|item| item.text.clone()))
-        .collect();
-    if texts.is_empty() {
-        None
-    } else {
-        Some(texts.join(separator))
-    }
-}
-
 fn run_paste(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -619,7 +726,7 @@ fn run_paste(
     let mut logged = false;
     for item in &rows {
         let resolved = if let Some(ctx) = ctx.as_ref() {
-            match resolve_item(item, ctx) {
+                    match resolve_item(item, ctx, false) {
                 Some(ops) => ops,
                 None => {
                     if was_open {
@@ -677,8 +784,9 @@ fn run_paste(
         if keep_open {
             reveal_picker(app, state);
         }
+        bump_n(state);
         if !keep_open {
-            *state.paste_serial.lock().expect("paste_serial") = 0;
+            reset_n(state);
         }
         return true;
     }
@@ -700,11 +808,12 @@ fn run_paste(
     if ok {
         drop_once(state, ids);
         let _ = app.emit("items-changed", view(state));
+        bump_n(state);
     } else if was_open {
         reveal_picker(app, state);
     }
     if !keep_open {
-        *state.paste_serial.lock().expect("paste_serial") = 0;
+        reset_n(state);
     }
     ok
 }
@@ -757,6 +866,30 @@ fn var_map(state: &AppState) -> HashMap<String, String> {
         .collect()
 }
 
+fn peek_n(state: &AppState) -> u32 {
+    *state.paste_serial.lock().expect("paste_serial")
+}
+
+fn bump_n(state: &AppState) {
+    let mut serial = state.paste_serial.lock().expect("paste_serial");
+    *serial = serial.saturating_add(1);
+}
+
+fn reset_n(state: &AppState) {
+    let n = state.settings.lock().expect("settings").n();
+    *state.paste_serial.lock().expect("paste_serial") = n;
+}
+
+fn format_n(state: &AppState) -> String {
+    let start = state.settings.lock().expect("settings").n();
+    let next = peek_n(state);
+    if start == next {
+        format!("{start}")
+    } else {
+        format!("初期値 {start}\n次 {next}")
+    }
+}
+
 fn expand_context(
     state: &AppState,
     sel: String,
@@ -768,11 +901,7 @@ fn expand_context(
             .map(|foreground| platform::app_and_title(&foreground))
             .unwrap_or_default()
     };
-    let n = {
-        let mut serial = state.paste_serial.lock().expect("paste_serial");
-        *serial += 1;
-        *serial
-    };
+    let n = peek_n(state);
     let now = Local::now();
     text::Expand {
         date: now.format("%Y/%m/%d").to_string(),
@@ -841,7 +970,7 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     }
 }
 
-fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>> {
+fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<text::PasteOp>> {
     let run = item.tags.iter().any(|tag| tag == "run");
     let file = item.tags.iter().any(|tag| tag == "file");
     if run && !shell::has_sh_token(&item.text) {
@@ -852,7 +981,7 @@ fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>> {
         )?)]);
     }
     let expanded = text::expand_template(&item.text, ctx);
-    let expanded = shell::apply_sh(&expanded, run).ok()?;
+    let expanded = shell::apply_sh(&expanded, run || force_sh).ok()?;
     let expanded = if file && !run {
         shell::read_file_contents(&text::flatten_ops(&text::take_type_ops(&expanded))).ok()?
     } else {
@@ -936,6 +1065,12 @@ fn play_ops(
                 platform::simulate_paste(&spec)
             }
             text::PasteOp::Type(atoms) => platform::simulate_type_atoms(atoms),
+            text::PasteOp::Wait(ms) => {
+                if *ms > 0 {
+                    std::thread::sleep(Duration::from_millis(*ms));
+                }
+                true
+            }
         };
         if !ok {
             if did_paste {
@@ -1228,7 +1363,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
         return;
     };
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-    *state.paste_serial.lock().expect("paste_serial") = 0;
+    reset_n(state);
     apply_saved_size(&window, state);
 
     let position = (*state.last_position.lock().expect("last_position"))
@@ -1319,6 +1454,7 @@ pub fn run() {
             let store = Store::load(dir.join("items.json"));
             let settings = Settings::load(dir.join("settings.json"));
             let shortcuts = settings.shortcuts().clone();
+            let n_start = settings.n();
             let last_position = Mutex::new(settings.window().map(|geom| Point {
                 x: geom.x,
                 y: geom.y,
@@ -1328,7 +1464,7 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 foreground: Mutex::new(None),
                 last_position,
-                paste_serial: Mutex::new(0),
+                paste_serial: Mutex::new(n_start),
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
             });
@@ -1363,6 +1499,9 @@ pub fn run() {
             hide_picker,
             paste_items,
             copy_items,
+            expand_items,
+            expand_text,
+            list_tags,
             open_target,
             get_help,
             help_topics,
@@ -1381,7 +1520,8 @@ pub fn run() {
             get_keymaps,
             set_keymaps,
             open_settings_file,
-            apply_set
+            apply_set,
+            apply_n
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

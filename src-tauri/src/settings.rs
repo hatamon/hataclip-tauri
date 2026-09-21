@@ -98,6 +98,8 @@ struct SettingsFile {
     target_keys: BTreeMap<String, TargetKeys>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     vars: BTreeMap<String, String>,
+    #[serde(default = "default_n", skip_serializing_if = "is_default_n")]
+    n: u32,
 }
 
 pub struct Settings {
@@ -107,12 +109,26 @@ pub struct Settings {
     keymaps: KeyMaps,
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
+    n: u32,
 }
 
 pub enum SetCommand {
     List,
     Paste(String),
     Var { name: String, value: String },
+}
+
+pub enum NCommand {
+    Show,
+    Set(u32),
+}
+
+fn default_n() -> u32 {
+    1
+}
+
+fn is_default_n(n: &u32) -> bool {
+    *n == 1
 }
 
 impl Settings {
@@ -125,6 +141,7 @@ impl Settings {
             keymaps: loaded.keymaps,
             target_keys: loaded.target_keys,
             vars: loaded.vars,
+            n: loaded.n,
         }
     }
 
@@ -149,6 +166,7 @@ impl Settings {
         self.keymaps = loaded.keymaps;
         self.target_keys = loaded.target_keys;
         self.vars = loaded.vars;
+        self.n = loaded.n;
         true
     }
 
@@ -160,9 +178,22 @@ impl Settings {
         if !valid_var_name(name) {
             return false;
         }
-        self.vars.insert(name.to_string(), value);
+        if value.is_empty() {
+            self.vars.remove(name);
+        } else {
+            self.vars.insert(name.to_string(), value);
+        }
         self.save();
         true
+    }
+
+    pub fn n(&self) -> u32 {
+        self.n
+    }
+
+    pub fn set_n(&mut self, n: u32) {
+        self.n = n;
+        self.save();
     }
 
     pub fn format_vars(&self) -> String {
@@ -238,6 +269,7 @@ impl Settings {
             &self.keymaps,
             &self.target_keys,
             &self.vars,
+            self.n,
         );
     }
 }
@@ -248,6 +280,7 @@ struct Loaded {
     keymaps: KeyMaps,
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
+    n: u32,
 }
 
 fn empty_loaded() -> Loaded {
@@ -257,6 +290,7 @@ fn empty_loaded() -> Loaded {
         keymaps: KeyMaps::default(),
         target_keys: BTreeMap::new(),
         vars: BTreeMap::new(),
+        n: default_n(),
     }
 }
 
@@ -283,6 +317,7 @@ fn from_file(file: SettingsFile) -> Loaded {
         keymaps: sanitize_keymaps(file.keymaps),
         target_keys: sanitize_target_keys(file.target_keys),
         vars: sanitize_vars(file.vars),
+        n: file.n,
     }
 }
 
@@ -312,6 +347,17 @@ pub fn parse_set(rest: &str) -> Option<SetCommand> {
         name: name.to_string(),
         value,
     })
+}
+
+pub fn parse_n(rest: &str) -> Option<NCommand> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(NCommand::Show);
+    }
+    if !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok().map(NCommand::Set)
 }
 
 fn parse_set_value(raw: &str) -> Option<String> {
@@ -428,6 +474,7 @@ fn write_file(
     keymaps: &KeyMaps,
     target_keys: &BTreeMap<String, TargetKeys>,
     vars: &BTreeMap<String, String>,
+    n: u32,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -439,6 +486,7 @@ fn write_file(
         keymaps: keymaps.clone(),
         target_keys: target_keys.clone(),
         vars: vars.clone(),
+        n,
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -464,6 +512,7 @@ mod tests {
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
         assert_eq!(settings.window(), None);
         assert_eq!(settings.keymaps(), &KeyMaps::default());
+        assert_eq!(settings.n(), 1);
         assert_eq!(settings.copy_for("putty"), "ctrl+c");
         assert_eq!(settings.paste_for("putty"), "ctrl+v");
     }
@@ -513,6 +562,7 @@ mod tests {
         assert_eq!(reloaded.shortcuts().register, "Alt+KeyC");
         assert_eq!(reloaded.shortcuts().show, "Alt+KeyV");
         assert_eq!(reloaded.shortcuts().expand, "Control+Shift+KeyH");
+        assert_eq!(reloaded.n(), 1);
         assert_eq!(
             reloaded.window(),
             Some(WindowGeom {
@@ -522,6 +572,10 @@ mod tests {
                 height: 300,
             })
         );
+        settings.set_n(100);
+        assert_eq!(Settings::load(path.clone()).n(), 100);
+        settings.set_n(1);
+        assert_eq!(Settings::load(path.clone()).n(), 1);
         let _ = fs::remove_file(path);
     }
 
@@ -590,7 +644,16 @@ mod tests {
         ));
         assert!(parse_set("paste=\"no\"").is_none());
         assert!(parse_set("paste").is_none());
+        assert!(matches!(
+            parse_set("a="),
+            Some(SetCommand::Var { name, value }) if name == "a" && value.is_empty()
+        ));
         assert!(parse_set("1a=x").is_none());
+        assert!(matches!(parse_n(""), Some(NCommand::Show)));
+        assert!(matches!(parse_n("100"), Some(NCommand::Set(100))));
+        assert!(matches!(parse_n(" 0 "), Some(NCommand::Set(0))));
+        assert!(parse_n("1a").is_none());
+        assert!(parse_n("-1").is_none());
     }
 
     #[test]
@@ -600,8 +663,12 @@ mod tests {
         let mut settings = Settings::load(path.clone());
         assert!(settings.set_var("a", "{{date}}".into()));
         assert!(!settings.set_var("paste", "no".into()));
-        let reloaded = Settings::load(path.clone());
-        assert_eq!(reloaded.vars().get("a").map(String::as_str), Some("{{date}}"));
+        assert_eq!(
+            Settings::load(path.clone()).vars().get("a").map(String::as_str),
+            Some("{{date}}")
+        );
+        assert!(settings.set_var("a", String::new()));
+        assert!(Settings::load(path.clone()).vars().get("a").is_none());
         fs::write(
             &path,
             r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"vars":{"ok":"1","paste":"x","1bad":"y"}}"#,

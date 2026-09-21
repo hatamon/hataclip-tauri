@@ -194,7 +194,7 @@ pub fn apply_sh(text: &str, run: bool) -> Result<String, ShellError> {
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
-            if let Some(close) = find_close(&chars, i + 2) {
+                if let Some(close) = crate::text::find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
                 if let Some(cmd) = crate::text::arg_after(inner.trim(), "sh") {
                     if run {
@@ -211,23 +211,12 @@ pub fn apply_sh(text: &str, run: bool) -> Result<String, ShellError> {
     Ok(out)
 }
 
-fn find_close(chars: &[char], start: usize) -> Option<usize> {
-    let mut i = start;
-    while i + 1 < chars.len() {
-        if chars[i] == '}' && chars[i + 1] == '}' {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
 pub fn has_sh_token(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
-            if let Some(close) = find_close(&chars, i + 2) {
+                if let Some(close) = crate::text::find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
                 if crate::text::arg_after(inner.trim(), "sh").is_some() {
                     return true;

@@ -1,7 +1,7 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 展開して全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
@@ -44,7 +44,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "sh",
-        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。:sh dir はその場実行して貼る。:@ は直前の :sh をもう一度。失敗したら貼らない。",
+        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る。:@ は直前の :sh をもう一度。失敗したら貼らない。",
     ),
     (
         "template",
@@ -53,13 +53,14 @@ const TOPICS: &[(&str, &str)] = &[
 {{date}}           2026/09/20\n\
 {{time}}           10:54\n\
 {{date:%Y%m%d}}    chrono の strftime\n\
+{{date-1d}}        昨日。{{date-1d:%Y%m%d}} {{date+2d}} も可\n\
 {{clip}}           いまのクリップボード。空なら空\n\
 {{sel}}            前面の選択。無ければ空\n\
 {{ask:名前}}       貼る前に入力。同じ名前は 1 回\n\
-{{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く\n\
+{{pick: a, b}}     貼る前に候補から選ぶ。j / k と Enter。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。候補に {{var:a}} を書ける\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
 {{front}}          前面ウィンドウのタイトル。無ければ空\n\
-{{n}} / {{n:2}}    連番。Ctrl+Enter で増える。閉じると 1 に戻る\n\
+{{n}} / {{n:2}}    連番。Ctrl+Enter で増える。:n 100 で初期値。閉じると初期値に戻る。ge やコピーでは進まない\n\
 {{uuid}}           UUID v4\n\
 {{user}}           ログイン名\n\
 {{host}}           コンピュータ名\n\
@@ -68,6 +69,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない\n\
 {{tag:work}}       いまの一覧でタグ work の本文。並びどおり、改行つなぎ。差し込んだ本文も展開する。同じタグを二度辿ったら空。その行の #run などは見ない\n\
 {{type:<Tab>}}     貼る途中でキーを送る。id{{type:<Tab>}}pass は id を貼って Tab を押して pass を貼る。{{type:<Ctrl+A>abc<Enter>}} {{type:<Ctrl+Shift+A>}} も可。矢印は <Up> <Down> <Left> <Right>。F キーは <F1>〜<F24>。文字は 1 文字ずつ。Tab Enter Esc Space BS Del Home End PgUp PgDn と Ctrl/Shift/Alt+それら\n\
+{{wait:200}}       そのあと 200ms 待つ。最大 5 秒\n\
 {{sh: コマンド}}   #run 付きの行だけ実行。標準出力。失敗したら貼らない",
     ),
     (
@@ -80,7 +82,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -90,13 +92,13 @@ const TOPICS: &[(&str, &str)] = &[
 
 const OVERVIEW: &str = "\
 移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /  Escで絞り解除\n\
-見る   ge 全文  g? 回数・貼り付け先・タグ\n\
+見る   ge 展開して全文  g? 回数・貼り付け先・タグ\n\
 貼る   Enter 閉じる  Ctrl+Enter 残す  Shift+Enter 整形  1〜9  g. 再貼\n\
        gJ カンマ  gT タブ  g> 引用  g* 箇条書き  g Enter 本文のまま\n\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  J まとめ  c 複製  t T タグ  gp ピン  + -\n\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  echo  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  settings\n\
+:      help  sh  @  echo  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -143,8 +145,12 @@ mod tests {
         assert!(render(Some("template")).contains("{{var a}}"));
         assert!(render(Some("template")).contains("{{sh: コマンド}}"));
         assert!(render(Some("template")).contains("{{tag:work}}"));
-        assert!(render(Some("template")).contains("{{type:<Tab>}}"));
+        assert!(render(Some("template")).contains("{{wait:200}}"));
+        assert!(render(Some("template")).contains("{{date-1d}}"));
+        assert!(render(Some("colon")).contains(":tags"));
         assert!(render(None).contains(":help template"));
+        assert!(render(Some("colon")).contains(":n 100"));
+        assert!(render(Some("template")).contains(":n 100"));
         assert!(render(Some("colon")).contains(":set a="));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains(":sh dir"));

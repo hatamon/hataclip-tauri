@@ -22,7 +22,9 @@ describe("matchingColonCommands", () => {
       "unmap",
       "mapleader",
       "set",
+      "n",
       "settings",
+      "tags",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
   });

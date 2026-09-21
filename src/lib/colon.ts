@@ -16,7 +16,9 @@ export const COLON_COMMANDS = [
   "unmap",
   "mapleader",
   "set",
+  "n",
   "settings",
+  "tags",
 ];
 
 export function colonCommandToken(input: string): string {
@@ -43,7 +45,7 @@ export function applyColonCompletion(input: string, command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n") {
     return `${command} `;
   }
   return command;

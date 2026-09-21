@@ -73,6 +73,9 @@
   let tagAdd = $state(true);
   let lastChange = $state<Change | null>(null);
   let preview = $state(false);
+  let previewText = $state("");
+  let runConfirm = $state(false);
+  let pendingResolved = $state<string | null>(null);
   let tagCycle = $state(-1);
   let draftNewId = $state<string | null>(null);
   let colonEl = $state<HTMLInputElement | undefined>(undefined);
@@ -99,6 +102,7 @@
     separator: string;
     prefix?: string;
     typed?: boolean;
+    answers?: Record<string, string>;
   } | null>(null);
   let lastPaste = $state<{
     ids: string[];
@@ -174,7 +178,7 @@
       return [
         { key: "g", label: "先頭" },
         { key: "f", label: "開く" },
-        { key: "e", label: "全文" },
+        { key: "e", label: "展開" },
         { key: "Enter", label: "本文のまま" },
         { key: "J", label: "カンマ" },
         { key: "T", label: "タブ" },
@@ -259,6 +263,33 @@
     listEl?.children[selected]?.scrollIntoView({ block: "nearest" });
   });
 
+  $effect(() => {
+    const item = preview ? filtered[selected] : undefined;
+    if (!item) {
+      previewText = "";
+      return;
+    }
+    if (isSecret(item)) {
+      previewText = "••••";
+      return;
+    }
+    previewText = item.text;
+    const id = item.id;
+    const raw = item.text;
+    const timer = setTimeout(() => {
+      void invoke<string | null>("expand_items", {
+        ids: [id],
+        answers: {},
+        forceSh: true,
+      }).then((text) => {
+        if (preview && filtered[selected]?.id === id) {
+          previewText = text ?? raw;
+        }
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  });
+
   function currentItem(): Item | undefined {
     return filtered[selected];
   }
@@ -305,7 +336,7 @@
       if (picks.length > 0) {
         clearSelection();
         pendingPaste = { ids, keepOpen, format, raw, separator, prefix, typed };
-        startPicks(picks);
+        void startPicks(picks);
         return;
       }
     }
@@ -333,7 +364,7 @@
     const picks = uniquePickSpecs([item]);
     if (picks.length > 0) {
       pendingPaste = { ids: [item.id], keepOpen, format: false, raw: false, separator: "\n" };
-      startPicks(picks);
+      void startPicks(picks);
       return;
     }
     await invokePaste({
@@ -356,6 +387,29 @@
     typed?: boolean;
     answers: Record<string, string>;
   }) {
+    const rows = opts.ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter((item): item is Item => item !== undefined);
+    if (!opts.raw && rows.some((item) => item.tags.includes("run"))) {
+      try {
+        const text = await invoke<string | null>("expand_items", {
+          ids: opts.ids,
+          answers: opts.answers,
+          forceSh: false,
+        });
+        if (text == null) {
+          return;
+        }
+        pendingPaste = opts;
+        pendingResolved = text;
+        runConfirm = true;
+        helpText = `${text}\n\nEnter で貼る  Esc で中止`;
+        mode = "help";
+      } catch {
+        // 失敗したら貼らない
+      }
+      return;
+    }
     const ok = await invoke<boolean>("paste_items", {
       ids: opts.ids,
       keepOpen: opts.keepOpen,
@@ -365,14 +419,54 @@
       answers: opts.answers,
       prefix: opts.prefix ?? null,
       typed: opts.typed ?? false,
+      resolved: null,
     });
     if (ok) {
       lastPaste = { ...opts };
     }
   }
 
-  function startPicks(picks: PickSpec[]) {
-    pickQueue = picks;
+  async function confirmRunPaste() {
+    const pending = pendingPaste;
+    const resolved = pendingResolved;
+    pendingPaste = null;
+    pendingResolved = null;
+    runConfirm = false;
+    helpText = "";
+    mode = "normal";
+    if (pending === null || resolved === null) {
+      return;
+    }
+    const ok = await invoke<boolean>("paste_items", {
+      ids: pending.ids,
+      keepOpen: pending.keepOpen,
+      format: pending.format,
+      raw: pending.raw,
+      separator: pending.separator,
+      answers: pending.answers ?? {},
+      prefix: pending.prefix ?? null,
+      typed: pending.typed ?? false,
+      resolved,
+    });
+    if (ok) {
+      lastPaste = { ...pending, answers: pending.answers ?? {} };
+    }
+  }
+
+  async function startPicks(picks: PickSpec[]) {
+    const next: PickSpec[] = [];
+    for (const pick of picks) {
+      const options: string[] = [];
+      for (const option of pick.options) {
+        try {
+          options.push(await invoke<string>("expand_text", { text: option }));
+        } catch {
+          options.push(option);
+        }
+      }
+      next.push({ spec: pick.spec, options });
+    }
+    pickQueue = next;
     pickIndex = 0;
     pickChoice = 0;
     mode = "pick";
@@ -390,7 +484,7 @@
       (entry) => askAnswers[`pick:${entry.spec}`] === undefined,
     );
     if (remaining.length > 0 && pickQueue.length === 0) {
-      startPicks(remaining);
+      void startPicks(remaining);
       return;
     }
     pendingPaste = null;
@@ -956,6 +1050,24 @@
       }
       return;
     }
+    if (line === "tags") {
+      helpText = await invoke<string>("list_tags");
+      mode = "help";
+      return;
+    }
+    if (line === "n" || line.startsWith("n ")) {
+      const rest = line === "n" ? "" : line.slice(2);
+      try {
+        const listed = await invoke<string | null>("apply_n", { rest });
+        if (listed != null && listed.length > 0) {
+          helpText = listed;
+          mode = "help";
+        }
+      } catch {
+        // 書き方が違うときは何もしない
+      }
+      return;
+    }
     if (line === "set" || line.startsWith("set ")) {
       const rest = line === "set" ? "" : line.slice(4);
       try {
@@ -1280,8 +1392,18 @@
     if (mode === "help") {
       if (isEscape(event)) {
         event.preventDefault();
+        if (runConfirm) {
+          pendingPaste = null;
+          pendingResolved = null;
+          runConfirm = false;
+        }
         mode = "normal";
         helpText = "";
+        return;
+      }
+      if (runConfirm && event.key === "Enter") {
+        event.preventDefault();
+        void confirmRunPaste();
         return;
       }
       if (event.key === "j" || event.key === "ArrowDown") {
@@ -1904,7 +2026,7 @@
       {/if}
     {/if}
     {#if preview && currentItem()}
-      <pre class="preview">{isSecret(currentItem()!) ? "••••" : currentItem()!.text}</pre>
+      <pre class="preview">{previewText}</pre>
     {/if}
     {#if info && currentItem()}
       <pre class="preview">{`count ${currentItem()!.paste_count}
