@@ -9,6 +9,7 @@ export const COLON_COMMANDS = [
   "s",
   "@",
   "dedup",
+  "sort",
   "map",
   "unmap",
   "mapleader",

@@ -162,6 +162,12 @@ fn dedup_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
 }
 
 #[tauri::command]
+fn sort_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").sort_items(&ids);
+    view(&state)
+}
+
+#[tauri::command]
 fn drop_paths(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").drop_paths(&paths);
     view(&state)
@@ -1052,6 +1058,7 @@ pub fn run() {
             clone_items,
             substitute_items,
             dedup_items,
+            sort_items,
             drop_paths,
             edit_external,
             hide_picker,

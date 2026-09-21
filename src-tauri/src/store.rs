@@ -532,6 +532,45 @@ impl Store {
         true
     }
 
+    /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
+    pub fn sort_items(&mut self, ids: &[String]) -> bool {
+        if ids.len() < 2 {
+            return false;
+        }
+        let mut rows: Vec<Item> = ids
+            .iter()
+            .filter_map(|id| self.get(id).cloned())
+            .collect();
+        if rows.len() < 2 {
+            return false;
+        }
+        let first_id = &ids[0];
+        let Some(first_index) = self.items.iter().position(|item| item.id == *first_id) else {
+            return false;
+        };
+        let at = self.items[..first_index]
+            .iter()
+            .filter(|item| !ids.iter().any(|id| id == &item.id))
+            .count();
+        rows.sort_by(|a, b| a.text.cmp(&b.text));
+        let mut next = self.items.clone();
+        next.retain(|item| !ids.iter().any(|id| id == &item.id));
+        for (offset, row) in rows.iter().enumerate() {
+            next.insert(at + offset, row.clone());
+        }
+        if next
+            .iter()
+            .map(|item| item.id.as_str())
+            .eq(self.items.iter().map(|item| item.id.as_str()))
+        {
+            return false;
+        }
+        self.push_undo();
+        self.items = next;
+        self.save();
+        true
+    }
+
     pub fn dedup(&mut self) -> bool {
         let mut keep: Vec<String> = Vec::new();
         let mut seen = std::collections::HashMap::<String, (bool, usize)>::new();
@@ -1114,6 +1153,38 @@ mod tests {
         assert!(store.dedup());
         let ids: Vec<_> = store.list().iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["c", "b"]);
+    }
+
+    #[test]
+    fn sort_orders_selected_from_first_slot() {
+        let mut store = fresh("sort");
+        store.insert(item("a", "c-text"));
+        store.insert(item("b", "a-text"));
+        store.insert(item("c", "b-text"));
+        assert!(store.sort_items(&["b".into(), "c".into(), "a".into()]));
+        let texts: Vec<_> = store.list().iter().map(|item| item.text.as_str()).collect();
+        assert_eq!(texts, vec!["a-text", "b-text", "c-text"]);
+        assert!(!store.sort_items(&["b".into(), "c".into(), "a".into()]));
+        store.undo();
+        let texts: Vec<_> = store.list().iter().map(|item| item.text.as_str()).collect();
+        assert_eq!(texts, vec!["b-text", "a-text", "c-text"]);
+    }
+
+    #[test]
+    fn sort_keeps_tags_and_inserts_at_visual_first() {
+        let mut store = fresh("sort-slot");
+        store.insert(Item {
+            tags: vec!["keep".into()],
+            paste_count: 4,
+            ..item("a", "aa")
+        });
+        store.insert(item("b", "zz"));
+        store.insert(item("c", "mm"));
+        assert!(store.sort_items(&["b".into(), "a".into()]));
+        let ids: Vec<_> = store.list().iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, vec!["c", "a", "b"]);
+        assert_eq!(store.get("a").unwrap().tags, vec!["keep"]);
+        assert_eq!(store.get("a").unwrap().paste_count, 4);
     }
 
     #[test]

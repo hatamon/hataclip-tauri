@@ -51,7 +51,8 @@
     | { kind: "move"; delta: number }
     | { kind: "merge" }
     | { kind: "clone" }
-    | { kind: "sub"; old: string; new: string };
+    | { kind: "sub"; old: string; new: string }
+    | { kind: "sort" };
 
   let items = $state<Item[]>([]);
   let selected = $state(0);
@@ -502,6 +503,9 @@
         return;
       case "sub":
         await substituteSelection(lastChange.old, lastChange.new);
+        return;
+      case "sort":
+        await sortSelection();
     }
   }
 
@@ -561,6 +565,18 @@
     items = await invoke<Item[]>("substitute_items", { ids, old, new: next });
     selectById(id);
     lastChange = { kind: "sub", old, new: next };
+  }
+
+  async function sortSelection() {
+    if (anchor === null || selectedIds.length < 2) {
+      return;
+    }
+    const ids = selectedIds;
+    const id = ids[0];
+    clearSelection();
+    items = await invoke<Item[]>("sort_items", { ids });
+    selectById(id);
+    lastChange = { kind: "sort" };
   }
 
   function pageMove(direction: number) {
@@ -902,6 +918,10 @@
     }
     if (line === "dedup yes") {
       items = await invoke<Item[]>("dedup_items");
+      return;
+    }
+    if (line === "sort") {
+      void sortSelection();
       return;
     }
     if (line === "sh" || line === "sh ") {

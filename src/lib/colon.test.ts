@@ -15,6 +15,7 @@ describe("matchingColonCommands", () => {
       "s",
       "@",
       "dedup",
+      "sort",
       "map",
       "unmap",
       "mapleader",
