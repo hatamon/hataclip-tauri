@@ -128,6 +128,45 @@ fn get_context(state: tauri::State<'_, AppState>) -> Option<String> {
     current_context(&state)
 }
 
+#[tauri::command]
+fn merge_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").merge_items(&ids);
+    view(&state)
+}
+
+#[tauri::command]
+fn clone_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").clone_items(&ids);
+    view(&state)
+}
+
+#[tauri::command]
+fn substitute_items(
+    ids: Vec<String>,
+    old: String,
+    new: String,
+    state: tauri::State<'_, AppState>,
+) -> Vec<Item> {
+    state
+        .store
+        .lock()
+        .expect("store")
+        .substitute(&ids, &old, &new);
+    view(&state)
+}
+
+#[tauri::command]
+fn dedup_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").dedup();
+    view(&state)
+}
+
+#[tauri::command]
+fn drop_paths(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state.store.lock().expect("store").drop_paths(&paths);
+    view(&state)
+}
+
 /// 外部エディタを開く。終わるまで待つので、待ち時間は別スレッドに逃がす。
 #[tauri::command]
 fn edit_external(
@@ -202,9 +241,10 @@ fn paste_items(
     raw: Option<bool>,
     separator: Option<String>,
     answers: Option<HashMap<String, String>>,
+    prefix: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) {
+) -> bool {
     run_paste(
         &app,
         &state,
@@ -214,7 +254,8 @@ fn paste_items(
         raw.unwrap_or(false),
         separator.as_deref().unwrap_or("\n"),
         answers.unwrap_or_default(),
-    );
+        prefix.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -337,6 +378,7 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         false,
         "\n",
         HashMap::new(),
+        None,
     );
 }
 
@@ -397,7 +439,8 @@ fn run_paste(
     raw: bool,
     separator: &str,
     answers: HashMap<String, String>,
-) {
+    prefix: Option<&str>,
+) -> bool {
     let was_open = *state.picker_open.lock().expect("picker_open");
     let typed = !raw && has_tag(state, ids, "type");
     let needs_sel = !raw && has_sel(state, ids);
@@ -406,8 +449,14 @@ fn run_paste(
     } else {
         String::new()
     };
-    let text = if raw {
-        joined_raw(state, ids, separator)
+    let (app_name, front) = {
+        let foreground = *state.foreground.lock().expect("foreground");
+        foreground
+            .map(|foreground| platform::app_and_title(&foreground))
+            .unwrap_or_default()
+    };
+    let ctx = if raw {
+        None
     } else {
         let n = {
             let mut serial = state.paste_serial.lock().expect("paste_serial");
@@ -415,7 +464,7 @@ fn run_paste(
             *serial
         };
         let now = Local::now();
-        let ctx = text::Expand {
+        Some(text::Expand {
             date: now.format("%Y/%m/%d").to_string(),
             time: now.format("%H:%M").to_string(),
             clip: clipboard::peek_text().unwrap_or_default(),
@@ -424,19 +473,88 @@ fn run_paste(
             uuid: uuid::Uuid::new_v4().to_string(),
             user: text::login_name(),
             host: text::host_name(),
+            app: app_name,
+            front,
             now,
             answers,
-        };
-        resolved_text(state, ids, &ctx, separator)
+        })
     };
-    let Some(mut text) = text else {
+    let store = state.store.lock().expect("store");
+    let rows: Vec<Item> = ids
+        .iter()
+        .filter_map(|id| store.get(id).cloned())
+        .collect();
+    drop(store);
+    if rows.len() != ids.len() {
         if was_open {
             show_window(app);
         }
-        return;
-    };
+        return false;
+    }
+    let mut paste_parts = Vec::new();
+    let mut logged = false;
+    for item in &rows {
+        let resolved = if let Some(ctx) = ctx.as_ref() {
+            match resolve_item(item, ctx) {
+                Some(text) => text,
+                None => {
+                    if was_open {
+                        show_window(app);
+                    }
+                    return false;
+                }
+            }
+        } else {
+            item.text.clone()
+        };
+        if let Some(path) = text::log_path(&item.tags) {
+            if append_log(&path, &resolved).is_err() {
+                if was_open {
+                    show_window(app);
+                }
+                return false;
+            }
+            logged = true;
+        } else {
+            paste_parts.push(resolved);
+        }
+    }
+    let mut text = paste_parts.join(separator);
     if format {
         text = text::format_for_paste(&text);
+    }
+    if let Some(prefix) = prefix {
+        let already = prefix.chars().next().map(|ch| ch.to_string()).unwrap_or_default();
+        let already = if prefix == "* " { "* " } else { already.as_str() };
+        text = text::prefix_lines(&text, prefix, already);
+    }
+    if paste_parts.is_empty() {
+        if !logged {
+            if was_open {
+                show_window(app);
+            }
+            return false;
+        }
+        if let Some(key) = current_context(state) {
+            state.store.lock().expect("store").record_context(ids, &key);
+        }
+        state.store.lock().expect("store").bump_paste(ids);
+        drop_once(state, ids);
+        hide_window(app, state);
+        let _ = app.emit("items-changed", view(state));
+        if keep_open {
+            reveal_picker(app, state);
+        }
+        if !keep_open {
+            *state.paste_serial.lock().expect("paste_serial") = 0;
+        }
+        return true;
+    }
+    if text.is_empty() && prefix.is_some() {
+        if was_open {
+            show_window(app);
+        }
+        return false;
     }
     if let Some(key) = current_context(state) {
         state
@@ -461,6 +579,7 @@ fn run_paste(
     if !keep_open {
         *state.paste_serial.lock().expect("paste_serial") = 0;
     }
+    ok
 }
 
 fn has_tag(state: &AppState, ids: &[String], tag: &str) -> bool {
@@ -517,38 +636,45 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     }
 }
 
-fn resolved_text(
-    state: &AppState,
-    ids: &[String],
-    ctx: &text::Expand,
-    separator: &str,
-) -> Option<String> {
-    let store = state.store.lock().expect("store");
-    let mut parts = Vec::new();
-    for id in ids {
-        let item = store.get(id)?;
-        parts.push(resolve_item(item, ctx)?);
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(separator))
-    }
-}
-
 fn resolve_item(item: &Item, ctx: &text::Expand) -> Option<String> {
     let run = item.tags.iter().any(|tag| tag == "run");
     let file = item.tags.iter().any(|tag| tag == "file");
     if run && !shell::has_sh_token(&item.text) {
         let expanded = text::expand_template(&item.text, ctx);
-        return shell::run_script(&expanded).ok();
+        return apply_tsv(item, shell::run_script(&expanded).ok()?);
     }
     let expanded = text::expand_template(&item.text, ctx);
     let expanded = shell::apply_sh(&expanded, run).ok()?;
     if file && !run {
-        return shell::read_file_contents(&expanded).ok();
+        let contents = shell::read_file_contents(&expanded).ok()?;
+        return apply_tsv(item, contents);
     }
-    Some(expanded)
+    apply_tsv(item, expanded)
+}
+
+fn apply_tsv(item: &Item, text: String) -> Option<String> {
+    if item.tags.iter().any(|tag| tag == "tsv") {
+        text::to_tsv(&text)
+    } else {
+        Some(text)
+    }
+}
+
+fn append_log(path: &str, text: &str) -> std::io::Result<()> {
+    let path = std::path::Path::new(path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    use std::io::Write;
+    file.write_all(text.as_bytes())?;
+    if !text.ends_with('\n') {
+        file.write_all(b"\n")?;
+    }
+    Ok(())
 }
 
 /// 一覧に渡す並び。いまの貼り付け先で使った行を上に持ってくる。
@@ -891,6 +1017,11 @@ pub fn run() {
             move_pins,
             split_items,
             get_context,
+            merge_items,
+            clone_items,
+            substitute_items,
+            dedup_items,
+            drop_paths,
             edit_external,
             hide_picker,
             paste_items,

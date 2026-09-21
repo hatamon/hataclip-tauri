@@ -23,6 +23,9 @@ pub struct Item {
     /// ピン留め同士の手動順。小さいほど上。
     #[serde(default)]
     pub pin_rank: i32,
+    /// 登録時刻（UNIX 秒）。#ttl 用。無い行は 0 で期限切れにしない。
+    #[serde(default)]
+    pub created_at: u64,
 }
 
 impl Item {
@@ -35,6 +38,7 @@ impl Item {
             contexts: Vec::new(),
             paste_count: 0,
             pin_rank: 0,
+            created_at: now_secs(),
         }
     }
 }
@@ -59,6 +63,8 @@ impl Store {
         let mut items = read_items(&path);
         let before = items.len();
         items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp"));
+        let now = now_secs();
+        items.retain(|item| !crate::text::expired(&item.tags, item.created_at, now));
         let store = Self {
             path,
             items,
@@ -92,6 +98,35 @@ impl Store {
             return;
         }
         self.insert_at(0, item);
+    }
+
+    /// ドロップしたパスを先頭へ。1 回のドロップは 1 段の取り消し。
+    pub fn drop_paths(&mut self, paths: &[String]) -> bool {
+        let paths: Vec<String> = paths
+            .iter()
+            .map(|path| path.trim().to_string())
+            .filter(|path| !path.is_empty())
+            .collect();
+        if paths.is_empty() {
+            return false;
+        }
+        self.push_undo();
+        for path in paths.into_iter().rev() {
+            if let Some(index) = self.items.iter().position(|item| item.text == path) {
+                let existing = self.items.remove(index);
+                self.items.insert(0, existing);
+            } else {
+                self.items.insert(
+                    0,
+                    Item::new(path, vec!["path".into(), "file".into()]),
+                );
+                if self.items.len() > MAX_ITEMS {
+                    self.items.truncate(MAX_ITEMS);
+                }
+            }
+        }
+        self.save();
+        true
     }
 
     /// 指定した行のすぐ上か下に差し込む。同じ本文でもまとめない。
@@ -399,6 +434,133 @@ impl Store {
         true
     }
 
+    pub fn merge_items(&mut self, ids: &[String]) -> bool {
+        if ids.len() < 2 {
+            return false;
+        }
+        let rows: Vec<Item> = ids
+            .iter()
+            .filter_map(|id| self.get(id).cloned())
+            .collect();
+        if rows.len() < 2 {
+            return false;
+        }
+        self.push_undo();
+        let Some(index) = self.items.iter().position(|item| item.id == rows[0].id) else {
+            return false;
+        };
+        let mut tags = Vec::new();
+        for item in &rows {
+            for tag in &item.tags {
+                if !tags.iter().any(|entry| entry == tag) {
+                    tags.push(tag.clone());
+                }
+            }
+        }
+        let pinned = rows.iter().any(|item| item.pinned);
+        let pin_rank = rows
+            .iter()
+            .filter(|item| item.pinned)
+            .map(|item| item.pin_rank)
+            .min()
+            .unwrap_or(0);
+        let text = rows
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let drop: Vec<String> = rows.iter().map(|item| item.id.clone()).collect();
+        self.items
+            .retain(|item| !drop.iter().any(|id| id == &item.id));
+        let mut merged = Item::new(text, tags);
+        merged.pinned = pinned;
+        merged.pin_rank = pin_rank;
+        let at = index.min(self.items.len());
+        self.items.insert(at, merged);
+        self.save();
+        true
+    }
+
+    pub fn clone_items(&mut self, ids: &[String]) -> bool {
+        let rows: Vec<(usize, Item)> = ids
+            .iter()
+            .filter_map(|id| {
+                self.items
+                    .iter()
+                    .position(|item| item.id == *id)
+                    .map(|index| (index, self.items[index].clone()))
+            })
+            .collect();
+        if rows.is_empty() {
+            return false;
+        }
+        self.push_undo();
+        for (index, src) in rows.into_iter().rev() {
+            let mut copy = Item::new(src.text, src.tags);
+            copy.pinned = src.pinned;
+            copy.pin_rank = src.pin_rank;
+            self.items.insert((index + 1).min(self.items.len()), copy);
+        }
+        if self.items.len() > MAX_ITEMS {
+            self.items.truncate(MAX_ITEMS);
+        }
+        self.save();
+        true
+    }
+
+    pub fn substitute(&mut self, ids: &[String], old: &str, new: &str) -> bool {
+        if old.is_empty() || ids.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for item in self.items.iter() {
+            if ids.iter().any(|id| id == &item.id) && item.text.contains(old) {
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        for item in self.items.iter_mut() {
+            if ids.iter().any(|id| id == &item.id) {
+                item.text = item.text.replace(old, new);
+            }
+        }
+        self.save();
+        true
+    }
+
+    pub fn dedup(&mut self) -> bool {
+        let mut keep: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashMap::<String, (bool, usize)>::new();
+        for (index, item) in self.items.iter().enumerate() {
+            let key = item.text.replace("\r\n", "\n").trim().to_string();
+            match seen.get(&key) {
+                None => {
+                    seen.insert(key, (item.pinned, index));
+                    keep.push(item.id.clone());
+                }
+                Some((pinned, prev)) => {
+                    if item.pinned && !*pinned {
+                        keep.retain(|id| id != &self.items[*prev].id);
+                        keep.push(item.id.clone());
+                        seen.insert(key, (true, index));
+                    }
+                }
+            }
+        }
+        if keep.len() == self.items.len() {
+            return false;
+        }
+        self.push_undo();
+        self.items
+            .retain(|item| keep.iter().any(|id| id == &item.id));
+        self.save();
+        true
+    }
+
     fn push_undo(&mut self) {
         self.undo.push(self.items.clone());
         if self.undo.len() > MAX_UNDO {
@@ -419,6 +581,9 @@ pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
     let mut rest = Vec::new();
     for item in items {
         if !visible_here(item, context) {
+            continue;
+        }
+        if !visible_not(item, context) {
             continue;
         }
         if item.pinned {
@@ -447,6 +612,19 @@ fn visible_here(item: &Item, context: Option<&str>) -> bool {
     }
 }
 
+fn visible_not(item: &Item, context: Option<&str>) -> bool {
+    if item.tags.iter().any(|tag| tag == "here") {
+        return true;
+    }
+    if !item.tags.iter().any(|tag| tag == "not") {
+        return true;
+    }
+    match context {
+        Some(key) => !item.contexts.iter().any(|entry| entry == key),
+        None => true,
+    }
+}
+
 fn sort_by_count(items: &mut [Item]) {
     items.sort_by(|a, b| b.paste_count.cmp(&a.paste_count));
 }
@@ -457,6 +635,13 @@ pub fn new_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{nanos:x}")
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn read_items(path: &Path) -> Vec<Item> {
@@ -550,6 +735,7 @@ mod tests {
             contexts: Vec::new(),
             paste_count: 0,
             pin_rank: 0,
+            created_at: 0,
         }
     }
 
@@ -861,5 +1047,104 @@ mod tests {
         assert_eq!(store.list()[0].tags, vec!["work"]);
         assert!(store.list()[0].pinned);
         assert_eq!(store.list()[1].text, "world");
+    }
+
+    #[test]
+    fn merge_joins_text_and_unions_tags() {
+        let mut store = fresh("merge");
+        store.insert(Item {
+            tags: vec!["a".into()],
+            ..item("x", "one")
+        });
+        store.insert(Item {
+            tags: vec!["b".into(), "a".into()],
+            pinned: true,
+            ..item("y", "two")
+        });
+        assert!(store.merge_items(&["y".into(), "x".into()]));
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].text, "two\none");
+        assert_eq!(store.list()[0].tags, vec!["b", "a"]);
+        assert!(store.list()[0].pinned);
+    }
+
+    #[test]
+    fn clone_puts_a_copy_below() {
+        let mut store = fresh("clone");
+        store.insert(item("a", "one"));
+        assert!(store.clone_items(&["a".into()]));
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[0].id, "a");
+        assert_eq!(store.list()[1].text, "one");
+        assert_ne!(store.list()[1].id, "a");
+        assert_eq!(store.list()[1].paste_count, 0);
+    }
+
+    #[test]
+    fn drop_paths_puts_file_rows_in_front() {
+        let mut store = fresh("drop");
+        store.insert(item("a", "keep"));
+        assert!(store.drop_paths(&["C:\\a.txt".into(), "C:\\b.txt".into()]));
+        assert_eq!(store.list()[0].text, "C:\\a.txt");
+        assert_eq!(store.list()[1].text, "C:\\b.txt");
+        assert_eq!(store.list()[0].tags, vec!["path", "file"]);
+        store.undo();
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].id, "a");
+    }
+
+    #[test]
+    fn substitute_replaces_all() {
+        let mut store = fresh("sub");
+        store.insert(item("a", "foo foo"));
+        assert!(store.substitute(&["a".into()], "foo", "bar"));
+        assert_eq!(store.get("a").unwrap().text, "bar bar");
+        assert!(!store.substitute(&["a".into()], "", "x"));
+    }
+
+    #[test]
+    fn dedup_keeps_pin_then_newer() {
+        let mut store = fresh("dedup");
+        store.insert(item("a", "  same\n"));
+        store.insert(Item {
+            pinned: true,
+            ..item("b", "same")
+        });
+        store.insert(item("c", "other"));
+        assert!(store.dedup());
+        let ids: Vec<_> = store.list().iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["c", "b"]);
+    }
+
+    #[test]
+    fn not_hides_when_the_context_matches() {
+        let items = vec![
+            Item {
+                tags: vec!["not".into()],
+                contexts: vec!["code".into()],
+                ..item("a", "one")
+            },
+            item("b", "two"),
+        ];
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["b"]);
+        assert_eq!(ordered_ids(&items, Some("other")), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn load_drops_expired_ttl() {
+        let path = temp_path("ttl");
+        let old = now_secs().saturating_sub(4000);
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":1,"items":[{{"id":"1","text":"gone","tags":["ttl:1h"],"created_at":{old}}},{{"id":"2","text":"keep","tags":["ttl:1h"],"created_at":{}}}]}}"#,
+                now_secs()
+            ),
+        )
+        .unwrap();
+        let store = Store::load(path.clone());
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].id, "2");
+        let _ = fs::remove_file(path);
     }
 }
