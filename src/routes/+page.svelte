@@ -180,7 +180,8 @@
         { key: "T", label: "タブ" },
         { key: ">", label: "引用" },
         { key: "*", label: "箇条書き" },
-        { key: "p", label: "直前の貼り付け" },
+        { key: "p", label: "ピン" },
+        { key: ".", label: "直前の貼り付け" },
         { key: "?", label: "行の情報" },
         ...mapped,
       ];
@@ -1375,6 +1376,12 @@
     if (pending === "g" && event.key === "p") {
       event.preventDefault();
       pending = "";
+      void applyPin(!selectedItems.every((item) => item.pinned));
+      return;
+    }
+    if (pending === "g" && event.key === ".") {
+      event.preventDefault();
+      pending = "";
       void replayLastPaste();
       return;
     }
@@ -1394,14 +1401,6 @@
       event.preventDefault();
       pending = "";
       void pasteSelection(event.ctrlKey, event.shiftKey);
-      return;
-    }
-    if (event.key === "J") {
-      event.preventDefault();
-      pending = "";
-      if (anchor !== null) {
-        void pasteSelection(false, false, false, " ");
-      }
       return;
     }
     if (isCtrl(event, "r")) {
@@ -1521,12 +1520,6 @@
       startTagInput(false);
       return;
     }
-    if (event.key === "m") {
-      event.preventDefault();
-      pending = "";
-      void applyPin(!selectedItems.every((item) => item.pinned));
-      return;
-    }
     if (event.key === "a") {
       event.preventDefault();
       pending = "";
@@ -1558,7 +1551,7 @@
       void splitSelection();
       return;
     }
-    if (event.key === "M") {
+    if (event.key === "J") {
       event.preventDefault();
       pending = "";
       void mergeSelection();

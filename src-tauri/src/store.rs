@@ -613,59 +613,54 @@ impl Store {
     }
 }
 
-/// 一覧に出す順番。ピン留め（手動順）、同じ貼り付け先、回数の多い順、新しい順。
+/// 一覧に出す順番。ピン留め（手動順）、それ以外はストアの順（新しいものが先）。
 pub fn ordered(items: &[Item], context: Option<&str>) -> Vec<Item> {
     let mut pinned = Vec::new();
-    let mut same_context = Vec::new();
     let mut rest = Vec::new();
     for item in items {
-        if !visible_here(item, context) {
+        if !visible_app(item, context) {
             continue;
         }
-        if !visible_not(item, context) {
+        if !visible_not_app(item, context) {
             continue;
         }
         if item.pinned {
             pinned.push(item.clone());
-        } else if context.is_some_and(|key| item.contexts.iter().any(|entry| entry == key)) {
-            same_context.push(item.clone());
         } else {
             rest.push(item.clone());
         }
     }
-    pinned.sort_by(|a, b| a.pin_rank.cmp(&b.pin_rank).then(b.paste_count.cmp(&a.paste_count)));
-    sort_by_count(&mut same_context);
-    sort_by_count(&mut rest);
-    pinned.append(&mut same_context);
+    pinned.sort_by(|a, b| a.pin_rank.cmp(&b.pin_rank));
     pinned.append(&mut rest);
     pinned
 }
 
-fn visible_here(item: &Item, context: Option<&str>) -> bool {
-    if !item.tags.iter().any(|tag| tag == "here") {
+fn visible_app(item: &Item, context: Option<&str>) -> bool {
+    let apps: Vec<_> = tagged_apps(&item.tags, "app");
+    if apps.is_empty() {
         return true;
     }
-    match context {
-        Some(key) => item.contexts.iter().any(|entry| entry == key),
-        None => false,
-    }
+    let Some(current) = context.map(crate::text::context_app) else {
+        return false;
+    };
+    apps.iter().any(|app| app.eq_ignore_ascii_case(current))
 }
 
-fn visible_not(item: &Item, context: Option<&str>) -> bool {
-    if item.tags.iter().any(|tag| tag == "here") {
+fn visible_not_app(item: &Item, context: Option<&str>) -> bool {
+    let denied: Vec<_> = tagged_apps(&item.tags, "not");
+    if denied.is_empty() {
         return true;
     }
-    if !item.tags.iter().any(|tag| tag == "not") {
+    let Some(current) = context.map(crate::text::context_app) else {
         return true;
-    }
-    match context {
-        Some(key) => !item.contexts.iter().any(|entry| entry == key),
-        None => true,
-    }
+    };
+    !denied.iter().any(|app| app.eq_ignore_ascii_case(current))
 }
 
-fn sort_by_count(items: &mut [Item]) {
-    items.sort_by(|a, b| b.paste_count.cmp(&a.paste_count));
+fn tagged_apps<'a>(tags: &'a [String], name: &str) -> Vec<&'a str> {
+    tags.iter()
+        .filter_map(|tag| crate::text::tag_arg(tag, name))
+        .collect()
 }
 
 pub fn new_id() -> String {
@@ -931,11 +926,12 @@ mod tests {
     }
 
     #[test]
-    fn ordering_puts_pins_then_the_same_context_first() {
+    fn ordering_puts_pins_then_store_order() {
         let items = vec![
             item("a", "one"),
             Item {
                 contexts: vec!["code".into()],
+                paste_count: 9,
                 ..item("b", "two")
             },
             Item {
@@ -943,17 +939,12 @@ mod tests {
                 ..item("c", "three")
             },
         ];
-        let ordered = ordered(&items, Some("code"));
-        assert_eq!(
-            ordered.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-            vec!["c", "b", "a"]
-        );
-        let without = ordered_ids(&items, None);
-        assert_eq!(without, vec!["c", "a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["c", "a", "b"]);
+        assert_eq!(ordered_ids(&items, None), vec!["c", "a", "b"]);
     }
 
     #[test]
-    fn ordering_puts_higher_paste_counts_first_inside_a_group() {
+    fn paste_count_does_not_reorder() {
         let items = vec![
             Item {
                 paste_count: 1,
@@ -965,7 +956,7 @@ mod tests {
             },
             item("c", "three"),
         ];
-        assert_eq!(ordered_ids(&items, None), vec!["b", "a", "c"]);
+        assert_eq!(ordered_ids(&items, None), vec!["a", "b", "c"]);
     }
 
     #[test]
@@ -1006,7 +997,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_rank_beats_paste_count() {
+    fn pin_rank_orders_pins() {
         let items = vec![
             Item {
                 pinned: true,
@@ -1025,7 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn here_hides_unless_the_context_matches() {
+    fn here_tag_no_longer_hides() {
         let items = vec![
             Item {
                 tags: vec!["here".into()],
@@ -1034,9 +1025,50 @@ mod tests {
             },
             item("b", "two"),
         ];
-        assert_eq!(ordered_ids(&items, Some("code")), vec!["a", "b"]);
-        assert_eq!(ordered_ids(&items, Some("other")), vec!["b"]);
+        assert_eq!(ordered_ids(&items, Some("other")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, None), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn app_tag_shows_only_that_process() {
+        let items = vec![
+            Item {
+                tags: vec!["app:chrome".into()],
+                ..item("a", "one")
+            },
+            item("b", "two"),
+        ];
+        assert_eq!(ordered_ids(&items, Some("chrome")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("chrome|GitHub")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("CHROME")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["b"]);
         assert_eq!(ordered_ids(&items, None), vec!["b"]);
+    }
+
+    #[test]
+    fn app_tags_match_any() {
+        let items = vec![Item {
+            tags: vec!["app:chrome".into(), "app:code".into()],
+            ..item("a", "one")
+        }];
+        assert_eq!(ordered_ids(&items, Some("chrome")), vec!["a"]);
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["a"]);
+        assert_eq!(ordered_ids(&items, Some("notepad")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn app_and_not_both_apply() {
+        let items = vec![Item {
+            tags: vec!["app:chrome".into(), "not:chrome".into()],
+            ..item("a", "one")
+        }];
+        assert_eq!(ordered_ids(&items, Some("chrome")), Vec::<String>::new());
+        let items = vec![Item {
+            tags: vec!["app:chrome".into(), "not:code".into()],
+            ..item("a", "one")
+        }];
+        assert_eq!(ordered_ids(&items, Some("chrome")), vec!["a"]);
+        assert_eq!(ordered_ids(&items, Some("code")), Vec::<String>::new());
     }
 
     #[test]
@@ -1188,7 +1220,22 @@ mod tests {
     }
 
     #[test]
-    fn not_hides_when_the_context_matches() {
+    fn not_app_hides_that_process() {
+        let items = vec![
+            Item {
+                tags: vec!["not:chrome".into()],
+                ..item("a", "one")
+            },
+            item("b", "two"),
+        ];
+        assert_eq!(ordered_ids(&items, Some("chrome")), vec!["b"]);
+        assert_eq!(ordered_ids(&items, Some("chrome|GitHub")), vec!["b"]);
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, None), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn bare_not_tag_no_longer_hides() {
         let items = vec![
             Item {
                 tags: vec!["not".into()],
@@ -1197,8 +1244,7 @@ mod tests {
             },
             item("b", "two"),
         ];
-        assert_eq!(ordered_ids(&items, Some("code")), vec!["b"]);
-        assert_eq!(ordered_ids(&items, Some("other")), vec!["a", "b"]);
+        assert_eq!(ordered_ids(&items, Some("code")), vec!["a", "b"]);
     }
 
     #[test]

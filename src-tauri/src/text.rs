@@ -5,9 +5,6 @@ pub fn auto_tags(text: &str) -> Vec<String> {
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         tags.push("url".to_string());
     }
-    if trimmed.contains('\n') {
-        tags.push("multi".to_string());
-    }
     if !tags.iter().any(|tag| tag == "url") && looks_like_path(trimmed) {
         tags.push("path".to_string());
     }
@@ -191,6 +188,21 @@ pub(crate) fn arg_after<'a>(inner: &'a str, name: &str) -> Option<&'a str> {
         return None;
     };
     Some(arg.trim())
+}
+
+/// タグ `app:chrome` / `app chrome` の値。空ならなし。
+pub fn tag_arg<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let arg = arg_after(tag, name)?;
+    if arg.is_empty() {
+        None
+    } else {
+        Some(arg)
+    }
+}
+
+/// ブラウザの `chrome|GitHub` からアプリ名だけ取る。
+pub fn context_app(context: &str) -> &str {
+    context.split('|').next().filter(|name| !name.is_empty()).unwrap_or(context)
 }
 
 pub fn has_sel_token(text: &str) -> bool {
@@ -467,7 +479,7 @@ mod tests {
     #[test]
     fn tags_urls_and_multiline_and_paths() {
         assert_eq!(auto_tags("https://example.com"), vec!["url"]);
-        assert_eq!(auto_tags("a\nb"), vec!["multi"]);
+        assert!(auto_tags("a\nb").is_empty());
         assert_eq!(auto_tags(r"C:\work\memo.txt"), vec!["path"]);
         assert_eq!(auto_tags("/home/me/.bashrc"), vec!["path"]);
         assert!(auto_tags("ただの文章").is_empty());
@@ -480,6 +492,24 @@ mod tests {
         assert_eq!(selection_tag("foo"), None);
         assert_eq!(selection_tag("#"), None);
         assert_eq!(selection_tag(""), None);
+    }
+
+    #[test]
+    fn tag_arg_reads_colon_or_space() {
+        assert_eq!(tag_arg("app:chrome", "app"), Some("chrome"));
+        assert_eq!(tag_arg("app chrome", "app"), Some("chrome"));
+        assert_eq!(tag_arg("not:code", "not"), Some("code"));
+        assert_eq!(tag_arg("app:", "app"), None);
+        assert_eq!(tag_arg("app", "app"), None);
+        assert_eq!(tag_arg("apple", "app"), None);
+        assert_eq!(tag_arg("here", "app"), None);
+    }
+
+    #[test]
+    fn context_app_strips_browser_page() {
+        assert_eq!(context_app("chrome|GitHub"), "chrome");
+        assert_eq!(context_app("code"), "code");
+        assert_eq!(context_app("|page"), "|page");
     }
 
     #[test]

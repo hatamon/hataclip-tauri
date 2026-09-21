@@ -880,7 +880,7 @@ fn append_log(path: &str, text: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// 一覧に渡す並び。いまの貼り付け先で使った行を上に持ってくる。
+/// 一覧に渡す並び。ピンの下はストアの順。
 fn view(state: &AppState) -> Vec<Item> {
     let context = current_context(state);
     let store = state.store.lock().expect("store");
