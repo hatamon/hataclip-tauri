@@ -1,11 +1,11 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 展開して全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除（#lock は残す）。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。ga 前面の #app:。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替（検索中は一覧へ）。/ 検索。Esc で絞りを外す。\n見る  ge 展開して全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除（#lock は残す）。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。J まとめ（V 中）。c 複製。t / T タグ。gp ピン。ga 前面の #app:。+ / - ピンの順。\nその他  V 範囲。: コマンド。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:quote 引用。:bullet 箇条書き。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -35,7 +35,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "visual",
-        "V で選択開始。j / k で範囲。Enter 改行つなぎ。gJ カンマ、gT タブ。g> 引用、g* 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
+        "V で選択開始。j / k で範囲。Enter 改行つなぎ。:comma カンマ、:tab タブ。:quote 引用、:bullet 箇条書き。J 1 行にまとめる（#lock があるとまとめない）。c 複製。S 分割。:sort 本文の順。dd / yy / t / T / gp / ga は範囲に効く。dd は #lock を残す。Esc で解除。",
     ),
     (
         "search",
@@ -76,8 +76,8 @@ const TOPICS: &[(&str, &str)] = &[
 {{sh: コマンド}}   #run 付きの行だけ実行。標準出力。失敗したら貼らない",
     ),
     (
-        "gf",
-        "gf は選択行を開く。http/https はブラウザ。パスは Explorer。無いときは何もしない。ファイルを一覧へドロップすると、パスを本文にして #path と #file を付けた行を先頭に作る。",
+        "open",
+        ":open は選択行を開く。http/https はブラウザ。パスは Explorer。無いときは何もしない。ファイルを一覧へドロップすると、パスを本文にして #path と #file を付けた行を先頭に作る。欲しければ :map gf :open など。",
     ),
     (
         "window",
@@ -85,7 +85,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote / :bullet 行頭。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:comma カンマ、:tab タブ（V 中）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -96,12 +96,12 @@ const TOPICS: &[(&str, &str)] = &[
 const OVERVIEW: &str = "\
 移動   j k  矢印  gg G  Ctrl+D/U  f; ,  a  Tab  /  Escで絞り解除\n\
 見る   ge 展開して全文  g? 回数・貼り付け先・タグ\n\
-貼る   Enter 閉じる  Ctrl+Enter 残す  Shift+Enter 整形  1〜9  g. 再貼\n\
-       gJ カンマ  gT タブ  g> 引用  g* 箇条書き  g Enter 本文のまま\n\
+貼る   Enter 閉じる  Ctrl+Enter 残す  1〜9  g. 再貼\n\
+       :format 整形  :raw 本文のまま  :comma カンマ  :tab タブ  :quote 引用  :bullet 箇条書き\n\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  J まとめ  c 複製  t T タグ  gp ピン  ga #app  + -\n\
-その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  echo  export  import  quote  bullet  type  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
+その他 V 範囲  :open 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
+:      help  sh  @  echo  export  import  quote  bullet  type  format  raw  comma  tab  open  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";

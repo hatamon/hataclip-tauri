@@ -610,7 +610,7 @@ pub fn host_name() -> String {
         .unwrap_or_default()
 }
 
-/// Shift+Enter 用の整形。行頭の引用符号を外し、余分な空行と前後の空白を落とす。
+/// `:format` 用の整形。行頭の引用符号を外し、余分な空行と前後の空白を落とす。
 pub fn format_for_paste(text: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
     for line in text.lines() {

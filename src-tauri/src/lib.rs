@@ -347,7 +347,7 @@ fn apply_n(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<Str
     }
 }
 
-/// 複数行まとめて貼るときは separator でつなぐ。format は Shift+Enter のときだけ真。
+/// 複数行まとめて貼るときは separator でつなぐ。format は `:format` のときだけ真。
 #[tauri::command]
 fn paste_items(
     ids: Vec<String>,

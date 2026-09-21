@@ -180,13 +180,7 @@
     if (whichPrefix === "g") {
       return [
         { key: "g", label: "先頭" },
-        { key: "f", label: "開く" },
         { key: "e", label: "展開" },
-        { key: "Enter", label: "本文のまま" },
-        { key: "J", label: "カンマ" },
-        { key: "T", label: "タブ" },
-        { key: ">", label: "引用" },
-        { key: "*", label: "箇条書き" },
         { key: "p", label: "ピン" },
         { key: "a", label: "#app" },
         { key: ".", label: "直前の貼り付け" },
@@ -1056,6 +1050,30 @@
       void pasteSelection(false, false, false, "\n", undefined, true);
       return;
     }
+    if (line === "format") {
+      void pasteSelection(false, true);
+      return;
+    }
+    if (line === "raw") {
+      void pasteSelection(false, false, true);
+      return;
+    }
+    if (line === "comma") {
+      if (anchor !== null) {
+        void pasteSelection(false, false, false, ",");
+      }
+      return;
+    }
+    if (line === "tab") {
+      if (anchor !== null) {
+        void pasteSelection(false, false, false, "\t");
+      }
+      return;
+    }
+    if (line === "open") {
+      gotoFile();
+      return;
+    }
     if (line === "echo" || line.startsWith("echo ")) {
       const expr = line === "echo" ? "" : line.slice(5);
       if (expr.trim().length === 0) {
@@ -1540,40 +1558,6 @@
       }
       return;
     }
-    if (pending === "g" && event.key === "Enter") {
-      event.preventDefault();
-      pending = "";
-      void pasteSelection(false, false, true);
-      return;
-    }
-    if (pending === "g" && event.key === "J") {
-      event.preventDefault();
-      pending = "";
-      if (anchor !== null) {
-        void pasteSelection(false, false, false, ",");
-      }
-      return;
-    }
-    if (pending === "g" && event.key === "T") {
-      event.preventDefault();
-      pending = "";
-      if (anchor !== null) {
-        void pasteSelection(false, false, false, "\t");
-      }
-      return;
-    }
-    if (pending === "g" && event.key === ">") {
-      event.preventDefault();
-      pending = "";
-      void pasteSelection(false, false, false, "\n", "> ");
-      return;
-    }
-    if (pending === "g" && event.key === "*") {
-      event.preventDefault();
-      pending = "";
-      void pasteSelection(false, false, false, "\n", "* ");
-      return;
-    }
     if (pending === "g" && event.key === "p") {
       event.preventDefault();
       pending = "";
@@ -1607,7 +1591,10 @@
     if (event.key === "Enter") {
       event.preventDefault();
       pending = "";
-      void pasteSelection(event.ctrlKey, event.shiftKey);
+      if (event.shiftKey) {
+        return;
+      }
+      void pasteSelection(event.ctrlKey);
       return;
     }
     if (isCtrl(event, "r")) {
@@ -1804,12 +1791,7 @@
     }
     if (event.key === "f") {
       event.preventDefault();
-      if (pending === "g") {
-        pending = "";
-        gotoFile();
-      } else {
-        pending = "f";
-      }
+      pending = "f";
       return;
     }
     if (event.key === "g") {
