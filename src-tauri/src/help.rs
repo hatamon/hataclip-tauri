@@ -1,11 +1,11 @@
 const TOPICS: &[(&str, &str)] = &[
     (
         "keys",
-        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替。/ 検索。\n見る  ge 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim。S 分割。M まとめ（V 中）。c 複製。t / T タグ。m ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
+        "移動  j / k 矢印。端で止まる。gg 先頭、G 末尾。Ctrl+D / Ctrl+U 半ページ。f と 1 文字で先頭文字へ。; 次、, 前。a いまの貼り付け先だけ。Tab よく使うタグ切替。/ 検索。\n見る  ge 全文。g? 回数・貼り付け先・タグ。\n編集  dd 削除。yy / Y ヤンク。p / P 置く。u / Ctrl+R 取り消し / やり直し。. 繰り返し。o 空行。e その場編集。E nvim（無ければメモ帳）。S 分割。M まとめ（V 中）。c 複製。t / T タグ。m ピン。+ / - ピンの順。\nその他  V 範囲。: コマンド。gf 開く。ドロップでパス登録。g / d / y / f / <leader> のあと 400ms で which-key。Esc / Ctrl+[ 閉じる。",
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}}。#tsv タブ区切り。#log:path ファイルへ追記。#type 1 文字ずつ。#once 貼ったら消す。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}}。#tsv タブ区切り。#log:path ファイルへ追記。#type 1 文字ずつ。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。",
     ),
     (
         "tag",
@@ -41,7 +41,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "edit",
-        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR）。o 空行を作って編集。S 改行で分割。M は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。:sort は V 中なら本文の順。. は dd p P t T m S M c :s :sort + - を繰り返す。",
+        "e その場編集（Ctrl+Enter 保存、Esc 取り消し）。E nvim（無ければ $EDITOR、それも無ければメモ帳）。o 空行を作って編集。S 改行で分割。M は V 中なら選んだ行を改行で 1 行に（タグは和集合、ピンはどれかにあれば残す）。c すぐ下に複製。:s/old/new 本文の置換。:sort は V 中なら本文の順。. は dd p P t T m S M c :s :sort + - を繰り返す。",
     ),
     (
         "sh",
@@ -61,7 +61,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:quote / :bullet 行頭。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:@ 直前の :sh。:map lhs rhs 付け替え（:map <leader>* <cmd>bullet）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -77,7 +77,7 @@ const OVERVIEW: &str = "\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  M まとめ  c 複製  t T タグ  m ピン  + -\n\
 その他 V 範囲  gf 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  @  export  import  quote  bullet  s/  sort  clear  dedup  map  unmap  mapleader\n\
+:      help  sh  @  export  import  quote  bullet  s/  sort  clear  dedup  map  unmap  mapleader  set  settings\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -120,6 +120,9 @@ mod tests {
         assert!(render(Some("template")).contains("{{@foo}}"));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("colon")).contains(":sort"));
+        assert!(render(Some("colon")).contains(":settings"));
+        assert!(render(Some("colon")).contains(":set paste"));
+        assert!(render(Some("edit")).contains("メモ帳"));
         assert!(render(Some("map")).contains("<leader>"));
         assert!(render(Some("keys")).contains("M まとめ"));
         assert!(render(Some("nope")).starts_with("ない"));

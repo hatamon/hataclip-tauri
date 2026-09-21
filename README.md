@@ -53,6 +53,15 @@ docker compose down -v
 
 `Ctrl+4` と `Ctrl+7` はトレイの `Settings` から変更できる。設定は `settings.json` に残る。位置とサイズもここに残る。ほかのアプリに取られているキーは登録に失敗して、元のキーに戻る。
 
+前面アプリへ送るコピー／貼り付けは、初期値 `ctrl+c` / `ctrl+v`。プロセス名ごとに変えるときは `target_keys` に書く。`:settings` でファイルを開く。`:set paste shift+insert` は、いま前面にあるアプリの貼り付けだけ書く。
+
+```json
+"target_keys": {
+  "putty": { "copy": "ctrl+insert", "paste": "shift+insert" },
+  "windowsterminal": { "copy": "ctrl+shift+c", "paste": "ctrl+shift+v" }
+}
+```
+
 ## キー操作
 
 一覧の中で `:help`。機能ごとなら `:help sh`。
@@ -134,7 +143,7 @@ docker compose down -v
 | `M` | `V` 中なら選んだ行を改行で 1 行にまとめる。タグは和集合。ピンはどれかにあれば残す。`S` の逆 |
 | `c` | すぐ下に複製（新しい id、回数は 0）。`V` 中は範囲ごと |
 | `e` | その場編集（`Ctrl+Enter` 保存、`Esc` 取り消し） |
-| `E` | nvim（無ければ `$EDITOR`）で編集。閉じると読み戻す |
+| `E` | nvim（無ければ `$EDITOR`、それも無ければメモ帳）で編集。閉じると読み戻す |
 | `t` / `T` | タグを付ける / 外す |
 | `m` | ピン留めを切り替える |
 | `+` / `-` | ピンを 1 つ上 / 下へ |
@@ -163,6 +172,8 @@ docker compose down -v
 | `:map lhs rhs` | 通常モードのキーを付け替える。再帰しない。`:map <leader>* <cmd>bullet` のように書ける |
 | `:unmap lhs` | 付け替えを消す |
 | `:map` / `:mapleader` | いまの付け替えを表示。リーダーの初期値は Space。変えるときは `:mapleader ,` |
+| `:settings` | `settings.json` を nvim（無ければメモ帳）で開く。閉じたら読み直す。壊れていたら今の設定のまま |
+| `:set paste shift+insert` | いまの前面アプリの貼り付けキー。`ctrl+v` / `ctrl+shift+v` / `shift+insert` など |
 
 ### 複数選択
 
