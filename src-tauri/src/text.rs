@@ -205,6 +205,17 @@ pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
     specs
 }
 
+/// 前面で選んだ `#foo` からタグ名を取る。
+pub fn selection_tag(text: &str) -> Option<&str> {
+    let rest = text.trim().strip_prefix('#')?.trim();
+    let name = rest.split_whitespace().next().unwrap_or("");
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 pub fn prefix_lines(text: &str, prefix: &str, already: &str) -> String {
     text.lines()
         .map(|line| {
@@ -434,6 +445,15 @@ mod tests {
         assert_eq!(auto_tags(r"C:\work\memo.txt"), vec!["path"]);
         assert_eq!(auto_tags("/home/me/.bashrc"), vec!["path"]);
         assert!(auto_tags("ただの文章").is_empty());
+    }
+
+    #[test]
+    fn selection_tag_reads_hash_name() {
+        assert_eq!(selection_tag("  #foo  "), Some("foo"));
+        assert_eq!(selection_tag("#alias:foo"), Some("alias:foo"));
+        assert_eq!(selection_tag("foo"), None);
+        assert_eq!(selection_tag("#"), None);
+        assert_eq!(selection_tag(""), None);
     }
 
     #[test]

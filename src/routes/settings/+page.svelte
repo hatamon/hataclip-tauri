@@ -3,10 +3,11 @@
   import { onMount } from "svelte";
   import { fromEvent, toLabel, type Shortcuts } from "$lib/shortcut";
 
-  type Slot = keyof Shortcuts;
+  type Slot = "register" | "show" | "expand";
 
   let register = $state("");
   let show = $state("");
+  let expand = $state("");
   let quickPaste = $state(true);
   let recording = $state<Slot | null>(null);
   let message = $state("");
@@ -16,6 +17,7 @@
     const shortcuts = await invoke<Shortcuts>("get_shortcuts");
     register = shortcuts.register;
     show = shortcuts.show;
+    expand = shortcuts.expand;
     quickPaste = shortcuts.quickPaste;
   });
 
@@ -36,8 +38,10 @@
       }
       if (slot === "register") {
         register = value;
-      } else {
+      } else if (slot === "show") {
         show = value;
+      } else {
+        expand = value;
       }
       recording = null;
       message = "";
@@ -51,7 +55,7 @@
     message = "";
     error = "";
     try {
-      await invoke("set_shortcuts", { register, show, quickPaste });
+      await invoke("set_shortcuts", { register, show, quickPaste, expand });
       message = "保存した";
     } catch (reason) {
       error = String(reason);
@@ -83,13 +87,20 @@
     </button>
   </div>
 
+  <div class="row">
+    <span class="name">タグ</span>
+    <button type="button" class:recording={recording === "expand"} onclick={() => (recording = "expand")}>
+      {label("expand", expand)}
+    </button>
+  </div>
+
   <label class="row">
     <span class="name">速貼</span>
     <input type="checkbox" bind:checked={quickPaste} />
     <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
   </label>
 
-  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。</p>
+  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。タグは前面で `#foo` を選んで押すとそのタグの行を貼る（初期値 Ctrl+Shift+H）。</p>
 
   <div class="actions">
     <button type="button" class="save" onclick={save}>保存</button>

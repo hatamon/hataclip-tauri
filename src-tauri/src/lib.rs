@@ -219,6 +219,7 @@ fn set_shortcuts(
     register: String,
     show: String,
     quick_paste: bool,
+    expand: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -226,6 +227,7 @@ fn set_shortcuts(
         register,
         show,
         quick_paste,
+        expand,
     };
     let previous = state.settings.lock().expect("settings").shortcuts().clone();
     if next == previous {
@@ -440,6 +442,46 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         None,
         false,
         false,
+    );
+}
+
+pub(crate) fn paste_tag_from_selection(app: &tauri::AppHandle, state: &AppState) {
+    if *state.picker_open.lock().expect("picker_open") {
+        return;
+    }
+    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    let previous = clipboard::peek_text();
+    let spec = copy_spec(state);
+    let _ = platform::simulate_copy(&spec);
+    std::thread::sleep(Duration::from_millis(70));
+    let captured = clipboard::peek_text();
+    if let Some(previous) = previous.as_ref() {
+        let _ = clipboard::write_clipboard_text(previous);
+    }
+    let Some(text) = captured else {
+        return;
+    };
+    let Some(tag) = text::selection_tag(&text) else {
+        return;
+    };
+    let Some(item) = view(state)
+        .into_iter()
+        .find(|item| item.tags.iter().any(|entry| entry == tag))
+    else {
+        return;
+    };
+    run_paste(
+        app,
+        state,
+        &[item.id],
+        false,
+        false,
+        false,
+        "\n",
+        HashMap::new(),
+        None,
+        false,
+        true,
     );
 }
 
@@ -690,12 +732,15 @@ fn drop_once(state: &AppState, ids: &[String]) {
 
 fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     let previous = clipboard::peek_text();
-    hide_window(app, state);
-    let foreground = *state.foreground.lock().expect("foreground");
-    if let Some(foreground) = foreground.as_ref() {
-        let _ = platform::restore_foreground(foreground);
+    let wait = *state.picker_open.lock().expect("picker_open");
+    if wait {
+        hide_window(app, state);
+        let foreground = *state.foreground.lock().expect("foreground");
+        if let Some(foreground) = foreground.as_ref() {
+            let _ = platform::restore_foreground(foreground);
+        }
+        std::thread::sleep(Duration::from_millis(70));
     }
-    std::thread::sleep(Duration::from_millis(70));
     let _ = platform::simulate_copy(&copy_spec(state));
     std::thread::sleep(Duration::from_millis(70));
     let captured = clipboard::peek_text();
@@ -845,27 +890,40 @@ fn paste_spec(state: &AppState) -> String {
     state.settings.lock().expect("settings").paste_for(&app)
 }
 
-fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
-    let previous = clipboard::peek_text();
-    let _ = clipboard::write_clipboard_text(text);
-    let spec = paste_spec(state);
+fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bool {
+    if !*state.picker_open.lock().expect("picker_open") {
+        return true;
+    }
     hide_window(app, state);
     let foreground = if keep_open {
         *state.foreground.lock().expect("foreground")
     } else {
         state.foreground.lock().expect("foreground").take()
     };
-    let restored = match foreground {
+    match foreground {
         Some(foreground) => platform::restore_foreground(&foreground),
         None => true,
-    };
-    if restored {
-        std::thread::sleep(Duration::from_millis(70));
-        let _ = platform::simulate_paste(&spec);
-        if let Some(previous) = previous {
-            std::thread::sleep(Duration::from_millis(200));
-            let _ = clipboard::write_clipboard_text(&previous);
+    }
+}
+
+fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
+    let previous = clipboard::peek_text();
+    let _ = clipboard::write_clipboard_text(text);
+    let spec = paste_spec(state);
+    let wait = *state.picker_open.lock().expect("picker_open");
+    if !yield_target(app, state, keep_open) {
+        if keep_open {
+            reveal_picker(app, state);
         }
+        return;
+    }
+    if wait {
+        std::thread::sleep(Duration::from_millis(70));
+    }
+    let _ = platform::simulate_paste(&spec);
+    if let Some(previous) = previous {
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = clipboard::write_clipboard_text(&previous);
     }
     if keep_open {
         reveal_picker(app, state);
@@ -873,21 +931,15 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
 }
 
 fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
-    hide_window(app, state);
-    let foreground = if keep_open {
-        *state.foreground.lock().expect("foreground")
-    } else {
-        state.foreground.lock().expect("foreground").take()
-    };
-    let restored = match foreground {
-        Some(foreground) => platform::restore_foreground(&foreground),
-        None => true,
-    };
-    let ok = if restored {
+    let wait = *state.picker_open.lock().expect("picker_open");
+    if !yield_target(app, state, keep_open) {
+        return false;
+    }
+    let ok = if wait {
         std::thread::sleep(Duration::from_millis(70));
         platform::simulate_type(text)
     } else {
-        false
+        platform::simulate_type(text)
     };
     if ok && keep_open {
         reveal_picker(app, state);

@@ -1,6 +1,7 @@
 export type Shortcuts = {
   register: string;
   show: string;
+  expand: string;
   quickPaste: boolean;
 };
 

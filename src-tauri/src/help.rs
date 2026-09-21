@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。",
+        "Enter 貼り付けて閉じる。Ctrl+Enter 残す。Shift+Enter 整形。1〜9 その行。Ctrl+1〜9 残す。g Enter 本文のまま。J 空白つなぎ、gJ カンマ、gT タブ（V 中）。g> :quote 引用。g* :bullet 箇条書き。:type 1 文字ずつ。gp 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{app}} {{front}} {{env:}} {{@foo}}。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の #foo をそのタグの行に置き換える（一覧は出さない）。",
     ),
     (
         "tag",
@@ -118,6 +118,7 @@ mod tests {
         assert!(render(Some("edit")).contains("M は V 中"));
         assert!(render(Some("template")).contains("{{@foo}}"));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
+        assert!(render(Some("paste")).contains("Ctrl+Shift+H"));
         assert!(render(Some("colon")).contains(":type"));
         assert!(render(Some("colon")).contains(":settings"));
         assert!(render(Some("colon")).contains(":set paste"));

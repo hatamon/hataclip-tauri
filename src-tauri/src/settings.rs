@@ -16,10 +16,18 @@ pub struct Shortcuts {
     pub show: String,
     #[serde(default = "bool_true")]
     pub quick_paste: bool,
+    #[serde(default = "default_expand")]
+    pub expand: String,
 }
 
 fn bool_true() -> bool {
     true
+}
+
+pub const DEFAULT_EXPAND: &str = "Control+Shift+KeyH";
+
+fn default_expand() -> String {
+    DEFAULT_EXPAND.to_string()
 }
 
 impl Default for Shortcuts {
@@ -28,6 +36,7 @@ impl Default for Shortcuts {
             register: DEFAULT_REGISTER.to_string(),
             show: DEFAULT_SHOW.to_string(),
             quick_paste: true,
+            expand: default_expand(),
         }
     }
 }
@@ -222,6 +231,7 @@ fn from_file(file: SettingsFile) -> (Shortcuts, Option<WindowGeom>, KeyMaps, BTr
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
         quick_paste: file.shortcuts.quick_paste,
+        expand: usable_expand(file.shortcuts.expand),
     };
     (
         shortcuts,
@@ -236,6 +246,14 @@ fn usable(value: String, fallback: &str) -> String {
         value
     } else {
         fallback.to_string()
+    }
+}
+
+fn usable_expand(value: String) -> String {
+    if value.is_empty() {
+        String::new()
+    } else {
+        usable(value, DEFAULT_EXPAND)
     }
 }
 
@@ -364,6 +382,7 @@ mod tests {
             register: "Alt+KeyC".to_string(),
             show: "Alt+KeyV".to_string(),
             quick_paste: false,
+            expand: "Control+Shift+KeyH".to_string(),
         });
         settings.set_window(WindowGeom {
             x: 10,
@@ -375,6 +394,7 @@ mod tests {
         let reloaded = Settings::load(path.clone());
         assert_eq!(reloaded.shortcuts().register, "Alt+KeyC");
         assert_eq!(reloaded.shortcuts().show, "Alt+KeyV");
+        assert_eq!(reloaded.shortcuts().expand, "Control+Shift+KeyH");
         assert_eq!(
             reloaded.window(),
             Some(WindowGeom {
