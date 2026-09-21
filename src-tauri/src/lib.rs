@@ -11,13 +11,13 @@ mod tray;
 use chrono::Local;
 use platform::Point;
 use serde::Serialize;
-use settings::{Settings, Shortcuts};
+use settings::{Settings, Shortcuts, WindowGeom};
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{Item, Store};
 use tauri::{
-    Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 pub(crate) struct AppState {
@@ -335,18 +335,30 @@ fn show_window(app: &tauri::AppHandle) {
 
 fn hide_window(app: &tauri::AppHandle, state: &AppState) {
     if let Some(window) = app.get_webview_window("main") {
-        remember_position(&window, state);
+        persist_geometry(&window, state);
         let _ = window.hide();
     }
 }
 
-fn remember_position(window: &WebviewWindow, state: &AppState) {
-    if let Ok(position) = window.outer_position() {
-        *state.last_position.lock().expect("last_position") = Some(Point {
-            x: position.x,
-            y: position.y,
-        });
-    }
+fn persist_geometry(window: &WebviewWindow, state: &AppState) {
+    let Ok(position) = window.outer_position() else {
+        return;
+    };
+    let Ok(inner) = window.inner_size() else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let geom = WindowGeom {
+        x: position.x,
+        y: position.y,
+        width: (inner.width as f64 / scale).round() as u32,
+        height: (inner.height as f64 / scale).round() as u32,
+    };
+    *state.last_position.lock().expect("last_position") = Some(Point {
+        x: position.x,
+        y: position.y,
+    });
+    state.settings.lock().expect("settings").set_window(geom);
 }
 
 pub(crate) fn open_settings(app: &tauri::AppHandle) {
@@ -381,6 +393,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
         return;
     };
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    apply_saved_size(&window, state);
 
     let position = (*state.last_position.lock().expect("last_position"))
         .or_else(|| fallback_center(&window));
@@ -394,6 +407,19 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
 
     show_window(app);
     let _ = app.emit("picker-opened", view(state));
+}
+
+fn apply_saved_size(window: &WebviewWindow, state: &AppState) {
+    let Some(geom) = state.settings.lock().expect("settings").window() else {
+        return;
+    };
+    if geom.width < 200 || geom.height < 140 {
+        return;
+    }
+    let _ = window.set_size(Size::Logical(LogicalSize::new(
+        f64::from(geom.width),
+        f64::from(geom.height),
+    )));
 }
 
 fn fallback_center(window: &WebviewWindow) -> Option<Point> {
@@ -457,11 +483,15 @@ pub fn run() {
             let store = Store::load(dir.join("items.json"));
             let settings = Settings::load(dir.join("settings.json"));
             let shortcuts = settings.shortcuts().clone();
+            let last_position = Mutex::new(settings.window().map(|geom| Point {
+                x: geom.x,
+                y: geom.y,
+            }));
             app.manage(AppState {
                 store: Mutex::new(store),
                 settings: Mutex::new(settings),
                 foreground: Mutex::new(None),
-                last_position: Mutex::new(None),
+                last_position,
             });
             tray::setup(app)?;
             if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {
@@ -489,8 +519,18 @@ pub fn run() {
             get_shortcuts,
             set_shortcuts
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                if let Some(window) = app.get_webview_window("main") {
+                    persist_geometry(&window, &app.state::<AppState>());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

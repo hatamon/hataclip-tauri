@@ -23,44 +23,74 @@ impl Default for Shortcuts {
     }
 }
 
+/// 論理ピクセルの内側サイズと、物理ピクセルの外側位置。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowGeom {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SettingsFile {
     version: u32,
     shortcuts: Shortcuts,
+    #[serde(default)]
+    window: Option<WindowGeom>,
 }
 
 pub struct Settings {
     path: PathBuf,
     shortcuts: Shortcuts,
+    window: Option<WindowGeom>,
 }
 
 impl Settings {
     pub fn load(path: PathBuf) -> Self {
-        let shortcuts = read_shortcuts(&path);
-        Self { path, shortcuts }
+        let (shortcuts, window) = read_file(&path);
+        Self {
+            path,
+            shortcuts,
+            window,
+        }
     }
 
     pub fn shortcuts(&self) -> &Shortcuts {
         &self.shortcuts
     }
 
+    pub fn window(&self) -> Option<WindowGeom> {
+        self.window
+    }
+
     pub fn set_shortcuts(&mut self, shortcuts: Shortcuts) {
         self.shortcuts = shortcuts;
-        let _ = write_shortcuts(&self.path, &self.shortcuts);
+        self.save();
+    }
+
+    pub fn set_window(&mut self, window: WindowGeom) {
+        self.window = Some(window);
+        self.save();
+    }
+
+    fn save(&self) {
+        let _ = write_file(&self.path, &self.shortcuts, self.window);
     }
 }
 
-fn read_shortcuts(path: &Path) -> Shortcuts {
+fn read_file(path: &Path) -> (Shortcuts, Option<WindowGeom>) {
     let Ok(data) = fs::read_to_string(path) else {
-        return Shortcuts::default();
+        return (Shortcuts::default(), None);
     };
     let Ok(file) = serde_json::from_str::<SettingsFile>(&data) else {
-        return Shortcuts::default();
+        return (Shortcuts::default(), None);
     };
-    Shortcuts {
+    let shortcuts = Shortcuts {
         register: usable(file.shortcuts.register, DEFAULT_REGISTER),
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
-    }
+    };
+    (shortcuts, file.window)
 }
 
 fn usable(value: String, fallback: &str) -> String {
@@ -71,13 +101,18 @@ fn usable(value: String, fallback: &str) -> String {
     }
 }
 
-fn write_shortcuts(path: &Path, shortcuts: &Shortcuts) -> std::io::Result<()> {
+fn write_file(
+    path: &Path,
+    shortcuts: &Shortcuts,
+    window: Option<WindowGeom>,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let file = SettingsFile {
         version: CURRENT_VERSION,
         shortcuts: shortcuts.clone(),
+        window,
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -101,6 +136,7 @@ mod tests {
         let _ = fs::remove_file(&path);
         let settings = Settings::load(path);
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
+        assert_eq!(settings.window(), None);
     }
 
     #[test]
@@ -135,10 +171,25 @@ mod tests {
             register: "Alt+KeyC".to_string(),
             show: "Alt+KeyV".to_string(),
         });
+        settings.set_window(WindowGeom {
+            x: 10,
+            y: 20,
+            width: 400,
+            height: 300,
+        });
 
         let reloaded = Settings::load(path.clone());
         assert_eq!(reloaded.shortcuts().register, "Alt+KeyC");
         assert_eq!(reloaded.shortcuts().show, "Alt+KeyV");
+        assert_eq!(
+            reloaded.window(),
+            Some(WindowGeom {
+                x: 10,
+                y: 20,
+                width: 400,
+                height: 300,
+            })
+        );
         let _ = fs::remove_file(path);
     }
 }
