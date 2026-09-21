@@ -62,6 +62,7 @@
   let searchEl = $state<HTMLInputElement | undefined>(undefined);
   let tagEl = $state<HTMLInputElement | undefined>(undefined);
   let listEl = $state<HTMLUListElement | undefined>(undefined);
+  let editEl = $state<HTMLTextAreaElement | undefined>(undefined);
   let editText = $state("");
   let editTags = $state<string[]>([]);
   let tagDraft = $state("");
@@ -214,6 +215,9 @@
     }
     if (mode === "ask") {
       queueMicrotask(() => askEl?.focus());
+    }
+    if (mode === "editing") {
+      queueMicrotask(() => editEl?.focus());
     }
   });
 
@@ -1709,7 +1713,7 @@
   <div class="drag" data-tauri-drag-region></div>
   {#if mode === "editing"}
     <div class="edit">
-      <textarea bind:value={editText} rows="6"></textarea>
+      <textarea bind:this={editEl} bind:value={editText} rows="6"></textarea>
       <div class="tags">
         {#each editTags as tag (tag)}
           <button
