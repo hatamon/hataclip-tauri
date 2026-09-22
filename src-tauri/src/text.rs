@@ -323,6 +323,9 @@ fn token_value(
     ctx: &Expand,
     seen: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
+    if inner == "nop" || arg_after(inner, "nop").is_some() {
+        return Some(String::new());
+    }
     let parts = fallback_parts(inner);
     if parts.len() > 1 {
         let head = token_value(&parts[0], ctx, seen)?;
@@ -1247,6 +1250,9 @@ mod tests {
             "2026/09/20 10:54 提出"
         );
         assert_eq!(expand_template("そのまま", &ctx), "そのまま");
+        assert_eq!(expand_template("hello {{nop: {{date}}}} world", &ctx), "hello  world");
+        assert_eq!(expand_template("{{nop: a|b}}", &ctx), "");
+        assert_eq!(expand_template("{{nope}}", &ctx), "{{nope}}");
     }
 
     #[test]

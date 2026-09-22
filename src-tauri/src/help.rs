@@ -71,6 +71,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{env:USERPROFILE}}  同名の環境変数。無ければ空\n\
 {{@foo}}           #alias:foo の先の行の本文。差し込んだ本文も展開する。同じ名前を二度辿ったら空。エイリアス側の #run などは見ない\n\
 {{var:a}}          :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない\n\
+{{nop: メモ}}      貼るとき消える。中の {{date}} は展開しない。| と }} は書かない\n\
 {{tag:work}}       いまの一覧でタグ work の本文。並びどおり、改行つなぎ。差し込んだ本文も展開する。同じタグを二度辿ったら空。その行の #run などは見ない\n\
 {{type:<Tab>}}     貼る途中でキーを送る。id{{type:<Tab>}}pass は id を貼って Tab を押して pass を貼る。{{type:<Ctrl+A>abc<Enter>}} {{type:<Ctrl+Shift+A>}} も可。矢印は <Up> <Down> <Left> <Right>。F キーは <F1>〜<F24>。文字は 1 文字ずつ。Tab Enter Esc Space BS Del Home End PgUp PgDn と Ctrl/Shift/Alt+それら\n\
 {{wait:200}}       そのあと 200ms 待つ。最大 5 秒\n\
@@ -158,6 +159,7 @@ mod tests {
         assert!(render(Some("edit")).contains("J は V 中"));
         assert!(render(Some("template")).contains("{{@foo}}"));
         assert!(render(Some("template")).contains("{{var a}}"));
+        assert!(render(Some("template")).contains("{{nop: メモ}}"));
         assert!(render(Some("template")).contains("{{sh: コマンド}}"));
         assert!(render(Some("template")).contains("{{tag:work}}"));
         assert!(render(Some("template")).contains("{{wait:200}}"));
