@@ -33,6 +33,9 @@ export const COLON_COMMANDS = [
   "lower",
   "json",
   "xml",
+  "split",
+  "col",
+  "get",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -327,6 +330,48 @@ function varSinkName(part: string): string | null {
   return name;
 }
 
+function splitSeparator(part: string): string | null {
+  if (!part.startsWith("split ") && !part.startsWith("split\t")) {
+    return null;
+  }
+  const rest = part.slice(6).trim();
+  if (rest.length === 0) {
+    return null;
+  }
+  const quoted = unquoteColonArg(rest);
+  if (quoted !== null) {
+    return quoted.length > 0 ? quoted : null;
+  }
+  if (rest.startsWith('"') || rest.startsWith("'")) {
+    return null;
+  }
+  return rest;
+}
+
+function colArg(part: string): string | null {
+  if (!part.startsWith("col ") && !part.startsWith("col\t")) {
+    return null;
+  }
+  const rest = part.slice(4).trim();
+  if (!/^-?\d+$/.test(rest)) {
+    return null;
+  }
+  return rest;
+}
+
+function pointerArg(part: string, name: string): string | null {
+  const prefix = `${name} `;
+  const tab = `${name}\t`;
+  if (!part.startsWith(prefix) && !part.startsWith(tab)) {
+    return null;
+  }
+  const rest = part.slice(name.length + 1).trim();
+  if (!rest.startsWith("/")) {
+    return null;
+  }
+  return rest;
+}
+
 function sinkOf(part: string): PipeSink | null {
   if (part === "clip") {
     return { kind: "clip" };
@@ -398,6 +443,18 @@ function stageOf(part: string): PipeOp | null {
   const sep = joinSeparator(part);
   if (sep !== null) {
     return { kind: "join", arg: sep, selectionStdin: false };
+  }
+  const split = splitSeparator(part);
+  if (split !== null) {
+    return { kind: "split", arg: split, selectionStdin: false };
+  }
+  const column = colArg(part);
+  if (column !== null) {
+    return { kind: "col", arg: column, selectionStdin: false };
+  }
+  const pointer = pointerArg(part, "get");
+  if (pointer !== null) {
+    return { kind: "get", arg: pointer, selectionStdin: false };
   }
   if (part === "sh" || part.startsWith("sh ") || part.startsWith("sh\t")) {
     const script = shScript(part === "sh" ? "" : part.slice(3));

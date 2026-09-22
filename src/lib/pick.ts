@@ -1,4 +1,5 @@
-import { applyWhen, type WhenEnv } from "./when";
+import { fuzzyFilter } from "./fuzzy";
+import { applyWhen, unquoteDouble, type WhenEnv } from "./when";
 
 function findClose(text: string, start: number): number {
   let depth = 1;
@@ -38,7 +39,7 @@ function argAfter(inner: string, name: string): string | null {
 
 export type PickSpec = { spec: string; options: string[] };
 
-export type PickCatalog = { text: string; tags: string[] };
+export type PickCatalog = { id?: string; text: string; tags: string[] };
 
 function pickTagName(spec: string): string | null {
   const name = argAfter(spec, "tag");
@@ -58,7 +59,44 @@ function tagOptions(name: string, catalog: PickCatalog[]): string[] {
   return options;
 }
 
-export function pickSpecs(text: string, catalog: PickCatalog[] = [], env: string | WhenEnv = ""): PickSpec[] {
+function pickOptions(spec: string, catalog: PickCatalog[], selfId: string): string[] | null {
+  if (spec.startsWith("list:")) {
+    return spec
+      .slice(5)
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+  }
+  const tagName = pickTagName(spec);
+  if (tagName !== null) {
+    return tagName.length > 0 ? tagOptions(tagName, catalog) : [];
+  }
+  if (spec.startsWith("search:")) {
+    const query = unquoteDouble(spec.slice(7));
+    if (query === null || query.length === 0) {
+      return [];
+    }
+    const rows = catalog.filter((item) => item.id === undefined || item.id !== selfId);
+    const seen = new Set<string>();
+    const options: string[] = [];
+    for (const item of fuzzyFilter(query, rows)) {
+      if (item.text.length === 0 || seen.has(item.text)) {
+        continue;
+      }
+      seen.add(item.text);
+      options.push(item.text);
+    }
+    return options;
+  }
+  return null;
+}
+
+export function pickSpecs(
+  text: string,
+  catalog: PickCatalog[] = [],
+  env: string | WhenEnv = "",
+  selfId = "",
+): PickSpec[] {
   const source = applyWhen(text, env);
   const specs: PickSpec[] = [];
   let i = 0;
@@ -69,14 +107,8 @@ export function pickSpecs(text: string, catalog: PickCatalog[] = [], env: string
         const inner = source.slice(i + 2, close).trim();
         const spec = argAfter(inner, "pick");
         if (spec && spec.length > 0 && !specs.some((entry) => entry.spec === spec)) {
-          const tagName = pickTagName(spec);
-          const options = tagName
-            ? tagOptions(tagName, catalog)
-            : spec
-                .split(",")
-                .map((part) => part.trim())
-                .filter((part) => part.length > 0);
-          if (options.length > 0) {
+          const options = pickOptions(spec, catalog, selfId);
+          if (options && options.length > 0) {
             specs.push({ spec, options });
           }
         }
@@ -104,13 +136,13 @@ export function pickByDigit(optionCount: number, key: string): number | null {
 }
 
 export function uniquePickSpecs(
-  items: { text: string }[],
+  items: { id?: string; text: string }[],
   catalog: PickCatalog[] = [],
   env: string | WhenEnv = "",
 ): PickSpec[] {
   const specs: PickSpec[] = [];
   for (const item of items) {
-    for (const entry of pickSpecs(item.text, catalog, env)) {
+    for (const entry of pickSpecs(item.text, catalog, env, item.id ?? "")) {
       if (!specs.some((existing) => existing.spec === entry.spec)) {
         specs.push(entry);
       }

@@ -772,6 +772,28 @@ fn execute_pipe(
                     }
                 }
             }
+            "split" | "col" | "get" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                if let Some(current) = text.as_mut() {
+                    let next = match op.kind.as_str() {
+                        "split" => Some(text::split_fields(current, &op.arg)),
+                        "col" => {
+                            let index = op.arg.parse::<i64>().unwrap_or(0);
+                            text::take_column(current, index)
+                        }
+                        "get" => text::json_at(current, &op.arg),
+                        _ => None,
+                    };
+                    match next {
+                        Some(value) => *current = value,
+                        None => return Err("抜けない".into()),
+                    }
+                }
+            }
             "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                 if text.is_none() {
                     used_selection = true;

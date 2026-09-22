@@ -2,16 +2,14 @@ import { describe, expect, it } from "vitest";
 import { pickByDigit, pickSpecs, uniquePickSpecs } from "./pick";
 
 describe("pickSpecs", () => {
-  it("parses options and drops duplicates", () => {
-    expect(pickSpecs("{{pick: prod, stg}} {{pick: prod, stg}}")).toEqual([
-      { spec: "prod, stg", options: ["prod", "stg"] },
-    ]);
-    expect(pickSpecs("{{pick prod, stg}}")).toEqual([
-      { spec: "prod, stg", options: ["prod", "stg"] },
+  it("parses list, tag, and search", () => {
+    expect(pickSpecs("{{pick: prod, stg}}")).toEqual([]);
+    expect(pickSpecs("{{pick list: prod, stg}} {{pick list: prod, stg}}")).toEqual([
+      { spec: "list: prod, stg", options: ["prod", "stg"] },
     ]);
     expect(pickSpecs("{{clip}}")).toEqual([]);
-    expect(pickSpecs("{{pick hata007@x, {{var:a}}}}")).toEqual([
-      { spec: "hata007@x, {{var:a}}", options: ["hata007@x", "{{var:a}}"] },
+    expect(pickSpecs("{{pick list: hata007@x, {{var:a}}}}")).toEqual([
+      { spec: "list: hata007@x, {{var:a}}", options: ["hata007@x", "{{var:a}}"] },
     ]);
     expect(
       pickSpecs("{{pick tag:env}}", [
@@ -22,19 +20,27 @@ describe("pickSpecs", () => {
       ]),
     ).toEqual([{ spec: "tag:env", options: ["stg", "prod"] }]);
     expect(pickSpecs("{{pick tag:missing}}", [{ text: "x", tags: ["env"] }])).toEqual([]);
+    expect(pickSpecs('{{pick search: xx}}')).toEqual([]);
+    expect(
+      pickSpecs('{{pick search: "hata"}}', [
+        { id: "self", text: "hata007@corp.jp", tags: [] },
+        { id: "other", text: "hata007-admin", tags: [] },
+        { id: "nope", text: "other", tags: [] },
+      ], "", "self"),
+    ).toEqual([{ spec: 'search: "hata"', options: ["hata007-admin"] }]);
   });
 });
 
 describe("uniquePickSpecs", () => {
   it("walks rows in order", () => {
     expect(
-      uniquePickSpecs([{ text: "{{pick:a,b}}" }, { text: "{{pick:c}}" }]).map(
+      uniquePickSpecs([{ text: "{{pick list: a, b}}" }, { text: "{{pick list: c}}" }]).map(
         (entry) => entry.spec,
       ),
-    ).toEqual(["a,b", "c"]);
+    ).toEqual(["list: a, b", "list: c"]);
     expect(
       uniquePickSpecs(
-        [{ text: "{{pick tag:env}}" }],
+        [{ id: "row", text: "{{pick tag:env}}" }],
         [
           { text: "stg", tags: ["env"] },
           { text: "prod", tags: ["env"] },

@@ -279,6 +279,44 @@ fn encode_quote(prefix: &str, suffix: &str) -> String {
     }
 }
 
+fn split_separator(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("split ").or_else(|| line.strip_prefix("split\t"))?;
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    if let Some(quoted) = unquote(rest) {
+        if quoted.is_empty() {
+            return None;
+        }
+        return Some(quoted);
+    }
+    if rest.starts_with('"') || rest.starts_with('\'') {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+fn col_arg(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("col ").or_else(|| line.strip_prefix("col\t"))?;
+    let rest = rest.trim();
+    if rest.is_empty() || !rest.chars().all(|ch| ch.is_ascii_digit() || ch == '-') {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+fn pointer_arg(line: &str, name: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix(&format!("{name} "))
+        .or_else(|| line.strip_prefix(&format!("{name}\t")))?;
+    let rest = rest.trim();
+    if !rest.starts_with('/') {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
 fn join_separator(line: &str) -> Option<String> {
     if line == "join" {
         return Some(",".to_string());
@@ -355,6 +393,15 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if let Some(sep) = join_separator(part) {
         return Some(op("join", &sep, false));
+    }
+    if let Some(sep) = split_separator(part) {
+        return Some(op("split", &sep, false));
+    }
+    if let Some(index) = col_arg(part) {
+        return Some(op("col", &index, false));
+    }
+    if let Some(pointer) = pointer_arg(part, "get") {
+        return Some(op("get", &pointer, false));
     }
     if part == "sh" || part.starts_with("sh ") || part.starts_with("sh\t") {
         let raw = if part == "sh" { "" } else { &part[2..] };
@@ -476,6 +523,15 @@ mod tests {
         assert_eq!(classify("hello"), PasteBody::Text);
         assert_eq!(classify("help"), PasteBody::Text);
         assert_eq!(classify("comma"), PasteBody::Text);
+        let PasteBody::Run(split) = classify(r#"sel | split "\t" | col 2 | get /name"#) else {
+            panic!("split");
+        };
+        assert_eq!(split.ops[1].kind, "split");
+        assert_eq!(split.ops[1].arg, "\t");
+        assert_eq!(split.ops[2].arg, "2");
+        assert_eq!(split.ops[3].arg, "/name");
+        assert_eq!(classify("sel | split"), PasteBody::Bad);
+        assert_eq!(classify("sel | col x"), PasteBody::Bad);
         assert_eq!(classify("sel | comma"), PasteBody::Bad);
         assert_eq!(classify("sel | tab"), PasteBody::Bad);
         assert_eq!(classify("quote \"* \" > clip"), PasteBody::Bad);

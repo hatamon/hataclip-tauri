@@ -478,6 +478,9 @@ fn token_value(
         return Some(ctx.focus.clone());
     }
     if let Some(spec) = arg_after(inner, "pick") {
+        if pick_kind(spec).is_none() {
+            return Some(String::new());
+        }
         return Some(
             ctx.answers
                 .get(&format!("pick:{spec}"))
@@ -746,24 +749,38 @@ pub fn ask_names(text: &str) -> Vec<String> {
     names
 }
 
+fn pick_kind(spec: &str) -> Option<()> {
+    if spec.starts_with("list:") {
+        let options = spec[5..]
+            .split(',')
+            .map(str::trim)
+            .any(|part| !part.is_empty());
+        return options.then_some(());
+    }
+    if arg_after(spec, "tag").is_some_and(|name| !name.is_empty()) {
+        return Some(());
+    }
+    if let Some(raw) = spec.strip_prefix("search:") {
+        return unquote_double(raw).filter(|query| !query.is_empty()).map(|_| ());
+    }
+    None
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
     let mut specs = Vec::new();
     walk_tokens(text, |inner| {
         if let Some(spec) = arg_after(inner, "pick") {
-            if !spec.is_empty() && !specs.iter().any(|(existing, _)| existing == spec) {
-                if arg_after(spec, "tag").is_some_and(|name| !name.is_empty()) {
-                    specs.push((spec.to_string(), Vec::new()));
-                } else {
-                    let options = spec
-                        .split(',')
+            if pick_kind(spec).is_some() && !specs.iter().any(|(existing, _)| existing == spec) {
+                let options = if let Some(rest) = spec.strip_prefix("list:") {
+                    rest.split(',')
                         .map(|part| part.trim().to_string())
                         .filter(|part| !part.is_empty())
-                        .collect::<Vec<_>>();
-                    if !options.is_empty() {
-                        specs.push((spec.to_string(), options));
-                    }
-                }
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                specs.push((spec.to_string(), options));
             }
         }
         false
@@ -1026,6 +1043,52 @@ fn ident_words(text: &str) -> Vec<String> {
 fn push_word(words: &mut Vec<String>, buf: &mut String) {
     if !buf.is_empty() {
         words.push(std::mem::take(buf));
+    }
+}
+
+/// 各行を区切りで分け、列をタブ1つでつなぎ直す。
+pub fn split_fields(text: &str, sep: &str) -> String {
+    if sep.is_empty() {
+        return text.to_string();
+    }
+    text.lines()
+        .map(|line| line.split(sep).collect::<Vec<_>>().join("\t"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 1 始まりの列。足りない行は捨てる。1 未満、または残る行が無いときはなし。
+pub fn take_column(text: &str, index: i64) -> Option<String> {
+    if index < 1 {
+        return None;
+    }
+    let nth = usize::try_from(index - 1).ok()?;
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        if let Some(col) = line.split('\t').nth(nth) {
+            rows.push(col.to_string());
+        }
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows.join("\n"))
+    }
+}
+
+/// JSON Pointer の値。文字列は引用符なし。オブジェクトと配列は空白なしの JSON。
+pub fn json_at(text: &str, pointer: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    Some(json_scalar(value.pointer(pointer)?))
+}
+
+pub fn json_scalar(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => "null".into(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        serde_json::Value::Number(number) => number.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
 
@@ -1329,7 +1392,7 @@ mod tests {
             now: chrono::Local::now(),
             answers: std::collections::HashMap::from([
                 ("名前".into(), "hatamon".into()),
-                ("pick:prod, stg".into(), "stg".into()),
+                ("pick:list: prod, stg".into(), "stg".into()),
             ]),
             aliases: std::collections::HashMap::from([
                 ("foo".into(), "X{{date}}Y".into()),
@@ -1571,20 +1634,17 @@ mod tests {
     fn expands_app_front_and_pick() {
         let ctx = sample_ctx();
         assert_eq!(expand_template("{{app}}/{{front}}", &ctx), "code/TODO.md");
-        assert_eq!(expand_template("{{pick:prod, stg}}", &ctx), "stg");
-        assert_eq!(expand_template("{{pick prod, stg}}", &ctx), "stg");
+        assert_eq!(expand_template("{{pick:prod, stg}}", &ctx), "");
+        assert_eq!(expand_template("{{pick list: prod, stg}}", &ctx), "stg");
+        assert_eq!(pick_specs("{{pick: a, b}}"), Vec::<(String, Vec<String>)>::new());
         assert_eq!(
-            pick_specs("{{pick a, b}} {{pick: a, b}}"),
-            vec![("a, b".into(), vec!["a".into(), "b".into()])]
+            pick_specs("{{pick list: a, b}} {{pick list: a, b}}"),
+            vec![("list: a, b".into(), vec!["a".into(), "b".into()])]
         );
         assert_eq!(
-            pick_specs("{{pick: a, b}} {{pick: a, b}}"),
-            vec![("a, b".into(), vec!["a".into(), "b".into()])]
-        );
-        assert_eq!(
-            pick_specs("{{pick hata007@x, {{var:a}}}}"),
+            pick_specs("{{pick list: hata007@x, {{var:a}}}}"),
             vec![(
-                "hata007@x, {{var:a}}".into(),
+                "list: hata007@x, {{var:a}}".into(),
                 vec!["hata007@x".into(), "{{var:a}}".into()]
             )]
         );
@@ -1592,16 +1652,20 @@ mod tests {
             pick_specs("{{pick tag:env}} {{pick tag env}}"),
             vec![("tag:env".into(), vec![]), ("tag env".into(), vec![])]
         );
+        assert_eq!(
+            pick_specs(r#"{{pick search: "xx"}} {{pick search: xx}}"#),
+            vec![(r#"search: "xx""#.into(), vec![])]
+        );
         let mut tagged = sample_ctx();
         tagged.answers.insert("pick:tag:env".into(), "stg".into());
         assert_eq!(expand_template("{{pick tag:env}}", &tagged), "stg");
         let mut nested = sample_ctx();
         nested.answers.insert(
-            "pick:hata007@x, {{var:a}}".into(),
+            "pick:list: hata007@x, {{var:a}}".into(),
             "chose".into(),
         );
         assert_eq!(
-            expand_template("{{pick hata007@x, {{var:a}}}}end", &nested),
+            expand_template("{{pick list: hata007@x, {{var:a}}}}end", &nested),
             "choseend"
         );
     }
@@ -1789,6 +1853,25 @@ mod tests {
         assert_eq!(recase("Foo_Bar\nbaz", "camel"), "fooBar\nbaz");
         assert_eq!(recase("AbC", "upper"), "ABC");
         assert_eq!(recase("AbC", "lower"), "abc");
+    }
+
+    #[test]
+    fn split_col_and_json_pointer() {
+        assert_eq!(split_fields("a,b,c", ","), "a\tb\tc");
+        assert_eq!(split_fields("a\tb\tc", "\t"), "a\tb\tc");
+        assert_eq!(take_column("a\tb\tc\nd", 2).as_deref(), Some("b"));
+        assert_eq!(take_column("a", 2), None);
+        assert_eq!(take_column("a\tb", 0), None);
+        assert_eq!(
+            json_at(r#"{"items":[{"name":"hatamon"}]}"#, "/items/0/name").as_deref(),
+            Some("hatamon")
+        );
+        assert_eq!(json_at(r#"{"n":1,"ok":true,"x":null}"#, "/n").as_deref(), Some("1"));
+        assert_eq!(json_at(r#"{"ok":true}"#, "/ok").as_deref(), Some("true"));
+        assert_eq!(json_at(r#"{"x":null}"#, "/x").as_deref(), Some("null"));
+        assert_eq!(json_at(r#"{"a":{"b":1}}"#, "/a").as_deref(), Some(r#"{"b":1}"#));
+        assert_eq!(json_at("nope", "/a"), None);
+        assert_eq!(json_at(r#"{"a":1}"#, "/missing"), None);
     }
 
     #[test]
