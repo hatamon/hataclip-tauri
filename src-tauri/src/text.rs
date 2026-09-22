@@ -326,6 +326,140 @@ fn when_hits(kind: &WhenKind, env: &WhenEnv<'_>) -> bool {
     }
 }
 
+/// `#grab` の1行目に入力を当て、当たった行だけ2行目を埋める。どれも当たらなければなし。
+pub fn grab_fill(body: &str, input: &str) -> Option<String> {
+    if input.is_empty() {
+        return None;
+    }
+    let mut lines = body.lines();
+    let pattern = lines.next()?;
+    let template = lines.next()?;
+    let parts = grab_parts(pattern)?;
+    let mut filled = Vec::new();
+    for line in input.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some(caps) = grab_match(&parts, line) else {
+            continue;
+        };
+        filled.push(grab_apply(template, &caps));
+    }
+    if filled.is_empty() {
+        None
+    } else {
+        Some(filled.join("\n"))
+    }
+}
+
+enum GrabPart {
+    Lit(String),
+    Hole(String),
+}
+
+fn grab_parts(pattern: &str) -> Option<Vec<GrabPart>> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut parts = Vec::new();
+    let mut lit = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '<' {
+            let start = index + 1;
+            let mut end = start;
+            while end < chars.len() && chars[end] != '>' {
+                end += 1;
+            }
+            if end >= chars.len() {
+                return None;
+            }
+            let name: String = chars[start..end].iter().collect();
+            if !is_ident(&name) {
+                return None;
+            }
+            if !lit.is_empty() {
+                parts.push(GrabPart::Lit(std::mem::take(&mut lit)));
+            }
+            parts.push(GrabPart::Hole(name));
+            index = end + 1;
+            continue;
+        }
+        lit.push(chars[index]);
+        index += 1;
+    }
+    if !lit.is_empty() {
+        parts.push(GrabPart::Lit(lit));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts)
+    }
+}
+
+fn grab_match(parts: &[GrabPart], input: &str) -> Option<std::collections::HashMap<String, String>> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut pos = 0usize;
+    let mut caps = std::collections::HashMap::new();
+    for (index, part) in parts.iter().enumerate() {
+        match part {
+            GrabPart::Lit(lit) => {
+                let lit: Vec<char> = lit.chars().collect();
+                if pos + lit.len() > chars.len() || chars[pos..pos + lit.len()] != lit[..] {
+                    return None;
+                }
+                pos += lit.len();
+            }
+            GrabPart::Hole(name) => {
+                let end = if let Some(GrabPart::Lit(next)) = parts.get(index + 1) {
+                    let marker = next.chars().next()?;
+                    let at = chars[pos..].iter().position(|ch| *ch == marker)?;
+                    if at == 0 {
+                        return None;
+                    }
+                    pos + at
+                } else {
+                    if pos >= chars.len() {
+                        return None;
+                    }
+                    chars.len()
+                };
+                let value: String = chars[pos..end].iter().collect();
+                if value.is_empty() || value.contains('\n') {
+                    return None;
+                }
+                caps.insert(name.clone(), value);
+                pos = end;
+            }
+        }
+    }
+    if pos != chars.len() {
+        return None;
+    }
+    Some(caps)
+}
+
+fn grab_apply(template: &str, caps: &std::collections::HashMap<String, String>) -> String {
+    let Some(parts) = grab_parts(template) else {
+        return template.to_string();
+    };
+    let mut out = String::new();
+    for part in parts {
+        match part {
+            GrabPart::Lit(lit) => out.push_str(&lit),
+            GrabPart::Hole(name) => {
+                if let Some(value) = caps.get(&name) {
+                    out.push_str(value);
+                } else {
+                    out.push('<');
+                    out.push_str(&name);
+                    out.push('>');
+                }
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn is_ident(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
@@ -1514,6 +1648,25 @@ mod tests {
                 .format("%Y-%m")
                 .to_string()
         );
+    }
+
+    #[test]
+    fn grab_fills_holes_and_skips_misses() {
+        let body = "https://github.com/<org>/<repo>/pull/<pr>\ngh pr checkout <pr> --repo <org>/<repo>";
+        assert_eq!(
+            grab_fill(body, "https://github.com/hatamon/hataclip/pull/12").as_deref(),
+            Some("gh pr checkout 12 --repo hatamon/hataclip")
+        );
+        assert_eq!(grab_fill(body, "https://example.com"), None);
+        let logs = "error at <file>:<line>\n<file>:<line>";
+        let input = "error at src/a.rs:12\nwarn at src/b.rs:44\nerror at src/c.rs:3";
+        assert_eq!(
+            grab_fill(logs, input).as_deref(),
+            Some("src/a.rs:12\nsrc/c.rs:3")
+        );
+        assert_eq!(grab_fill("only one line", "error at src/a.rs:12"), None);
+        assert_eq!(grab_fill(logs, ""), None);
+        assert_eq!(grab_fill("error at <file>:<line>\n<file>:<line>", "error at :12"), None);
     }
 
     #[test]
