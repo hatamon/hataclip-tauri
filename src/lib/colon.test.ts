@@ -55,10 +55,10 @@ describe("matchingColonCommands", () => {
 });
 
 describe("stripClipSink", () => {
-  it("splits > clip from the command", () => {
-    expect(stripClipSink("quote > clip")).toEqual({ cmd: "quote", clip: true });
-    expect(stripClipSink('quote "* " > clip')).toEqual({ cmd: 'quote "* "', clip: true });
-    expect(stripClipSink(":sh dir>clip")).toEqual({ cmd: "sh dir", clip: true });
+  it("does not treat > clip as a sink", () => {
+    expect(stripClipSink("quote > clip")).toEqual({ cmd: "quote > clip", clip: false });
+    expect(stripClipSink('quote "* " > clip')).toEqual({ cmd: 'quote "* " > clip', clip: false });
+    expect(stripClipSink(":sh dir>clip")).toEqual({ cmd: "sh dir>clip", clip: false });
     expect(stripClipSink("echo 2+3")).toEqual({ cmd: "echo 2+3", clip: false });
   });
 });
@@ -89,7 +89,6 @@ describe("quotePrefix", () => {
     expect(quotePrefix('quote "* "')).toBe("* ");
     expect(quotePrefix('quote ">"')).toBe(">");
     expect(quotePrefix("quote - [ ] ")).toBe("- [ ]");
-    expect(quotePrefix(stripClipSink('quote "* " > clip').cmd)).toBe("* ");
     expect(quotePrefix("format")).toBeNull();
   });
 });
@@ -107,7 +106,8 @@ describe("joinSeparator", () => {
 
 describe("parseColonPipe", () => {
   it("leaves a command that is not a stage alone", () => {
-    expect(parseColonPipe("quote > clip")).toEqual({ kind: "none" });
+    expect(parseColonPipe("quote > clip")).toEqual({ kind: "bad" });
+    expect(parseColonPipe('quote "* " > clip')).toEqual({ kind: "bad" });
     expect(parseColonPipe("help")).toEqual({ kind: "none" });
     expect(parseColonPipe("echo")).toEqual({ kind: "none" });
   });
@@ -163,20 +163,13 @@ describe("parseColonPipe", () => {
     });
   });
 
-  it("keeps a quoted pipe and accepts a trailing > clip", () => {
+  it("keeps a quoted pipe and rejects a trailing > clip", () => {
     expect(parseColonPipe('sh "dir | sort" | show')).toMatchObject({
       kind: "ok",
       sink: { kind: "show" },
       ops: [{ kind: "sh", arg: "dir | sort", selectionStdin: false }],
     });
-    expect(parseColonPipe('sh dir | quote "> " > clip')).toMatchObject({
-      kind: "ok",
-      sink: { kind: "clip" },
-      ops: [
-        { kind: "sh", arg: "dir", selectionStdin: false },
-        { kind: "quote", arg: "> ", selectionStdin: false },
-      ],
-    });
+    expect(parseColonPipe('sh dir | quote "> " > clip')).toEqual({ kind: "bad" });
   });
 
   it("reads the selection or the clipboard as a source", () => {

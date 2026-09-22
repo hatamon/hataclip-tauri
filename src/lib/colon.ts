@@ -35,14 +35,9 @@ export const COLON_COMMANDS = [
   "xml",
 ];
 
-/** 末尾の `> clip` を行き先として外す。 */
+/** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
 export function stripClipSink(line: string): { cmd: string; clip: boolean } {
-  const trimmed = line.trim().replace(/^:/, "");
-  const match = /^(.*?)\s*>\s*clip\s*$/i.exec(trimmed);
-  if (match) {
-    return { cmd: match[1].trim(), clip: true };
-  }
-  return { cmd: trimmed, clip: false };
+  return { cmd: line.trim().replace(/^:/, ""), clip: false };
 }
 
 function colonSegments(input: string): string[] {
@@ -424,8 +419,11 @@ export function parseColonPipe(input: string): ParsedPipe {
   const parts = splitUnquotedPipe(line);
   if (parts.length < 2) {
     const only = parts[0] ?? "";
-    if (only.length === 0 || peelClip(only).clip) {
+    if (only.length === 0) {
       return { kind: "none" };
+    }
+    if (peelClip(only).clip) {
+      return { kind: "bad" };
     }
     const stage = stageOf(only);
     if (!stage) {
@@ -440,8 +438,7 @@ export function parseColonPipe(input: string): ParsedPipe {
   let body = parts;
   const peeled = peelClip(parts[parts.length - 1]);
   if (peeled.clip) {
-    sink = { kind: "clip" };
-    body = peeled.part.length === 0 ? parts.slice(0, -1) : [...parts.slice(0, -1), peeled.part];
+    return { kind: "bad" };
   } else {
     const last = sinkOf(parts[parts.length - 1]);
     if (last) {

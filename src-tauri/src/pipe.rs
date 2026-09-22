@@ -27,7 +27,7 @@ pub(crate) fn classify(text: &str) -> PasteBody {
     let braced = split_bars(line, true);
     match parse(line) {
         Parse::None => PasteBody::Text,
-        Parse::Bad if braced.len() < 2 => PasteBody::Text,
+        Parse::Bad if braced.len() < 2 && !peel_clip(line).1 => PasteBody::Text,
         Parse::Bad => PasteBody::Bad,
         Parse::Ok(script) => PasteBody::Run(script),
     }
@@ -45,8 +45,11 @@ fn parse(input: &str) -> Parse {
     let parts = split_bars(line, false);
     if parts.len() < 2 {
         let only = parts.first().map(String::as_str).unwrap_or("");
-        if only.is_empty() || peel_clip(only).1 {
+        if only.is_empty() {
             return Parse::None;
+        }
+        if peel_clip(only).1 {
+            return Parse::Bad;
         }
         let Some(stage) = stage_of(only) else {
             return Parse::None;
@@ -65,15 +68,9 @@ fn parse(input: &str) -> Parse {
     let mut sink = "paste".to_string();
     let mut set_name = None;
     let mut body = parts;
-    let (peeled, clip) = peel_clip(&body[body.len() - 1]);
+    let (_peeled, clip) = peel_clip(&body[body.len() - 1]);
     if clip {
-        sink = "clip".to_string();
-        if peeled.is_empty() {
-            body.pop();
-        } else {
-            body.pop();
-            body.push(peeled);
-        }
+        return Parse::Bad;
     } else if let Some((name, var)) = sink_of(&body[body.len() - 1]) {
         sink = name;
         set_name = var;
@@ -422,6 +419,8 @@ mod tests {
         assert_eq!(classify("comma"), PasteBody::Text);
         assert_eq!(classify("sel | comma"), PasteBody::Bad);
         assert_eq!(classify("sel | tab"), PasteBody::Bad);
+        assert_eq!(classify("quote \"* \" > clip"), PasteBody::Bad);
+        assert_eq!(classify("sh dir>clip"), PasteBody::Bad);
     }
 
     #[test]
