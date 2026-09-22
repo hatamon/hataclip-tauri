@@ -54,7 +54,16 @@ pub fn context_key(fg: &Foreground) -> Option<String> {
 
 /// UI Automation のコントロール種別名。取れなければ空。
 pub fn focused_control() -> String {
-    String::new()
+    let Ok(automation) = uiautomation::UIAutomation::new() else {
+        return String::new();
+    };
+    let Ok(element) = automation.get_focused_element() else {
+        return String::new();
+    };
+    let Ok(kind) = element.get_control_type() else {
+        return String::new();
+    };
+    format!("{kind}")
 }
 
 pub fn app_and_title(fg: &Foreground) -> (String, String) {

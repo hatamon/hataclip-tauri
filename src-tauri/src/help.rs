@@ -64,6 +64,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{pick list: a, b}}  貼る前に候補から選ぶ。j / k と Enter。候補が 9 個までなら 1〜9 でその番。10 個以上は j / k。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。{{pick: a, b}} は空。{{pick tag:env}} はタグ env の本文。{{pick search: \"xx\"}} は / と同じ当たりの行。自分自身は入れない。無ければ聞かない\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
 {{front}}          前面ウィンドウのタイトル。無ければ空\n\
+{{focus}}          フォーカスしている入力欄の種類。Edit Document ComboBox。取れなければ空。Ubuntu は空。常時監視はしない\n\
 {{when app: chrome}}  前面が chrome のときだけその区間。複数は {{when app: chrome, msedge}}。{{when var: a: \"AAA\"}} は :set のそのままの文字列。{{when focus: Edit}} は入力欄の種類。{{when}} はどれにも当たらないとき。{{when chrome}} は展開せずそのまま。Ubuntu では app と focus は空\n\
 {{n}} / {{n:2}}    連番。Ctrl+Enter で増える。:n 100 で初期値。閉じると初期値に戻る。ge やコピーでは進まない\n\
 {{uuid}}           UUID v4\n\
