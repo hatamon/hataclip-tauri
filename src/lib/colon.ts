@@ -30,6 +30,8 @@ export const COLON_COMMANDS = [
   "kebab",
   "upper",
   "lower",
+  "json",
+  "xml",
 ];
 
 /** 末尾の `> clip` を行き先として外す。 */
@@ -186,7 +188,22 @@ export function joinSeparator(line: string): string | null {
 }
 
 export type PipeOp = {
-  kind: "sh" | "quote" | "format" | "join" | "raw" | "dot" | "clip" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower";
+  kind:
+    | "sh"
+    | "quote"
+    | "format"
+    | "join"
+    | "raw"
+    | "dot"
+    | "clip"
+    | "camel"
+    | "pascal"
+    | "snake"
+    | "kebab"
+    | "upper"
+    | "lower"
+    | "json"
+    | "xml";
   arg: string;
   selectionStdin: boolean;
 };
@@ -304,6 +321,9 @@ function stageOf(part: string): PipeOp | null {
     part === "upper" ||
     part === "lower"
   ) {
+    return { kind: part, arg: "", selectionStdin: false };
+  }
+  if (part === "json" || part === "xml") {
     return { kind: part, arg: "", selectionStdin: false };
   }
   const prefix = quotePrefix(part);

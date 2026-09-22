@@ -36,6 +36,8 @@ describe("matchingColonCommands", () => {
       "kebab",
       "upper",
       "lower",
+      "json",
+      "xml",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);
@@ -168,6 +170,15 @@ describe("parseColonPipe", () => {
       ops: [
         { kind: "dot", arg: "", selectionStdin: false },
         { kind: "snake", arg: "", selectionStdin: false },
+      ],
+    });
+    expect(parseColonPipe("clip | json | show")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "show" },
+      usesSelection: false,
+      ops: [
+        { kind: "clip", arg: "", selectionStdin: false },
+        { kind: "json", arg: "", selectionStdin: false },
       ],
     });
     expect(parseColonPipe("clip | show")).toMatchObject({

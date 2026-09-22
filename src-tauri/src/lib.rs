@@ -715,6 +715,24 @@ fn run_pipe(
                 text = Some(output);
                 raw = false;
             }
+            "json" | "xml" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, raw)?, "\n"));
+                    raw = false;
+                }
+                if let Some(current) = text.as_mut() {
+                    let pretty = if op.kind == "json" {
+                        text::pretty_json(current)
+                    } else {
+                        text::pretty_xml(current)
+                    };
+                    match pretty {
+                        Some(next) => *current = next,
+                        None => return Err("読めない".into()),
+                    }
+                }
+            }
             "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                 if text.is_none() {
                     used_selection = true;

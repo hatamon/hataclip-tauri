@@ -903,6 +903,173 @@ fn push_word(words: &mut Vec<String>, buf: &mut String) {
     }
 }
 
+/// 読める JSON を字下げして返す。読めなければなし。
+pub fn pretty_json(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    serde_json::to_string_pretty(&value).ok()
+}
+
+/// 読める XML を字下げして返す。タグが閉じていなければなし。
+pub fn pretty_xml(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('<') {
+        return None;
+    }
+    let tokens = xml_tokens(trimmed)?;
+    let mut stack: Vec<String> = Vec::new();
+    for token in &tokens {
+        match token {
+            XmlToken::Open(raw) => stack.push(xml_name(raw)?.to_string()),
+            XmlToken::Close(raw) => {
+                let name = xml_name(raw)?;
+                if stack.pop().as_deref() != Some(name) {
+                    return None;
+                }
+            }
+            XmlToken::Empty(raw) => {
+                xml_name(raw)?;
+            }
+            XmlToken::Other(_) | XmlToken::Text(_) => {}
+        }
+    }
+    if !stack.is_empty() {
+        return None;
+    }
+    Some(render_xml(&tokens))
+}
+
+enum XmlToken {
+    Open(String),
+    Close(String),
+    Empty(String),
+    Other(String),
+    Text(String),
+}
+
+fn xml_tokens(text: &str) -> Option<Vec<XmlToken>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut index = 0;
+    let mut tokens = Vec::new();
+    while index < chars.len() {
+        if chars[index] != '<' {
+            let start = index;
+            while index < chars.len() && chars[index] != '<' {
+                index += 1;
+            }
+            let raw: String = chars[start..index].iter().collect();
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                tokens.push(XmlToken::Text(trimmed.to_string()));
+            }
+            continue;
+        }
+        let (raw, next) = read_markup(&chars, index)?;
+        index = next;
+        tokens.push(classify_markup(&raw));
+    }
+    Some(tokens)
+}
+
+fn read_markup(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'<') {
+        return None;
+    }
+    if chars.get(start + 1) == Some(&'!')
+        && chars.get(start + 2) == Some(&'-')
+        && chars.get(start + 3) == Some(&'-')
+    {
+        let mut index = start + 4;
+        while index + 2 < chars.len() {
+            if chars[index] == '-' && chars[index + 1] == '-' && chars[index + 2] == '>' {
+                let raw: String = chars[start..index + 3].iter().collect();
+                return Some((raw, index + 3));
+            }
+            index += 1;
+        }
+        return None;
+    }
+    if chars.get(start + 1) == Some(&'!')
+        && chars.get(start + 2) == Some(&'[')
+        && chars[start..].starts_with(&['<', '!', '[', 'C', 'D', 'A', 'T', 'A', '['])
+    {
+        let mut index = start + 9;
+        while index + 2 < chars.len() {
+            if chars[index] == ']' && chars[index + 1] == ']' && chars[index + 2] == '>' {
+                let raw: String = chars[start..index + 3].iter().collect();
+                return Some((raw, index + 3));
+            }
+            index += 1;
+        }
+        return None;
+    }
+    let mut index = start + 1;
+    let mut quote: Option<char> = None;
+    while index < chars.len() {
+        let ch = chars[index];
+        if let Some(mark) = quote {
+            if ch == mark {
+                quote = None;
+            }
+        } else if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+        } else if ch == '>' {
+            let raw: String = chars[start..index + 1].iter().collect();
+            return Some((raw, index + 1));
+        }
+        index += 1;
+    }
+    None
+}
+
+fn classify_markup(raw: &str) -> XmlToken {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("<?") || trimmed.starts_with("<!") {
+        return XmlToken::Other(trimmed.to_string());
+    }
+    if trimmed.starts_with("</") {
+        return XmlToken::Close(trimmed.to_string());
+    }
+    if trimmed.ends_with("/>") {
+        return XmlToken::Empty(trimmed.to_string());
+    }
+    XmlToken::Open(trimmed.to_string())
+}
+
+fn xml_name(raw: &str) -> Option<&str> {
+    let inner = raw
+        .trim()
+        .trim_start_matches('<')
+        .trim_start_matches('/')
+        .trim_end_matches('>')
+        .trim_end_matches('/')
+        .trim();
+    let name = inner.split_whitespace().next().filter(|name| !name.is_empty())?;
+    Some(name)
+}
+
+fn render_xml(tokens: &[XmlToken]) -> String {
+    let mut depth = 0i32;
+    let mut lines = Vec::new();
+    for token in tokens {
+        let (text, before, after) = match token {
+            XmlToken::Close(raw) => (raw.as_str(), true, false),
+            XmlToken::Open(raw) => (raw.as_str(), false, true),
+            XmlToken::Empty(raw) | XmlToken::Other(raw) | XmlToken::Text(raw) => {
+                (raw.as_str(), false, false)
+            }
+        };
+        if before {
+            depth -= 1;
+        }
+        let pad = "  ".repeat(depth.max(0) as usize);
+        lines.push(format!("{pad}{text}"));
+        if after {
+            depth += 1;
+        }
+    }
+    lines.join("\n")
+}
+
 fn strip_quote_marker(line: &str) -> &str {
     let mut rest = line.trim_start();
     let mut stripped = false;
@@ -1412,6 +1579,18 @@ mod tests {
         assert_eq!(recase("Foo_Bar\nbaz", "camel"), "fooBar\nbaz");
         assert_eq!(recase("AbC", "upper"), "ABC");
         assert_eq!(recase("AbC", "lower"), "abc");
+    }
+
+    #[test]
+    fn pretty_json_and_xml_indent_or_refuse() {
+        assert_eq!(pretty_json(r#"{"a":1}"#).as_deref(), Some("{\n  \"a\": 1\n}"));
+        assert!(pretty_json("{").is_none());
+        assert_eq!(
+            pretty_xml("<root><child>hi</child><empty/></root>").as_deref(),
+            Some("<root>\n  <child>\n    hi\n  </child>\n  <empty/>\n</root>")
+        );
+        assert!(pretty_xml("<root></nope>").is_none());
+        assert!(pretty_xml("not xml").is_none());
     }
 
     #[test]
