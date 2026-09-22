@@ -617,7 +617,7 @@ fn collect_vars(
 }
 
 pub fn has_sel_token_in(text: &str, app: &str) -> bool {
-    walk_tokens(&apply_when(text, app), |inner| inner == "sel")
+    has_sel_token(&apply_when(text, app))
 }
 
 /// 出現順。同じ名前は 1 回だけ。
@@ -1047,6 +1047,15 @@ mod tests {
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
         assert!(has_sel_token("x {{sel}} y"));
         assert!(has_sel_token("{{sel|clip}}"));
+        assert!(has_sel_token_in("{{sel|clip}}", "code"));
+        assert!(has_sel_token_in(
+            "{{when chrome}}{{sel|clip}}{{when}}",
+            "chrome"
+        ));
+        assert!(!has_sel_token_in(
+            "{{when chrome}}{{sel|clip}}{{when}}",
+            "code"
+        ));
         assert!(!has_sel_token("{{clip}}"));
         assert!(!has_sel_token("{{clip|front}}"));
         let mut empty_sel = sample_ctx();
