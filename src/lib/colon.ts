@@ -36,6 +36,8 @@ export const COLON_COMMANDS = [
   "split",
   "col",
   "get",
+  "diff",
+  "only",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -359,6 +361,19 @@ function colArg(part: string): string | null {
   return rest;
 }
 
+function sideArg(part: string, name: string): string | null {
+  const prefix = `${name} `;
+  const tab = `${name}\t`;
+  if (!part.startsWith(prefix) && !part.startsWith(tab)) {
+    return null;
+  }
+  const rest = part.slice(name.length + 1).trim();
+  if (rest === "." || rest === "clip") {
+    return rest;
+  }
+  return null;
+}
+
 function pointerArg(part: string, name: string): string | null {
   const prefix = `${name} `;
   const tab = `${name}\t`;
@@ -455,6 +470,14 @@ function stageOf(part: string): PipeOp | null {
   const pointer = pointerArg(part, "get");
   if (pointer !== null) {
     return { kind: "get", arg: pointer, selectionStdin: false };
+  }
+  const diffSide = sideArg(part, "diff");
+  if (diffSide !== null) {
+    return { kind: "diff", arg: diffSide, selectionStdin: false };
+  }
+  const onlySide = sideArg(part, "only");
+  if (onlySide !== null) {
+    return { kind: "only", arg: onlySide, selectionStdin: false };
   }
   if (part === "sh" || part.startsWith("sh ") || part.startsWith("sh\t")) {
     const script = shScript(part === "sh" ? "" : part.slice(3));

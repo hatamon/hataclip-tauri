@@ -772,6 +772,29 @@ fn execute_pipe(
                     }
                 }
             }
+            "diff" | "only" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                let other = match op.arg.as_str() {
+                    "." => {
+                        used_selection = true;
+                        pipe_text(&pipe_bodies(app, state, ids, true)?, "\n")
+                    }
+                    "clip" => clipboard::peek_text().unwrap_or_default(),
+                    _ => return Err("段が違う".into()),
+                };
+                if let Some(current) = text.as_mut() {
+                    let next = if op.kind == "diff" {
+                        text::line_diff(current, &other)
+                    } else {
+                        text::only_lines(current, &other)
+                    };
+                    *current = next.ok_or("同じ")?;
+                }
+            }
             "split" | "col" | "get" => {
                 if text.is_none() {
                     used_selection = true;

@@ -306,6 +306,18 @@ fn col_arg(line: &str) -> Option<String> {
     Some(rest.to_string())
 }
 
+fn side_arg(line: &str, name: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix(&format!("{name} "))
+        .or_else(|| line.strip_prefix(&format!("{name}\t")))?;
+    let rest = rest.trim();
+    if rest == "." || rest == "clip" {
+        Some(rest.to_string())
+    } else {
+        None
+    }
+}
+
 fn pointer_arg(line: &str, name: &str) -> Option<String> {
     let rest = line
         .strip_prefix(&format!("{name} "))
@@ -402,6 +414,12 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if let Some(pointer) = pointer_arg(part, "get") {
         return Some(op("get", &pointer, false));
+    }
+    if let Some(side) = side_arg(part, "diff") {
+        return Some(op("diff", &side, false));
+    }
+    if let Some(side) = side_arg(part, "only") {
+        return Some(op("only", &side, false));
     }
     if part == "sh" || part.starts_with("sh ") || part.starts_with("sh\t") {
         let raw = if part == "sh" { "" } else { &part[2..] };

@@ -1076,6 +1076,39 @@ pub fn take_column(text: &str, index: i64) -> Option<String> {
     }
 }
 
+/// 左にあって右に無い行は `- `、右にあって左に無い行は `+ `。全部同じならなし。
+pub fn line_diff(left: &str, right: &str) -> Option<String> {
+    let right_set: std::collections::HashSet<&str> = right.lines().collect();
+    let left_set: std::collections::HashSet<&str> = left.lines().collect();
+    let mut rows = Vec::new();
+    for line in left.lines() {
+        if !right_set.contains(line) {
+            rows.push(format!("- {line}"));
+        }
+    }
+    for line in right.lines() {
+        if !left_set.contains(line) {
+            rows.push(format!("+ {line}"));
+        }
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows.join("\n"))
+    }
+}
+
+/// 左にあって右に無い行。0行ならなし。
+pub fn only_lines(left: &str, right: &str) -> Option<String> {
+    let right_set: std::collections::HashSet<&str> = right.lines().collect();
+    let rows: Vec<&str> = left.lines().filter(|line| !right_set.contains(line)).collect();
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows.join("\n"))
+    }
+}
+
 /// JSON Pointer の値。文字列は引用符なし。オブジェクトと配列は空白なしの JSON。
 pub fn json_at(text: &str, pointer: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
@@ -1872,6 +1905,10 @@ mod tests {
         assert_eq!(json_at(r#"{"a":{"b":1}}"#, "/a").as_deref(), Some(r#"{"b":1}"#));
         assert_eq!(json_at("nope", "/a"), None);
         assert_eq!(json_at(r#"{"a":1}"#, "/missing"), None);
+        assert_eq!(line_diff("a\nb", "b\nc").as_deref(), Some("- a\n+ c"));
+        assert_eq!(line_diff("a\nb", "a\nb"), None);
+        assert_eq!(only_lines("b\nc", "a\nb").as_deref(), Some("c"));
+        assert_eq!(only_lines("a", "a"), None);
     }
 
     #[test]
