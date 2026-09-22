@@ -330,7 +330,7 @@
       return false;
     }
     const item = items.find((row) => row.id === ids[0]);
-    if (!item || !item.text.includes("|")) {
+    if (!item || parseColonPipe(item.text).kind === "none") {
       return false;
     }
     let result: { status: string; text: string | null };

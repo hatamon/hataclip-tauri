@@ -106,9 +106,35 @@ describe("joinSeparator", () => {
 });
 
 describe("parseColonPipe", () => {
-  it("leaves a single command alone", () => {
+  it("leaves a command that is not a stage alone", () => {
     expect(parseColonPipe("quote > clip")).toEqual({ kind: "none" });
-    expect(parseColonPipe('quote "|"')).toEqual({ kind: "none" });
+    expect(parseColonPipe("help")).toEqual({ kind: "none" });
+    expect(parseColonPipe("echo")).toEqual({ kind: "none" });
+  });
+
+  it("runs one stage without a bar", () => {
+    expect(parseColonPipe("upper")).toEqual({
+      kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: true,
+      ops: [{ kind: "upper", arg: "", selectionStdin: false }],
+    });
+    expect(parseColonPipe(":json")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: true,
+    });
+    expect(parseColonPipe("echo 3+4")).toEqual({
+      kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: false,
+      ops: [{ kind: "echo", arg: "3+4", selectionStdin: false }],
+    });
+    expect(parseColonPipe('quote "|"')).toMatchObject({
+      kind: "ok",
+      sink: { kind: "paste" },
+      ops: [{ kind: "quote", arg: "|" }],
+    });
   });
 
   it("chains sh into quote and a clip sink", () => {

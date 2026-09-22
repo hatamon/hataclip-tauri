@@ -24,11 +24,10 @@ pub(crate) enum PasteBody {
 
 pub(crate) fn classify(text: &str) -> PasteBody {
     let line = text.trim();
-    if split_bars(line, true).len() < 2 {
-        return PasteBody::Text;
-    }
+    let braced = split_bars(line, true);
     match parse(line) {
         Parse::None => PasteBody::Text,
+        Parse::Bad if braced.len() < 2 => PasteBody::Text,
         Parse::Bad => PasteBody::Bad,
         Parse::Ok(script) => PasteBody::Run(script),
     }
@@ -45,7 +44,20 @@ fn parse(input: &str) -> Parse {
     let line = line.strip_prefix(':').unwrap_or(line);
     let parts = split_bars(line, false);
     if parts.len() < 2 {
-        return Parse::None;
+        let only = parts.first().map(String::as_str).unwrap_or("");
+        if only.is_empty() || peel_clip(only).1 {
+            return Parse::None;
+        }
+        let Some(stage) = stage_of(only) else {
+            return Parse::None;
+        };
+        let uses_selection = pipe_uses_selection(std::slice::from_ref(&stage));
+        return Parse::Ok(Script {
+            ops: vec![stage],
+            sink: "paste".to_string(),
+            set_name: None,
+            uses_selection,
+        });
     }
     if parts.iter().any(|part| part.is_empty()) {
         return Parse::Bad;
@@ -394,6 +406,23 @@ fn pipe_uses_selection(ops: &[Op]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_stage_runs_as_a_pipe() {
+        let PasteBody::Run(script) = classify(":upper") else {
+            panic!("run");
+        };
+        assert_eq!(script.sink, "paste");
+        assert!(script.uses_selection);
+        assert_eq!(script.ops[0].kind, "upper");
+        let PasteBody::Run(echo) = classify("echo 3+4") else {
+            panic!("echo");
+        };
+        assert!(!echo.uses_selection);
+        assert_eq!(echo.ops[0].arg, "3+4");
+        assert_eq!(classify("hello"), PasteBody::Text);
+        assert_eq!(classify("help"), PasteBody::Text);
+    }
 
     #[test]
     fn template_bar_inside_braces_stays_text() {

@@ -424,12 +424,20 @@ function pipeUsesSelection(ops: PipeOp[]): boolean {
   return !produced;
 }
 
-/** トップレベルの `|` が無ければ none。段が空や未知なら bad。 */
+/** 段が1つでもパイプ。未知の1語は none。段が空や未知なら bad。 */
 export function parseColonPipe(input: string): ParsedPipe {
   const line = input.trim().replace(/^:/, "");
   const parts = splitUnquotedPipe(line);
   if (parts.length < 2) {
-    return { kind: "none" };
+    const only = parts[0] ?? "";
+    if (only.length === 0 || peelClip(only).clip) {
+      return { kind: "none" };
+    }
+    const stage = stageOf(only);
+    if (!stage) {
+      return { kind: "none" };
+    }
+    return { kind: "ok", ops: [stage], sink: { kind: "paste" }, usesSelection: pipeUsesSelection([stage]) };
   }
   if (parts.some((part) => part.length === 0)) {
     return { kind: "bad" };
