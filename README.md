@@ -52,6 +52,8 @@ Ubuntu は:
 ./dist/linux/hataclip
 ```
 
+式を1つ渡すと、ウィンドウを開かずにそのパイプを実行して終わる。標準入力がパイプならそれが流れの最初。行き先が無ければ標準出力。`hataclip quote` は引用符付きで画面に出す。`hataclip "quote \"> \" | clip"` はクリップボードへ書く。`hataclip add` は標準入力を一覧へ1件足す。`hataclip "echo 3+4"` は `7`。壊れた段や空の入力は何も出さず終了コード 1。引数が無く、標準入力もパイプでなければ一覧を出す。
+
 実行時は `libwebkit2gtk-4.1-0` と AppIndicator（`libayatana-appindicator3-1`）が要る。
 
 起動後はトレイに常駐する。ショートカットでも出す。トレイの右クリックから設定と終了。

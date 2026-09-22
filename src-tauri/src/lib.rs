@@ -1,4 +1,5 @@
 mod actions;
+mod cli;
 mod chord;
 mod clipboard;
 mod keys;
@@ -2145,6 +2146,10 @@ fn clamp_point(window: &WebviewWindow, point: Point, width: u32, height: u32) ->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run_cli(expr: &str, piped: bool) -> i32 {
+    cli::run(expr, piped)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

@@ -1,0 +1,269 @@
+use crate::pipe::{self, Op};
+use crate::settings::Settings;
+use crate::store::{Item, Store};
+use crate::text;
+use std::io::{self, Read, Write};
+use std::path::PathBuf;
+
+pub fn run(expr: &str, piped: bool) -> i32 {
+    let stdin = if piped {
+        let mut buf = String::new();
+        if io::stdin().read_to_string(&mut buf).is_err() {
+            return 1;
+        }
+        Some(buf)
+    } else {
+        None
+    };
+    match execute(expr, stdin.as_deref()) {
+        Ok(CliResult::Stdout(text)) => {
+            let mut out = io::stdout().lock();
+            if out.write_all(text.as_bytes()).is_err() {
+                return 1;
+            }
+            if !text.ends_with('\n') && out.write_all(b"\n").is_err() {
+                return 1;
+            }
+            0
+        }
+        Ok(CliResult::Quiet) => 0,
+        Err(()) => 1,
+    }
+}
+
+enum CliResult {
+    Stdout(String),
+    Quiet,
+}
+
+fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
+    let pipe::PasteBody::Run(script) = pipe::classify(expr) else {
+        return Err(());
+    };
+    if script.ops.iter().any(|op| op.kind == "sel") {
+        return Err(());
+    }
+    let dir = data_dir().ok_or(())?;
+    let mut store = Store::load(dir.join("items.json"));
+    let mut settings = Settings::load(dir.join("settings.json"));
+    let vars: std::collections::HashMap<String, String> = settings
+        .vars()
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let text = walk(&script.ops, stdin.map(str::to_string), &vars, stdin.is_some())?;
+    match script.sink.as_str() {
+        "paste" | "show" => {
+            if text.is_empty() {
+                return Err(());
+            }
+            Ok(CliResult::Stdout(text))
+        }
+        "clip" => {
+            if text.is_empty() || !crate::clipboard::write_clipboard_text(&text) {
+                return Err(());
+            }
+            Ok(CliResult::Quiet)
+        }
+        "add" => {
+            if text.is_empty() {
+                return Err(());
+            }
+            let tags = text::auto_tags(&text);
+            store.insert(Item::new(text, tags));
+            Ok(CliResult::Quiet)
+        }
+        "set" => {
+            let name = script.set_name.as_deref().unwrap_or("");
+            if !settings.set_var(name, text) {
+                return Err(());
+            }
+            Ok(CliResult::Quiet)
+        }
+        "open" => {
+            let target = text.trim();
+            if target.starts_with("http://")
+                || target.starts_with("https://")
+                || text::looks_like_path(target)
+            {
+                crate::platform::open_target(target);
+            }
+            Ok(CliResult::Quiet)
+        }
+        _ => Err(()),
+    }
+}
+
+fn walk(
+    ops: &[Op],
+    seed: Option<String>,
+    vars: &std::collections::HashMap<String, String>,
+    piped: bool,
+) -> Result<String, ()> {
+    let mut text = seed;
+    let mut index = 0;
+    while index < ops.len() {
+        let op = &ops[index];
+        if op.kind == "each" {
+            let body = take_text(&mut text, piped)?;
+            let mut kept = Vec::new();
+            for line in body.lines() {
+                if let Ok(out) = walk(&ops[index + 1..], Some(line.to_string()), vars, true) {
+                    kept.push(out);
+                }
+            }
+            if kept.is_empty() {
+                return Err(());
+            }
+            return Ok(kept.join("\n"));
+        }
+        match op.kind.as_str() {
+            "raw" | "dot" => {
+                if text.is_none() {
+                    if op.kind == "dot" && !piped {
+                        return Err(());
+                    }
+                    text = Some(String::new());
+                }
+            }
+            "clip" => {
+                if text.is_some() {
+                    return Err(());
+                }
+                text = Some(crate::clipboard::peek_text().unwrap_or_default());
+            }
+            "echo" => {
+                let value = crate::expr::eval_with(&op.arg, vars).ok_or(())?;
+                text = Some(crate::expr::format_number(value));
+            }
+            "sh" => {
+                let stdin = if op.selection_stdin || text.is_some() {
+                    Some(take_text(&mut text, piped)?)
+                } else {
+                    None
+                };
+                let output = crate::shell::run_script_with_stdin(&op.arg, stdin.as_deref()).map_err(|_| ())?;
+                text = Some(output);
+            }
+            "json" | "xml" => {
+                let current = take_text(&mut text, piped)?;
+                let pretty = if op.kind == "json" {
+                    text::pretty_json(&current)
+                } else {
+                    text::pretty_xml(&current)
+                };
+                text = Some(pretty.ok_or(())?);
+            }
+            "put" => {
+                let current = take_text(&mut text, piped)?;
+                let (pointer, value) = op.arg.split_once('\u{1}').ok_or(())?;
+                text = Some(text::json_put(&current, pointer, value).ok_or(())?);
+            }
+            "diff" | "only" => {
+                let current = take_text(&mut text, piped)?;
+                let other = match op.arg.as_str() {
+                    "clip" => crate::clipboard::peek_text().unwrap_or_default(),
+                    "." => return Err(()),
+                    _ => return Err(()),
+                };
+                let next = if op.kind == "diff" {
+                    text::line_diff(&current, &other)
+                } else {
+                    text::only_lines(&current, &other)
+                };
+                text = Some(next.ok_or(())?);
+            }
+            "split" | "col" | "get" => {
+                let current = take_text(&mut text, piped)?;
+                let next = match op.kind.as_str() {
+                    "split" => Some(text::split_fields(&current, &op.arg)),
+                    "col" => {
+                        let index = op.arg.parse::<i64>().unwrap_or(0);
+                        text::take_column(&current, index)
+                    }
+                    "get" => text::json_at(&current, &op.arg),
+                    _ => None,
+                };
+                text = Some(next.ok_or(())?);
+            }
+            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper"
+            | "lower" => {
+                if text.is_none() && !piped {
+                    return Err(());
+                }
+                let current = text.take().unwrap_or_default();
+                text = Some(match op.kind.as_str() {
+                    "join" => current.lines().collect::<Vec<_>>().join(&op.arg),
+                    "quote" => {
+                        let (prefix, suffix) = text::split_quote_arg(&op.arg);
+                        text::affix_lines(&current, prefix, suffix)
+                    }
+                    "format" => text::format_for_paste(&current),
+                    "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
+                        text::recase(&current, &op.kind)
+                    }
+                    _ => current,
+                });
+            }
+            _ => return Err(()),
+        }
+        index += 1;
+    }
+    text.ok_or(())
+}
+
+fn take_text(text: &mut Option<String>, piped: bool) -> Result<String, ()> {
+    if text.is_none() && !piped {
+        return Err(());
+    }
+    Ok(text.take().unwrap_or_default())
+}
+
+#[cfg(test)]
+fn transform(expr: &str, stdin: Option<&str>) -> Result<String, ()> {
+    let pipe::PasteBody::Run(script) = pipe::classify(expr) else {
+        return Err(());
+    };
+    if script.ops.iter().any(|op| op.kind == "sel") {
+        return Err(());
+    }
+    walk(
+        &script.ops,
+        stdin.map(str::to_string),
+        &std::collections::HashMap::new(),
+        stdin.is_some(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn echo_and_quote_and_columns() {
+        assert_eq!(transform("echo 3+4", None).as_deref(), Ok("7"));
+        assert_eq!(transform("quote", Some("hello")).as_deref(), Ok("> hello"));
+        assert_eq!(transform("split , | col 2", Some("a,b,c")).as_deref(), Ok("b"));
+        assert_eq!(transform("upper", Some("Ab")).as_deref(), Ok("AB"));
+        assert!(transform("json", Some("{")).is_err());
+        assert!(transform("sel | upper", Some("hello")).is_err());
+        assert!(transform("nope", Some("hello")).is_err());
+        assert!(transform("quote", None).is_err());
+    }
+}
+
+fn data_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("APPDATA")?;
+        Some(PathBuf::from(base).join("com.hataclip.app"))
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(base) = std::env::var_os("XDG_DATA_HOME") {
+            return Some(PathBuf::from(base).join("com.hataclip.app"));
+        }
+        let home = std::env::var_os("HOME")?;
+        Some(PathBuf::from(home).join(".local/share/com.hataclip.app"))
+    }
+}
