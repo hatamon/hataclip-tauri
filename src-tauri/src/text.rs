@@ -1115,6 +1115,19 @@ pub fn json_at(text: &str, pointer: &str) -> Option<String> {
     Some(json_scalar(value.pointer(pointer)?))
 }
 
+/// ポインタの位置を置き換える。無い、または JSON でなければなし。
+pub fn json_put(text: &str, pointer: &str, raw: &str) -> Option<String> {
+    let mut value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let incoming = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) {
+        parsed
+    } else {
+        serde_json::Value::String(raw.to_string())
+    };
+    let slot = value.pointer_mut(pointer)?;
+    *slot = incoming;
+    serde_json::to_string(&value).ok()
+}
+
 pub fn json_scalar(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(text) => text.clone(),
@@ -1909,6 +1922,15 @@ mod tests {
         assert_eq!(line_diff("a\nb", "a\nb"), None);
         assert_eq!(only_lines("b\nc", "a\nb").as_deref(), Some("c"));
         assert_eq!(only_lines("a", "a"), None);
+        let put = json_put(r#"{"name":"x","n":1}"#, "/n", "2").unwrap();
+        let put: serde_json::Value = serde_json::from_str(&put).unwrap();
+        assert_eq!(put["n"], 2);
+        assert_eq!(put["name"], "x");
+        let named = json_put(r#"{"name":"x"}"#, "/name", "hello").unwrap();
+        let named: serde_json::Value = serde_json::from_str(&named).unwrap();
+        assert_eq!(named["name"], "hello");
+        assert_eq!(json_put(r#"{"n":1}"#, "/missing", "2"), None);
+        assert_eq!(json_put("nope", "/n", "2"), None);
     }
 
     #[test]

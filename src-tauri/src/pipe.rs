@@ -306,6 +306,24 @@ fn col_arg(line: &str) -> Option<String> {
     Some(rest.to_string())
 }
 
+fn put_arg(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("put ").or_else(|| line.strip_prefix("put\t"))?;
+    let rest = rest.trim_start();
+    let (pointer, raw) = rest.split_once(char::is_whitespace)?;
+    let raw = raw.trim();
+    if !pointer.starts_with('/') || raw.is_empty() {
+        return None;
+    }
+    let value = if let Some(quoted) = unquote(raw) {
+        quoted
+    } else if raw.starts_with('"') || raw.starts_with('\'') {
+        return None;
+    } else {
+        raw.to_string()
+    };
+    Some(format!("{pointer}\u{1}{value}"))
+}
+
 fn side_arg(line: &str, name: &str) -> Option<String> {
     let rest = line
         .strip_prefix(&format!("{name} "))
@@ -420,6 +438,9 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if let Some(side) = side_arg(part, "only") {
         return Some(op("only", &side, false));
+    }
+    if let Some(arg) = put_arg(part) {
+        return Some(op("put", &arg, false));
     }
     if part == "sh" || part.starts_with("sh ") || part.starts_with("sh\t") {
         let raw = if part == "sh" { "" } else { &part[2..] };

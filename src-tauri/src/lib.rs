@@ -772,6 +772,19 @@ fn execute_pipe(
                     }
                 }
             }
+            "put" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                let Some((pointer, value)) = op.arg.split_once('\u{1}') else {
+                    return Err("段が違う".into());
+                };
+                if let Some(current) = text.as_mut() {
+                    *current = text::json_put(current, pointer, value).ok_or("書けない")?;
+                }
+            }
             "diff" | "only" => {
                 if text.is_none() {
                     used_selection = true;

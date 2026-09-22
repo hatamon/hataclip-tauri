@@ -38,6 +38,7 @@ export const COLON_COMMANDS = [
   "get",
   "diff",
   "only",
+  "put",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -361,6 +362,30 @@ function colArg(part: string): string | null {
   return rest;
 }
 
+function putArg(part: string): string | null {
+  if (!part.startsWith("put ") && !part.startsWith("put\t")) {
+    return null;
+  }
+  const rest = part.slice(4).trimStart();
+  const split = rest.search(/\s/);
+  if (split < 0) {
+    return null;
+  }
+  const pointer = rest.slice(0, split);
+  const raw = rest.slice(split).trim();
+  if (!pointer.startsWith("/") || raw.length === 0) {
+    return null;
+  }
+  const quoted = unquoteColonArg(raw);
+  if (quoted !== null) {
+    return `${pointer}\u0001${quoted}`;
+  }
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    return null;
+  }
+  return `${pointer}\u0001${raw}`;
+}
+
 function sideArg(part: string, name: string): string | null {
   const prefix = `${name} `;
   const tab = `${name}\t`;
@@ -478,6 +503,10 @@ function stageOf(part: string): PipeOp | null {
   const onlySide = sideArg(part, "only");
   if (onlySide !== null) {
     return { kind: "only", arg: onlySide, selectionStdin: false };
+  }
+  const put = putArg(part);
+  if (put !== null) {
+    return { kind: "put", arg: put, selectionStdin: false };
   }
   if (part === "sh" || part.startsWith("sh ") || part.startsWith("sh\t")) {
     const script = shScript(part === "sh" ? "" : part.slice(3));
