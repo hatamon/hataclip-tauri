@@ -438,16 +438,41 @@ fn parse_set_value(raw: &str) -> Option<String> {
 }
 
 fn unquote(raw: &str, quote: char) -> Option<String> {
-    let mut chars = raw.chars();
+    let text = raw.trim_start();
+    let mut chars = text.chars();
     if chars.next() != Some(quote) {
         return None;
     }
-    let rest: String = chars.collect();
-    let end = rest.find(quote)?;
-    if !rest[end + quote.len_utf8()..].trim().is_empty() {
-        return None;
+    let body: Vec<char> = chars.collect();
+    let mut out = String::new();
+    let mut escaped = false;
+    let mut index = 0;
+    while index < body.len() {
+        let ch = body[index];
+        index += 1;
+        if escaped {
+            out.push(match ch {
+                't' => '\t',
+                'n' => '\n',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            let tail: String = body[index..].iter().collect();
+            if !tail.trim().is_empty() {
+                return None;
+            }
+            return Some(out);
+        }
+        out.push(ch);
     }
-    Some(rest[..end].to_string())
+    None
 }
 
 fn valid_var_name(name: &str) -> bool {
@@ -715,6 +740,14 @@ mod tests {
         assert!(matches!(
             parse_set("a=\"{{date}}\""),
             Some(SetCommand::Var { name, value }) if name == "a" && value == "{{date}}"
+        ));
+        assert!(matches!(
+            parse_set(r#"a="say \"hi\"""#),
+            Some(SetCommand::Var { name, value }) if name == "a" && value == "say \"hi\""
+        ));
+        assert!(matches!(
+            parse_set(r#"a="a\tb\nc""#),
+            Some(SetCommand::Var { name, value }) if name == "a" && value == "a\tb\nc"
         ));
         assert!(matches!(
             parse_set("a=':sh dir'"),
