@@ -30,6 +30,7 @@ describe("matchingColonCommands", () => {
       "settings",
       "tags",
       "clip",
+      "sel",
       "camel",
       "pascal",
       "snake",
@@ -193,6 +194,17 @@ describe("parseColonPipe", () => {
       usesSelection: false,
       ops: [{ kind: "clip", arg: "", selectionStdin: false }],
     });
+    expect(parseColonPipe("sel | upper")).toEqual({
+      kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: false,
+      ops: [
+        { kind: "sel", arg: "", selectionStdin: false },
+        { kind: "upper", arg: "", selectionStdin: false },
+      ],
+    });
+    expect(parseColonPipe("sel | clip | upper")).toEqual({ kind: "bad" });
+    expect(parseColonPipe("echo 1 | clip | show")).toEqual({ kind: "bad" });
   });
 
   it("rejects an empty stage", () => {

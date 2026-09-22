@@ -24,6 +24,7 @@ export const COLON_COMMANDS = [
   "settings",
   "tags",
   "clip",
+  "sel",
   "camel",
   "pascal",
   "snake",
@@ -305,6 +306,9 @@ function stageOf(part: string): PipeOp | null {
   if (part === "clip") {
     return { kind: "clip", arg: "", selectionStdin: false };
   }
+  if (part === "sel") {
+    return { kind: "sel", arg: "", selectionStdin: false };
+  }
   if (part === "raw") {
     return { kind: "raw", arg: "", selectionStdin: false };
   }
@@ -365,13 +369,32 @@ function peelClip(part: string): { part: string; clip: boolean } {
   return { part: match[1].trim(), clip: true };
 }
 
+/** 流れができたあとの `clip` は読む段として不正。 */
+function middleClip(ops: PipeOp[]): boolean {
+  let produced = false;
+  for (const op of ops) {
+    if (op.kind === "clip") {
+      if (produced) {
+        return true;
+      }
+      produced = true;
+      continue;
+    }
+    if (op.kind === "raw") {
+      continue;
+    }
+    produced = true;
+  }
+  return false;
+}
+
 function pipeUsesSelection(ops: PipeOp[]): boolean {
   let produced = false;
   for (const op of ops) {
     if (op.kind === "raw") {
       continue;
     }
-    if (op.kind === "clip") {
+    if (op.kind === "clip" || op.kind === "sel") {
       produced = true;
       continue;
     }
@@ -433,6 +456,9 @@ export function parseColonPipe(input: string): ParsedPipe {
       return { kind: "bad" };
     }
     ops.push(stage);
+  }
+  if (middleClip(ops)) {
+    return { kind: "bad" };
   }
   return { kind: "ok", ops, sink, usesSelection: pipeUsesSelection(ops) };
 }

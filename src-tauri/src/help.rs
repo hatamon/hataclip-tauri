@@ -86,7 +86,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。| で左からつなぐ（引用符の中の | では切らない）。| clip はクリップボード（> clip も同じ。前面には貼らない）。| add は一覧へ1件。| set a は変数へ。| open は URL かパスなら開く。| show はここに出す。最初の :sh は stdin なし。次の :sh は左を stdin に。:. は選択行。先頭の clip はクリップボードを読む。camel pascal snake kebab upper lower は文字の形を変える。json xml は整形する。読めなければ何もしない。echo は式の結果で流れを置き換える。左は見ない。計算できなければ何もしない。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。| で左からつなぐ（引用符の中の | では切らない）。| clip はクリップボード（> clip も同じ。前面には貼らない）。| add は一覧へ1件。| set a は変数へ。| open は URL かパスなら開く。| show はここに出す。最初の :sh は stdin なし。次の :sh は左を stdin に。:. は選択行。先頭の clip はクリップボードを読む。sel は前面の選択。Windows では Ctrl+C の 200ms 後を読んで、すぐクリップボードを戻す。空なら何もしない。Ubuntu では sel を含むパイプは実行しない。流れがあるあとの clip は不正で何もしない。例: :sel | upper は前面の hello を HELLO にして貼る。:. | upper は一覧の行を大文字にして貼る。:clip | show はクリップボードをここに出す。camel pascal snake kebab upper lower は文字の形を変える。json xml は整形する。読めなければ何もしない。echo は式の結果で流れを置き換える。左は見ない。計算できなければ何もしない。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",
@@ -186,6 +186,8 @@ mod tests {
         assert!(render(Some("open")).contains(":open"));
         assert!(render(Some("paste")).contains(":sh dir"));
         assert!(render(Some("colon")).contains(":echo"));
+        assert!(render(Some("colon")).contains("sel は前面の選択"));
+        assert!(render(Some("colon")).contains(":sel | upper"));
         assert!(render(Some("colon")).contains(":type"));
         assert!(render(Some("colon")).contains(":settings"));
         assert!(render(Some("colon")).contains(":set paste"));

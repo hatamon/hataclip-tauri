@@ -679,6 +679,9 @@ fn run_pipe(
     if ops.is_empty() {
         return Err("段がない".into());
     }
+    if !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
+        return Err("選択を取れない".into());
+    }
     let mut text: Option<String> = None;
     let mut raw = false;
     let mut used_selection = false;
@@ -696,8 +699,14 @@ fn run_pipe(
                 }
             }
             "clip" => {
+                if text.is_some() {
+                    return Err("段が違う".into());
+                }
+                text = Some(clipboard::peek_text().unwrap_or_default());
+            }
+            "sel" => {
                 if text.is_none() {
-                    text = Some(clipboard::peek_text().unwrap_or_default());
+                    text = Some(capture_pipe_selection(&app, &state)?);
                 }
             }
             "echo" => {
@@ -1278,6 +1287,45 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
 #[cfg(not(windows))]
 fn capture_selection(_app: &tauri::AppHandle, _state: &AppState) -> String {
     String::new()
+}
+
+/// パイプの `sel`。前面へ Ctrl+C を送り、200ms 後を読んで、すぐクリップボードを戻す。
+fn capture_pipe_selection(app: &tauri::AppHandle, state: &AppState) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let previous = clipboard::peek_text();
+        let was_open = *state.picker_open.lock().expect("picker_open");
+        if was_open {
+            hide_window(app, state);
+            let foreground = *state.foreground.lock().expect("foreground");
+            if let Some(foreground) = foreground.as_ref() {
+                let _ = platform::restore_foreground(foreground);
+            }
+            std::thread::sleep(Duration::from_millis(70));
+        }
+        let _ = platform::simulate_copy(&copy_spec(state));
+        std::thread::sleep(Duration::from_millis(200));
+        let captured = clipboard::peek_text();
+        if let Some(previous) = previous.as_ref() {
+            let _ = clipboard::write_clipboard_text(previous);
+        }
+        let text = match captured {
+            Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
+            _ => String::new(),
+        };
+        if was_open {
+            reveal_picker(app, state);
+        }
+        if text.is_empty() {
+            return Err("選択が空".into());
+        }
+        Ok(text)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, state);
+        Err("選択を取れない".into())
+    }
 }
 
 fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<text::PasteOp>> {
