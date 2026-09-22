@@ -86,7 +86,7 @@ fn parse(input: &str) -> Parse {
         };
         ops.push(stage);
     }
-    if middle_clip(&ops) {
+    if middle_clip(&ops) || sh_after_each(&ops) {
         return Parse::Bad;
     }
     let uses_selection = pipe_uses_selection(&ops);
@@ -399,8 +399,8 @@ fn stage_of(part: &str) -> Option<Op> {
     if part == "sel" {
         return Some(op("sel", "", false));
     }
-    if part == "raw" {
-        return Some(op("raw", "", false));
+    if part == "raw" || part == "each" {
+        return Some(op(part, "", false));
     }
     if part == "format" {
         return Some(op("format", "", false));
@@ -489,6 +489,19 @@ fn peel_clip(part: &str) -> (String, bool) {
     (part[..index].trim().to_string(), true)
 }
 
+fn sh_after_each(ops: &[Op]) -> bool {
+    let mut seen = false;
+    for op in ops {
+        if op.kind == "each" {
+            seen = true;
+        }
+        if seen && op.kind == "sh" {
+            return true;
+        }
+    }
+    false
+}
+
 fn middle_clip(ops: &[Op]) -> bool {
     let mut produced = false;
     for op in ops {
@@ -569,6 +582,8 @@ mod tests {
         assert_eq!(split.ops[1].arg, "\t");
         assert_eq!(split.ops[2].arg, "2");
         assert_eq!(split.ops[3].arg, "/name");
+        assert!(matches!(classify("sel | each | get /id"), PasteBody::Run(_)));
+        assert_eq!(classify("sel | each | sh dir"), PasteBody::Bad);
         assert_eq!(classify("sel | split"), PasteBody::Bad);
         assert_eq!(classify("sel | col x"), PasteBody::Bad);
         assert_eq!(classify("sel | comma"), PasteBody::Bad);

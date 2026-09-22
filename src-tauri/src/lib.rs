@@ -692,25 +692,22 @@ fn run_pipe(
     )
 }
 
-fn execute_pipe(
+fn walk_pipe(
     app: &tauri::AppHandle,
     state: &AppState,
     ids: &[String],
     ops: &[PipeOp],
-    sink: &str,
-    set_name: Option<&str>,
-    keep_open: bool,
-) -> Result<Option<String>, String> {
-    if ops.is_empty() {
-        return Err("段がない".into());
-    }
-    if !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
-        return Err("選択を取れない".into());
-    }
-    let mut text: Option<String> = None;
+    seed: Option<String>,
+) -> Result<(String, bool), String> {
+    let mut text: Option<String> = seed;
     let mut raw = false;
     let mut used_selection = false;
-    for op in ops {
+    let mut each_at = None;
+    for (index, op) in ops.iter().enumerate() {
+        if op.kind == "each" {
+            each_at = Some(index);
+            break;
+        }
         match op.kind.as_str() {
             "raw" => {
                 if text.is_none() {
@@ -851,7 +848,52 @@ fn execute_pipe(
         used_selection = true;
         text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, raw)?, "\n"));
     }
-    let text = text.unwrap_or_default();
+    if let Some(index) = each_at {
+        if text.is_none() {
+            used_selection = true;
+            text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+        }
+        let body = text.unwrap_or_default();
+        let mut kept = Vec::new();
+        for line in body.lines() {
+            match walk_pipe(app, state, ids, &ops[index + 1..], Some(line.to_string())) {
+                Ok((out, used)) => {
+                    if used {
+                        used_selection = true;
+                    }
+                    kept.push(out);
+                }
+                Err(_) => {}
+            }
+        }
+        if kept.is_empty() {
+            return Err("当たらない".into());
+        }
+        return Ok((kept.join("\n"), used_selection));
+    }
+    if text.is_none() {
+        used_selection = true;
+        text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+    }
+    Ok((text.unwrap_or_default(), used_selection))
+}
+
+fn execute_pipe(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    ops: &[PipeOp],
+    sink: &str,
+    set_name: Option<&str>,
+    keep_open: bool,
+) -> Result<Option<String>, String> {
+    if ops.is_empty() {
+        return Err("段がない".into());
+    }
+    if !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
+        return Err("選択を取れない".into());
+    }
+    let (text, used_selection) = walk_pipe(app, state, ids, ops, None)?;
     let pasted_ids: Vec<String> = if used_selection { ids.to_vec() } else { Vec::new() };
     match sink {
         "paste" => {

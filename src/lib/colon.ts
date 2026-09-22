@@ -39,6 +39,7 @@ export const COLON_COMMANDS = [
   "diff",
   "only",
   "put",
+  "each",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -450,8 +451,8 @@ function stageOf(part: string): PipeOp | null {
   if (part === "sel") {
     return { kind: "sel", arg: "", selectionStdin: false };
   }
-  if (part === "raw") {
-    return { kind: "raw", arg: "", selectionStdin: false };
+  if (part === "raw" || part === "each") {
+    return { kind: part, arg: "", selectionStdin: false };
   }
   if (part === "format") {
     return { kind: "format", arg: "", selectionStdin: false };
@@ -535,6 +536,19 @@ function peelClip(part: string): { part: string; clip: boolean } {
 }
 
 /** 流れができたあとの `clip` は読む段として不正。 */
+function shAfterEach(ops: PipeOp[]): boolean {
+  let seen = false;
+  for (const op of ops) {
+    if (op.kind === "each") {
+      seen = true;
+    }
+    if (seen && op.kind === "sh") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function middleClip(ops: PipeOp[]): boolean {
   let produced = false;
   for (const op of ops) {
@@ -632,7 +646,7 @@ export function parseColonPipe(input: string): ParsedPipe {
     }
     ops.push(stage);
   }
-  if (middleClip(ops)) {
+  if (middleClip(ops) || shAfterEach(ops)) {
     return { kind: "bad" };
   }
   return { kind: "ok", ops, sink, usesSelection: pipeUsesSelection(ops) };
