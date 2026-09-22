@@ -152,15 +152,81 @@ function colonArg(rest: string, fallback: string): string {
   return plain.length === 0 ? fallback : plain;
 }
 
-/** `:quote` の行頭。未指定なら `> `。`:quote "* "` で空白も含めて指定。 */
-export function quotePrefix(line: string): string | null {
-  if (line === "quote") {
-    return "> ";
+const QUOTE_SPLIT = "\u0001";
+
+function readQuoted(raw: string): { value: string; rest: string } | null {
+  const text = raw.trimStart();
+  const quote = text[0];
+  if (quote !== '"' && quote !== "'") {
+    return null;
   }
-  if (line.startsWith("quote ") || line.startsWith("quote\t")) {
-    return colonArg(line.slice(6), "> ");
+  let out = "";
+  let escaped = false;
+  for (let i = 1; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escaped) {
+      if (ch === "t") {
+        out += "\t";
+      } else if (ch === "n") {
+        out += "\n";
+      } else {
+        out += ch;
+      }
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === quote) {
+      return { value: out, rest: text.slice(i + 1) };
+    }
+    out += ch;
   }
   return null;
+}
+
+/** 行頭と行末。引数1つなら行末は空。2つは両方引用。書けなければ null。 */
+export function quoteMarks(line: string): { prefix: string; suffix: string } | null {
+  if (line === "quote") {
+    return { prefix: "> ", suffix: "" };
+  }
+  if (!line.startsWith("quote ") && !line.startsWith("quote\t")) {
+    return null;
+  }
+  const rest = line.slice(6);
+  if (rest.trim().length === 0) {
+    return { prefix: "> ", suffix: "" };
+  }
+  const first = readQuoted(rest);
+  if (first && first.rest.trim().length === 0) {
+    return { prefix: first.value, suffix: "" };
+  }
+  if (first) {
+    const second = readQuoted(first.rest);
+    if (!second || second.rest.trim().length > 0) {
+      return null;
+    }
+    return { prefix: first.value, suffix: second.value };
+  }
+  return { prefix: colonArg(rest, "> "), suffix: "" };
+}
+
+export function encodeQuote(prefix: string, suffix: string): string {
+  if (suffix.length === 0) {
+    return prefix;
+  }
+  return `${prefix}${QUOTE_SPLIT}${suffix}`;
+}
+
+/** `:quote` の行頭。未指定なら `> `。`:quote "* "` で空白も含めて指定。 */
+export function quotePrefix(line: string): string | null {
+  const marks = quoteMarks(line);
+  if (!marks) {
+    return null;
+  }
+  return marks.prefix;
 }
 
 /** `:join` の区切り。未指定なら `,`。`:join "\\t"` はタブ。 */
@@ -325,9 +391,9 @@ function stageOf(part: string): PipeOp | null {
     }
     return { kind: "echo", arg: expr, selectionStdin: false };
   }
-  const prefix = quotePrefix(part);
-  if (prefix !== null) {
-    return { kind: "quote", arg: prefix, selectionStdin: false };
+  const marks = quoteMarks(part);
+  if (marks) {
+    return { kind: "quote", arg: encodeQuote(marks.prefix, marks.suffix), selectionStdin: false };
   }
   const sep = joinSeparator(part);
   if (sep !== null) {

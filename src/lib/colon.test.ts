@@ -90,6 +90,8 @@ describe("quotePrefix", () => {
     expect(quotePrefix('quote ">"')).toBe(">");
     expect(quotePrefix("quote - [ ] ")).toBe("- [ ]");
     expect(quotePrefix("format")).toBeNull();
+    expect(quotePrefix('quote "> " "<"')).toBe("> ");
+    expect(quotePrefix('quote "> " <')).toBeNull();
   });
 });
 
@@ -129,6 +131,11 @@ describe("parseColonPipe", () => {
       sink: { kind: "paste" },
       usesSelection: false,
       ops: [{ kind: "echo", arg: "3+4", selectionStdin: false }],
+    });
+    expect(parseColonPipe('quote "> " "<"')).toMatchObject({
+      kind: "ok",
+      sink: { kind: "paste" },
+      ops: [{ kind: "quote", arg: "> \u0001<" }],
     });
     expect(parseColonPipe('quote "|"')).toMatchObject({
       kind: "ok",

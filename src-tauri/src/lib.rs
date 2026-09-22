@@ -618,7 +618,10 @@ struct PipeOp {
 
 fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
     match kind {
-        "quote" => text::prefix_lines(text, arg),
+        "quote" => {
+            let (prefix, suffix) = text::split_quote_arg(arg);
+            text::affix_lines(text, prefix, suffix)
+        }
         "format" => text::format_for_paste(text),
         "join" => text.lines().collect::<Vec<_>>().join(arg),
         "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => text::recase(text, kind),
@@ -2110,5 +2113,7 @@ mod tests {
         let once = pipe_local("b\na", "quote", "> ");
         let twice = pipe_local(&once, "quote", "x ");
         assert_eq!(twice, "x > b\nx > a");
+        assert_eq!(pipe_local("hello", "quote", "> \u{1}<"), "> hello<");
+        assert_eq!(pipe_local("> hello<", "quote", "> \u{1}<"), "> hello<");
     }
 }

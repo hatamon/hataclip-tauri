@@ -210,14 +210,73 @@ fn colon_arg(rest: &str, fallback: &str) -> String {
     }
 }
 
-fn quote_prefix(line: &str) -> Option<String> {
-    if line == "quote" {
-        return Some("> ".to_string());
+fn read_quoted(raw: &str) -> Option<(String, &str)> {
+    let text = raw.trim_start();
+    let mut chars = text.char_indices();
+    let (quote_at, quote) = chars.next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
     }
-    if let Some(rest) = line.strip_prefix("quote ").or_else(|| line.strip_prefix("quote\t")) {
-        return Some(colon_arg(rest, "> "));
+    let _ = quote_at;
+    let body: Vec<char> = chars.map(|(_, ch)| ch).collect();
+    let mut out = String::new();
+    let mut escaped = false;
+    let mut index = 0;
+    while index < body.len() {
+        let ch = body[index];
+        index += 1;
+        if escaped {
+            out.push(match ch {
+                't' => '\t',
+                'n' => '\n',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            let tail: String = body[index..].iter().collect();
+            let skipped = text.len() - tail.len();
+            return Some((out, &text[skipped..]));
+        }
+        out.push(ch);
     }
     None
+}
+
+fn quote_marks(line: &str) -> Option<(String, String)> {
+    if line == "quote" {
+        return Some(("> ".to_string(), String::new()));
+    }
+    let rest = line
+        .strip_prefix("quote ")
+        .or_else(|| line.strip_prefix("quote\t"))?;
+    if rest.trim().is_empty() {
+        return Some(("> ".to_string(), String::new()));
+    }
+    if let Some((value, tail)) = read_quoted(rest) {
+        if tail.trim().is_empty() {
+            return Some((value, String::new()));
+        }
+        let (suffix, tail) = read_quoted(tail)?;
+        if !tail.trim().is_empty() {
+            return None;
+        }
+        return Some((value, suffix));
+    }
+    Some((colon_arg(rest, "> "), String::new()))
+}
+
+fn encode_quote(prefix: &str, suffix: &str) -> String {
+    if suffix.is_empty() {
+        prefix.to_string()
+    } else {
+        format!("{prefix}\u{1}{suffix}")
+    }
 }
 
 fn join_separator(line: &str) -> Option<String> {
@@ -291,8 +350,8 @@ fn stage_of(part: &str) -> Option<Op> {
         }
         return Some(op("echo", expr, false));
     }
-    if let Some(prefix) = quote_prefix(part) {
-        return Some(op("quote", &prefix, false));
+    if let Some((prefix, suffix)) = quote_marks(part) {
+        return Some(op("quote", &encode_quote(&prefix, &suffix), false));
     }
     if let Some(sep) = join_separator(part) {
         return Some(op("join", &sep, false));
@@ -421,6 +480,10 @@ mod tests {
         assert_eq!(classify("sel | tab"), PasteBody::Bad);
         assert_eq!(classify("quote \"* \" > clip"), PasteBody::Bad);
         assert_eq!(classify("sh dir>clip"), PasteBody::Bad);
+        let PasteBody::Run(quoted) = classify(r#"quote "> " "<""#) else {
+            panic!("quote");
+        };
+        assert_eq!(quoted.ops[0].arg, format!("> \u{1}<"));
     }
 
     #[test]

@@ -661,26 +661,41 @@ pub fn pick_specs(text: &str) -> Vec<(String, Vec<String>)> {
 }
 
 pub fn prefix_lines(text: &str, prefix: &str) -> String {
-    let already = prefix_already(prefix);
+    affix_lines(text, prefix, "")
+}
+
+/// 行頭と行末。印が空白だけならその空白で比べ、そうでなければ端の空白を除いて比べる。
+pub fn affix_lines(text: &str, prefix: &str, suffix: &str) -> String {
+    let start = if prefix.trim_end().is_empty() {
+        prefix
+    } else {
+        prefix.trim_end()
+    };
+    let end = if suffix.trim_start().is_empty() {
+        suffix
+    } else {
+        suffix.trim_start()
+    };
     text.lines()
-        .map(|line| {
-            if line.starts_with(already) {
-                line.to_string()
-            } else {
-                format!("{prefix}{line}")
-            }
-        })
+        .map(|line| affix_line(line, prefix, suffix, start, end))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn prefix_already(prefix: &str) -> &str {
-    let trimmed = prefix.trim_end();
-    if trimmed.is_empty() {
-        prefix
-    } else {
-        trimmed
+fn affix_line(line: &str, prefix: &str, suffix: &str, start: &str, end: &str) -> String {
+    let mut out = String::new();
+    if !prefix.is_empty() && !line.starts_with(start) {
+        out.push_str(prefix);
     }
+    out.push_str(line);
+    if !suffix.is_empty() && !line.ends_with(end) {
+        out.push_str(suffix);
+    }
+    out
+}
+
+pub fn split_quote_arg(arg: &str) -> (&str, &str) {
+    arg.split_once('\u{1}').unwrap_or((arg, ""))
 }
 
 pub fn to_tsv(text: &str) -> Option<String> {
@@ -1520,6 +1535,13 @@ mod tests {
         assert_eq!(prefix_lines("> a\nb", "> "), "> a\n> b");
         assert_eq!(prefix_lines("a\n* b", "* "), "* a\n* b");
         assert_eq!(prefix_lines("- [ ] a\nb", "- [ ] "), "- [ ] a\n- [ ] b");
+        assert_eq!(affix_lines("hello", "> ", "<"), "> hello<");
+        assert_eq!(affix_lines("> hello", "> ", "<"), "> hello<");
+        assert_eq!(affix_lines("hello<", "> ", "<"), "> hello<");
+        assert_eq!(affix_lines("> hello<", "> ", "<"), "> hello<");
+        assert_eq!(affix_lines("a\n\nb", "> ", "<"), "> a<\n> <\n> b<");
+        assert_eq!(affix_lines("hello", "", "<"), "hello<");
+        assert_eq!(affix_lines("hello  ", "> ", "  "), "> hello  ");
     }
 
     #[test]
