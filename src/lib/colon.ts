@@ -156,11 +156,8 @@ function colonArg(rest: string, fallback: string): string {
   return plain.length === 0 ? fallback : plain;
 }
 
-/** `:quote` の行頭。未指定なら `> `。`:quote "* "` で空白も含めて指定。`:bullet` は `"* "`。 */
+/** `:quote` の行頭。未指定なら `> `。`:quote "* "` で空白も含めて指定。 */
 export function quotePrefix(line: string): string | null {
-  if (line === "bullet") {
-    return "* ";
-  }
   if (line === "quote") {
     return "> ";
   }
@@ -203,7 +200,8 @@ export type PipeOp = {
     | "upper"
     | "lower"
     | "json"
-    | "xml";
+    | "xml"
+    | "echo";
   arg: string;
   selectionStdin: boolean;
 };
@@ -326,6 +324,13 @@ function stageOf(part: string): PipeOp | null {
   if (part === "json" || part === "xml") {
     return { kind: part, arg: "", selectionStdin: false };
   }
+  if (part === "echo" || part.startsWith("echo ") || part.startsWith("echo\t")) {
+    const expr = (part === "echo" ? "" : part.slice(5)).trim();
+    if (expr.length === 0) {
+      return null;
+    }
+    return { kind: "echo", arg: expr, selectionStdin: false };
+  }
   const prefix = quotePrefix(part);
   if (prefix !== null) {
     return { kind: "quote", arg: prefix, selectionStdin: false };
@@ -381,6 +386,10 @@ function pipeUsesSelection(ops: PipeOp[]): boolean {
       if (!produced && op.selectionStdin) {
         return true;
       }
+      produced = true;
+      continue;
+    }
+    if (op.kind === "echo") {
       produced = true;
       continue;
     }

@@ -16,10 +16,10 @@ import {
 describe("parseMapArgs", () => {
   it("lists when empty and sets nvim-style leader cmd", () => {
     expect(parseMapArgs("")).toEqual({ kind: "list" });
-    expect(parseMapArgs("<leader>* :bullet")).toEqual({
+    expect(parseMapArgs("<leader>* :format")).toEqual({
       kind: "set",
       lhs: "<leader>*",
-      rhs: ":bullet",
+      rhs: ":format",
     });
     expect(parseMapArgs('<leader>* :quote "* "')).toEqual({
       kind: "set",
@@ -34,10 +34,10 @@ describe("parseMapArgs", () => {
 });
 
 describe("parseRhs", () => {
-  it("treats :quote and <cmd>bullet as commands", () => {
-    expect(parseRhs(":bullet")).toEqual({ kind: "cmd", command: "bullet" });
+  it("treats :quote and <cmd>quote as commands", () => {
+    expect(parseRhs(":format")).toEqual({ kind: "cmd", command: "format" });
     expect(parseRhs(':quote "* "')).toEqual({ kind: "cmd", command: 'quote "* "' });
-    expect(parseRhs("<cmd>bullet")).toEqual({ kind: "cmd", command: "bullet" });
+    expect(parseRhs("<cmd>quote")).toEqual({ kind: "cmd", command: "quote" });
     expect(parseRhs("dd")).toEqual({ kind: "keys", keys: "dd" });
   });
 });
@@ -61,11 +61,11 @@ describe("validLhs and leader", () => {
 
 describe("matchMap", () => {
   it("waits on prefixes and does not recurse", () => {
-    const maps = upsertMap([], "<leader>*", "<cmd>bullet");
+    const maps = upsertMap([], "<leader>*", "<cmd>quote");
     expect(matchMap(maps, "", "<Space>", " ")).toEqual({ kind: "prefix" });
     expect(matchMap(maps, "<leader>", "*", " ")).toEqual({
       kind: "hit",
-      rhs: { kind: "cmd", command: "bullet" },
+      rhs: { kind: "cmd", command: "quote" },
     });
     expect(combinePending("", "<Space>", " ")).toBe("<leader>");
     expect(matchMap([{ lhs: "j", rhs: "k" }], "", "j", "\\")).toEqual({
@@ -75,6 +75,6 @@ describe("matchMap", () => {
     expect(matchMap([{ lhs: "dd", rhs: "k" }], "", "d", "\\")).toEqual({ kind: "prefix" });
     expect(formatMaps("\\", maps)).toContain("<leader>*");
     expect(whichKeysForMaps(maps, "")).toEqual([]);
-    expect(whichKeysForMaps(maps, "<leader>")).toEqual([{ key: "*", label: "<cmd>bullet" }]);
+    expect(whichKeysForMaps(maps, "<leader>")).toEqual([{ key: "*", label: "<cmd>quote" }]);
   });
 });

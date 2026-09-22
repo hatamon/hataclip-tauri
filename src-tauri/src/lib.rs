@@ -700,6 +700,11 @@ fn run_pipe(
                     text = Some(clipboard::peek_text().unwrap_or_default());
                 }
             }
+            "echo" => {
+                let value = expr::eval_with(&op.arg, &var_map(&state)).ok_or("計算できない")?;
+                text = Some(expr::format_number(value));
+                raw = false;
+            }
             "sh" => {
                 let stdin = if let Some(current) = text.take() {
                     Some(current)

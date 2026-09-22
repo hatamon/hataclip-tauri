@@ -89,7 +89,6 @@ describe("quotePrefix", () => {
     expect(quotePrefix('quote ">"')).toBe(">");
     expect(quotePrefix("quote - [ ] ")).toBe("- [ ]");
     expect(quotePrefix(stripClipSink('quote "* " > clip').cmd)).toBe("* ");
-    expect(quotePrefix("bullet")).toBe("* ");
     expect(quotePrefix("format")).toBeNull();
   });
 });
@@ -181,6 +180,13 @@ describe("parseColonPipe", () => {
         { kind: "json", arg: "", selectionStdin: false },
       ],
     });
+    expect(parseColonPipe("echo 3+4|show")).toEqual({
+      kind: "ok",
+      sink: { kind: "show" },
+      usesSelection: false,
+      ops: [{ kind: "echo", arg: "3+4", selectionStdin: false }],
+    });
+    expect(parseColonPipe("echo | show")).toEqual({ kind: "bad" });
     expect(parseColonPipe("clip | show")).toMatchObject({
       kind: "ok",
       sink: { kind: "show" },

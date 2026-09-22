@@ -670,7 +670,7 @@ mod tests {
             leader: ",".into(),
             maps: vec![KeyMap {
                 lhs: "<leader>*".into(),
-                rhs: "<cmd>bullet".into(),
+                rhs: "<cmd>quote".into(),
             }],
         });
         settings.set_shortcuts(Shortcuts::default());
