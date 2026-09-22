@@ -16,7 +16,7 @@ mod tray;
 
 use chrono::Local;
 use platform::Point;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use settings::{KeyMaps, NCommand, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -603,6 +603,179 @@ fn import_items(path: String, state: tauri::State<'_, AppState>) -> Result<Vec<I
 fn clear_unpinned(state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").clear_unpinned();
     view(&state)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PipeOp {
+    kind: String,
+    #[serde(default)]
+    arg: String,
+    #[serde(default)]
+    selection_stdin: bool,
+}
+
+fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
+    match kind {
+        "quote" => text::prefix_lines(text, arg),
+        "format" => text::format_for_paste(text),
+        "join" => text.lines().collect::<Vec<_>>().join(arg),
+        _ => text.to_string(),
+    }
+}
+
+fn pipe_bodies(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    raw: bool,
+) -> Result<Vec<String>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    if raw {
+        let store = state.store.lock().expect("store");
+        let rows: Vec<Item> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
+        if rows.len() != ids.len() {
+            return Err("行がない".into());
+        }
+        return Ok(rows.into_iter().map(|item| item.text).collect());
+    }
+    let sel = if has_sel(state, ids) {
+        capture_selection(app, state)
+    } else {
+        String::new()
+    };
+    let ctx = expand_context(state, sel, HashMap::new());
+    let store = state.store.lock().expect("store");
+    let rows: Vec<Item> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
+    drop(store);
+    if rows.len() != ids.len() {
+        return Err("行がない".into());
+    }
+    let mut parts = Vec::new();
+    for item in &rows {
+        let ops = resolve_item(item, &ctx, false).ok_or("展開できない")?;
+        parts.push(text::flatten_ops(&ops));
+    }
+    Ok(parts)
+}
+
+fn pipe_text(parts: &[String], sep: &str) -> String {
+    parts.join(sep)
+}
+
+/// `|` でつないだ段を左から適用し、末尾の行き先へ出す。`show` のときだけ文字列を返す。
+#[tauri::command]
+fn run_pipe(
+    ids: Vec<String>,
+    ops: Vec<PipeOp>,
+    sink: String,
+    set_name: Option<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    if ops.is_empty() {
+        return Err("段がない".into());
+    }
+    let mut text: Option<String> = None;
+    let mut raw = false;
+    let mut used_selection = false;
+    for op in &ops {
+        match op.kind.as_str() {
+            "raw" => {
+                if text.is_none() {
+                    raw = true;
+                }
+            }
+            "sh" => {
+                let stdin = if let Some(current) = text.take() {
+                    Some(current)
+                } else if op.selection_stdin {
+                    used_selection = true;
+                    Some(pipe_text(&pipe_bodies(&app, &state, &ids, true)?, "\n"))
+                } else {
+                    None
+                };
+                let output = shell::run_script_with_stdin(&op.arg, stdin.as_deref())
+                    .map_err(|_| "コマンドに失敗した".to_string())?;
+                *state.last_sh.lock().expect("last_sh") = Some(op.arg.clone());
+                text = Some(output);
+                raw = false;
+            }
+            "quote" | "format" | "join" => {
+                if text.is_none() {
+                    used_selection = true;
+                    let sep = if op.kind == "join" { op.arg.as_str() } else { "\n" };
+                    text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, raw)?, sep));
+                    raw = false;
+                    if op.kind == "join" {
+                        continue;
+                    }
+                }
+                if let Some(current) = text.as_mut() {
+                    *current = pipe_local(current, &op.kind, &op.arg);
+                }
+            }
+            _ => return Err("段が違う".into()),
+        }
+    }
+    if text.is_none() {
+        used_selection = true;
+        text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, raw)?, "\n"));
+    }
+    let text = text.unwrap_or_default();
+    let pasted_ids: Vec<String> = if used_selection { ids } else { Vec::new() };
+    match sink.as_str() {
+        "paste" => {
+            if text.is_empty() {
+                return Ok(None);
+            }
+            if !paste_resolved_text(&app, &state, &pasted_ids, &text, false, false, None, false) {
+                return Err("貼れない".into());
+            }
+            Ok(None)
+        }
+        "clip" => {
+            if text.is_empty() {
+                return Ok(None);
+            }
+            if !clipboard::write_clipboard_text(&text) {
+                return Err("クリップボードに書けない".into());
+            }
+            Ok(None)
+        }
+        "add" => {
+            if text.is_empty() {
+                return Ok(None);
+            }
+            let tags = text::auto_tags(&text);
+            state
+                .store
+                .lock()
+                .expect("store")
+                .insert(Item::new(text, tags));
+            let _ = app.emit("items-changed", view(&state));
+            Ok(None)
+        }
+        "set" => {
+            let name = set_name.unwrap_or_default();
+            if !state.settings.lock().expect("settings").set_var(&name, text) {
+                return Err("名前が違う".into());
+            }
+            Ok(None)
+        }
+        "open" => {
+            let target = text.trim();
+            if target.starts_with("http://") || target.starts_with("https://") || text::looks_like_path(target)
+            {
+                platform::open_target(target);
+            }
+            Ok(None)
+        }
+        "show" => Ok(Some(text)),
+        _ => Err("行き先が違う".into()),
+    }
 }
 
 #[tauri::command]
@@ -1649,6 +1822,7 @@ pub fn run() {
             export_items,
             import_items,
             clear_unpinned,
+            run_pipe,
             paste_script,
             paste_echo,
             paste_last_script,
@@ -1719,5 +1893,12 @@ mod tests {
     #[test]
     fn minimum_wins_over_a_smaller_maximum() {
         assert_eq!(next_side(200, 24, 200, 150), 200);
+    }
+
+    #[test]
+    fn pipe_quote_stacks_prefixes() {
+        let once = pipe_local("b\na", "quote", "> ");
+        let twice = pipe_local(&once, "quote", "x ");
+        assert_eq!(twice, "x > b\nx > a");
     }
 }

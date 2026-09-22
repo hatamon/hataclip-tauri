@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, bangFilterScript, joinSeparator, matchingColonCommands, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, joinSeparator, matchingColonCommands, parseColonPipe, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -37,6 +37,11 @@ describe("matchingColonCommands", () => {
   it("ignores a trailing clip sink when matching", () => {
     expect(matchingColonCommands("quote > clip")).toEqual(["quote"]);
   });
+
+  it("completes the stage after a pipe", () => {
+    expect(matchingColonCommands("sh dir | qu")).toEqual(["quote"]);
+    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip"]);
+  });
 });
 
 describe("stripClipSink", () => {
@@ -52,6 +57,7 @@ describe("applyColonCompletion", () => {
   it("adds a trailing slash for substitute", () => {
     expect(applyColonCompletion("", "s")).toBe("s/");
     expect(applyColonCompletion("", "quote")).toBe("quote ");
+    expect(applyColonCompletion("sh dir | qu", "quote")).toBe("sh dir | quote ");
     expect(applyColonCompletion("", "join")).toBe("join ");
     expect(applyColonCompletion("", "!!")).toBe("!!sh ");
   });
@@ -87,6 +93,60 @@ describe("joinSeparator", () => {
     expect(joinSeparator("comma")).toBe(",");
     expect(joinSeparator("tab")).toBe("\t");
     expect(joinSeparator("quote")).toBeNull();
+  });
+});
+
+describe("parseColonPipe", () => {
+  it("leaves a single command alone", () => {
+    expect(parseColonPipe("quote > clip")).toEqual({ kind: "none" });
+    expect(parseColonPipe('quote "|"')).toEqual({ kind: "none" });
+  });
+
+  it("chains sh into quote and a clip sink", () => {
+    expect(parseColonPipe('sh dir | sh sort | quote "x " | clip')).toEqual({
+      kind: "ok",
+      sink: { kind: "clip" },
+      usesSelection: false,
+      ops: [
+        { kind: "sh", arg: "dir", selectionStdin: false },
+        { kind: "sh", arg: "sort", selectionStdin: false },
+        { kind: "quote", arg: "x ", selectionStdin: false },
+      ],
+    });
+  });
+
+  it("reads the selection for quote and dot-sh", () => {
+    expect(parseColonPipe('quote "> " | quote "x " | add')).toMatchObject({
+      kind: "ok",
+      sink: { kind: "add" },
+      usesSelection: true,
+    });
+    expect(parseColonPipe(".!sh sort | set files")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "set", name: "files" },
+      usesSelection: true,
+    });
+  });
+
+  it("keeps a quoted pipe and accepts a trailing > clip", () => {
+    expect(parseColonPipe('sh "dir | sort" | show')).toMatchObject({
+      kind: "ok",
+      sink: { kind: "show" },
+      ops: [{ kind: "sh", arg: "dir | sort", selectionStdin: false }],
+    });
+    expect(parseColonPipe('sh dir | quote "> " > clip')).toMatchObject({
+      kind: "ok",
+      sink: { kind: "clip" },
+      ops: [
+        { kind: "sh", arg: "dir", selectionStdin: false },
+        { kind: "quote", arg: "> ", selectionStdin: false },
+      ],
+    });
+  });
+
+  it("rejects an empty stage", () => {
+    expect(parseColonPipe("sh dir | | clip")).toEqual({ kind: "bad" });
+    expect(parseColonPipe("| clip")).toEqual({ kind: "bad" });
   });
 });
 

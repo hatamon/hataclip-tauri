@@ -47,7 +47,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "sh",
-        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る（stdin なし）。:.!sh xxx はカレント行（V なら改行つなぎ）を stdin に流す。:!!sh xxx は各行を stdin に流して本文を書き換える（貼らない）。:@ は直前の :sh / :.!sh のスクリプトをもう一度（stdin はいまの選択）。失敗したら貼らない／書き換えない。末尾に > clip でクリップボードへ（貼らない）。",
+        "#run を自分で付けた行だけコマンドを実行する。{{sh: コマンド}} はその場の標準出力に置き換わる。#run 付きで {{sh:}} が無ければ本文全体がコマンド。貼る前に出力を出して Enter で貼る。Esc は中止。:sh dir はその場実行して貼る（stdin なし）。:.!sh xxx はカレント行（V なら改行つなぎ）を stdin に流す。:!!sh xxx は各行を stdin に流して本文を書き換える（貼らない）。:@ は直前の :sh / :.!sh のスクリプトをもう一度（stdin はいまの選択）。失敗したら貼らない／書き換えない。| clip でクリップボードへ（貼らない。> clip も同じ）。| で左からつなぐ。次の :sh は左の結果を stdin に受け取る。",
     ),
     (
         "template",
@@ -86,7 +86,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "colon",
-        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。末尾 > clip でクリップボードへ。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
+        ":help [topic] 使い方。:export / :import <path> Markdown。:clear / :dedup は yes で確認。:clear はピンと #lock 以外。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:open URL/パス。:echo 2+3 四則。* / が先。() で変えられる。変数も使える。:s/old/new 置換。:sort は V 中なら本文の順。:sh 実行して貼る。:.!sh はカレント行を stdin に。:!!sh は本文を書き換える。:@ 直前の :sh。| で左からつなぐ（引用符の中の | では切らない）。| clip はクリップボード（> clip も同じ。前面には貼らない）。| add は一覧へ1件。| set a は変数へ。| open は URL かパスなら開く。| show はここに出す。最初の :sh は stdin なし。次の :sh は左を stdin に。:map lhs rhs 付け替え（:map <leader>* :quote \"* \"）。:unmap。:map だけで一覧。:mapleader でリーダー（初期値 Space）。:settings は settings.json をエディタで開く。:set paste shift+insert はいまの前面アプリ。:set a=\"{{date}}\" は変数。{{var:a}} と {{var a}} で貼るとき展開。:set だけで一覧。:set a= で消す。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:n 100 は {{n}} の初期値。settings.json に残る。:n だけでいまの値。:n 1 で 1 から。:tags はタグと件数。Tab でコマンド補完。↑↓ で入力履歴。",
     ),
     (
         "map",

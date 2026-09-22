@@ -8,6 +8,7 @@
     bangFilterScript,
     joinSeparator,
     matchingColonCommands,
+    parseColonPipe,
     quotePrefix,
     stripClipSink,
   } from "$lib/colon";
@@ -1054,6 +1055,27 @@
     }
   }
 
+  async function executePipe(pipe: Extract<ReturnType<typeof parseColonPipe>, { kind: "ok" }>) {
+    const ids = pipe.usesSelection ? [...selectedIds] : [];
+    if (pipe.usesSelection) {
+      clearSelection();
+    }
+    try {
+      const shown = await invoke<string | null>("run_pipe", {
+        ids,
+        ops: pipe.ops,
+        sink: pipe.sink.kind,
+        setName: pipe.sink.kind === "set" ? pipe.sink.name : null,
+      });
+      if (pipe.sink.kind === "show") {
+        helpText = shown ?? "";
+        mode = "help";
+      }
+    } catch {
+      // 失敗したら何もしない
+    }
+  }
+
   async function runColon(raw: string) {
     const historyLine = raw.trim().replace(/^:/, "");
     const stripped = stripClipSink(historyLine);
@@ -1064,6 +1086,14 @@
     colonHistIndex = -1;
     if (historyLine.length > 0 && colonHistory[colonHistory.length - 1] !== historyLine) {
       colonHistory = [...colonHistory, historyLine];
+    }
+    const pipe = parseColonPipe(historyLine);
+    if (pipe.kind === "bad") {
+      return;
+    }
+    if (pipe.kind === "ok") {
+      await executePipe(pipe);
+      return;
     }
     if (line === "help" || line.startsWith("help ")) {
       const topic = line === "help" ? null : line.slice(5).trim();
