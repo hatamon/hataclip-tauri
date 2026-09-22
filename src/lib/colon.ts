@@ -23,6 +23,7 @@ export const COLON_COMMANDS = [
   "n",
   "settings",
   "tags",
+  "clip",
 ];
 
 /** 末尾の `> clip` を行き先として外す。 */
@@ -62,7 +63,7 @@ export function matchingColonCommands(input: string): string[] {
     return [];
   }
   const token = line.startsWith("!!") ? "!!" : (line.split(/[\s/]/)[0] ?? "");
-  const names = segments.length > 1 ? [...COLON_COMMANDS, "clip", "add", "show"] : COLON_COMMANDS;
+  const names = segments.length > 1 ? [...COLON_COMMANDS, "add", "show"] : COLON_COMMANDS;
   return names.filter((name) => name.startsWith(token));
 }
 
@@ -179,7 +180,7 @@ export function joinSeparator(line: string): string | null {
 }
 
 export type PipeOp = {
-  kind: "sh" | "quote" | "format" | "join" | "raw";
+  kind: "sh" | "quote" | "format" | "join" | "raw" | "dot" | "clip";
   arg: string;
   selectionStdin: boolean;
 };
@@ -277,6 +278,12 @@ function shScript(raw: string): string {
 }
 
 function stageOf(part: string): PipeOp | null {
+  if (part === ".") {
+    return { kind: "dot", arg: "", selectionStdin: false };
+  }
+  if (part === "clip") {
+    return { kind: "clip", arg: "", selectionStdin: false };
+  }
   if (part === "raw") {
     return { kind: "raw", arg: "", selectionStdin: false };
   }
@@ -321,6 +328,17 @@ function pipeUsesSelection(ops: PipeOp[]): boolean {
   let produced = false;
   for (const op of ops) {
     if (op.kind === "raw") {
+      continue;
+    }
+    if (op.kind === "clip") {
+      produced = true;
+      continue;
+    }
+    if (op.kind === "dot") {
+      if (!produced) {
+        return true;
+      }
+      produced = true;
       continue;
     }
     if (op.kind === "sh") {

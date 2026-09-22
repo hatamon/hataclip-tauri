@@ -688,6 +688,17 @@ fn run_pipe(
                     raw = true;
                 }
             }
+            "dot" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, true)?, "\n"));
+                }
+            }
+            "clip" => {
+                if text.is_none() {
+                    text = Some(clipboard::peek_text().unwrap_or_default());
+                }
+            }
             "sh" => {
                 let stdin = if let Some(current) = text.take() {
                     Some(current)

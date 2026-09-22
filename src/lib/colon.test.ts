@@ -29,6 +29,7 @@ describe("matchingColonCommands", () => {
       "n",
       "settings",
       "tags",
+      "clip",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);
@@ -141,6 +142,24 @@ describe("parseColonPipe", () => {
         { kind: "sh", arg: "dir", selectionStdin: false },
         { kind: "quote", arg: "> ", selectionStdin: false },
       ],
+    });
+  });
+
+  it("reads the selection or the clipboard as a source", () => {
+    expect(parseColonPipe(". | sh sort | clip")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "clip" },
+      usesSelection: true,
+      ops: [
+        { kind: "dot", arg: "", selectionStdin: false },
+        { kind: "sh", arg: "sort", selectionStdin: false },
+      ],
+    });
+    expect(parseColonPipe("clip | show")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "show" },
+      usesSelection: false,
+      ops: [{ kind: "clip", arg: "", selectionStdin: false }],
     });
   });
 
