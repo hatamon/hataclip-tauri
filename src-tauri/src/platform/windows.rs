@@ -52,6 +52,11 @@ pub fn context_key(fg: &Foreground) -> Option<String> {
     Some(process)
 }
 
+/// UI Automation のコントロール種別名。取れなければ空。
+pub fn focused_control() -> String {
+    String::new()
+}
+
 pub fn app_and_title(fg: &Foreground) -> (String, String) {
     let hwnd = fg.hwnd as HWND;
     (

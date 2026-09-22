@@ -1,4 +1,4 @@
-import { applyWhen } from "./when";
+import { applyWhen, type WhenEnv } from "./when";
 
 function findClose(text: string, start: number): number {
   let depth = 1;
@@ -58,8 +58,8 @@ function tagOptions(name: string, catalog: PickCatalog[]): string[] {
   return options;
 }
 
-export function pickSpecs(text: string, catalog: PickCatalog[] = [], app = ""): PickSpec[] {
-  const source = applyWhen(text, app);
+export function pickSpecs(text: string, catalog: PickCatalog[] = [], env: string | WhenEnv = ""): PickSpec[] {
+  const source = applyWhen(text, env);
   const specs: PickSpec[] = [];
   let i = 0;
   while (i < source.length) {
@@ -106,11 +106,11 @@ export function pickByDigit(optionCount: number, key: string): number | null {
 export function uniquePickSpecs(
   items: { text: string }[],
   catalog: PickCatalog[] = [],
-  app = "",
+  env: string | WhenEnv = "",
 ): PickSpec[] {
   const specs: PickSpec[] = [];
   for (const item of items) {
-    for (const entry of pickSpecs(item.text, catalog, app)) {
+    for (const entry of pickSpecs(item.text, catalog, env)) {
       if (!specs.some((existing) => existing.spec === entry.spec)) {
         specs.push(entry);
       }

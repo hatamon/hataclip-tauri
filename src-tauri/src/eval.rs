@@ -84,6 +84,7 @@ mod tests {
             host: "pc".into(),
             app: String::new(),
             front: String::new(),
+            focus: String::new(),
             now: chrono::Local::now(),
             answers: HashMap::new(),
             aliases: HashMap::new(),

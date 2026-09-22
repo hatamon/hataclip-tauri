@@ -8,10 +8,10 @@ describe("askNames", () => {
     expect(askNames("{{ ask: 名前 }}")).toEqual(["名前"]);
     expect(askNames("{{clip}}")).toEqual([]);
     expect(
-      askNames("{{when chrome}}{{ask:c}}{{when}}{{ask:d}}", "code"),
+      askNames("{{when app: chrome}}{{ask:c}}{{when}}{{ask:d}}", "code"),
     ).toEqual(["d"]);
     expect(
-      askNames("{{when chrome}}{{ask:c}}{{when}}{{ask:d}}", "chrome"),
+      askNames("{{when app: chrome}}{{ask:c}}{{when}}{{ask:d}}", "chrome"),
     ).toEqual(["c"]);
   });
 });

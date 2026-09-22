@@ -1293,6 +1293,8 @@ fn bump_n(state: &AppState) {
 fn bump_step_vars(state: &AppState, ids: &[String]) {
     let app = foreground_app(state);
     let aliases = alias_map(state);
+    let vars = var_map(state);
+    let focus = platform::focused_control();
     let names = {
         let store = state.store.lock().expect("store");
         let mut names = Vec::new();
@@ -1300,7 +1302,15 @@ fn bump_step_vars(state: &AppState, ids: &[String]) {
             let Some(item) = store.get(id) else {
                 continue;
             };
-            for name in text::referenced_vars(&item.text, &app, &aliases) {
+            for name in text::referenced_vars(
+                &item.text,
+                &text::WhenEnv {
+                    app: &app,
+                    focus: &focus,
+                    vars: &vars,
+                },
+                &aliases,
+            ) {
                 if !names.iter().any(|existing| existing == &name) {
                     names.push(name);
                 }
@@ -1353,6 +1363,7 @@ fn expand_context(
         host: text::host_name(),
         app: app_name,
         front,
+        focus: platform::focused_control(),
         now,
         answers,
         aliases: alias_map(state),
@@ -1363,11 +1374,20 @@ fn expand_context(
 
 fn has_sel(state: &AppState, ids: &[String]) -> bool {
     let app = foreground_app(state);
+    let vars = var_map(state);
+    let focus = platform::focused_control();
     let store = state.store.lock().expect("store");
     ids.iter().any(|id| {
-        store
-            .get(id)
-            .map_or(false, |item| text::has_sel_token_in(&item.text, &app))
+        store.get(id).map_or(false, |item| {
+            text::has_sel_token_in(
+                &item.text,
+                &text::WhenEnv {
+                    app: &app,
+                    focus: &focus,
+                    vars: &vars,
+                },
+            )
+        })
     })
 }
 

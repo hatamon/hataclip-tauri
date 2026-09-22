@@ -27,6 +27,18 @@ pub struct Point {
     pub y: i32,
 }
 
+/// フォーカスしている入力欄の種類。Ubuntu と未実装時は空。
+pub fn focused_control() -> String {
+    #[cfg(windows)]
+    {
+        windows::focused_control()
+    }
+    #[cfg(not(windows))]
+    {
+        String::new()
+    }
+}
+
 /// Linux は前面へ送れないのでクリップボードに残す。Windows は注入して戻す。
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn keeps_clipboard_on_paste() -> bool {

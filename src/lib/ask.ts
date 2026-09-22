@@ -1,9 +1,9 @@
-import { applyWhen } from "./when";
+import { applyWhen, type WhenEnv } from "./when";
 
 const ASK = /\{\{\s*ask[:\s]([^}]*)\}\}/g;
 
-export function askNames(text: string, app = ""): string[] {
-  const source = applyWhen(text, app);
+export function askNames(text: string, env: string | WhenEnv = ""): string[] {
+  const source = applyWhen(text, env);
   const names: string[] = [];
   ASK.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -16,10 +16,10 @@ export function askNames(text: string, app = ""): string[] {
   return names;
 }
 
-export function uniqueAskNames(items: { text: string }[], app = ""): string[] {
+export function uniqueAskNames(items: { text: string }[], env: string | WhenEnv = ""): string[] {
   const names: string[] = [];
   for (const item of items) {
-    for (const name of askNames(item.text, app)) {
+    for (const name of askNames(item.text, env)) {
       if (!names.includes(name)) {
         names.push(name);
       }

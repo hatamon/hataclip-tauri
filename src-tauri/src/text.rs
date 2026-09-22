@@ -35,6 +35,7 @@ pub struct Expand {
     pub host: String,
     pub app: String,
     pub front: String,
+    pub focus: String,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
     pub aliases: std::collections::HashMap<String, String>,
@@ -154,7 +155,7 @@ fn expand_seen(
     ctx: &Expand,
     seen: &mut std::collections::HashSet<String>,
 ) -> String {
-    let text = apply_when(text, &ctx.app);
+    let text = apply_when(text, &when_env(ctx));
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -197,13 +198,36 @@ pub(crate) fn find_close(chars: &[char], start: usize) -> Option<usize> {
     None
 }
 
-/// `{{when chrome}}…{{when excel}}…{{when}}既定`。先頭の `{{when` より前は常に残す。
-pub fn apply_when(text: &str, app: &str) -> String {
+/// 貼るときの `{{when}}` 判定。`app` と `focus` が空ならその枝は当たらない。
+pub struct WhenEnv<'a> {
+    pub app: &'a str,
+    pub focus: &'a str,
+    pub vars: &'a std::collections::HashMap<String, String>,
+}
+
+fn when_env(ctx: &Expand) -> WhenEnv<'_> {
+    WhenEnv {
+        app: &ctx.app,
+        focus: &ctx.focus,
+        vars: &ctx.vars,
+    }
+}
+
+enum WhenKind {
+    App(Vec<String>),
+    Var { name: String, value: String },
+    Focus(String),
+    Fallback,
+}
+
+/// `{{when app:}}` `{{when var:}}` `{{when focus:}}` `{{when}}`。先に当たった枝だけ残す。
+/// `{{when chrome}}` は枝にしない。先頭の `{{when` より前は常に残す。
+pub fn apply_when(text: &str, env: &WhenEnv<'_>) -> String {
     let chars: Vec<char> = text.chars().collect();
     struct Mark {
         start: usize,
         end: usize,
-        apps: Vec<String>,
+        kind: WhenKind,
     }
     let mut marks = Vec::new();
     let mut i = 0;
@@ -211,26 +235,12 @@ pub fn apply_when(text: &str, app: &str) -> String {
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
             if let Some(close) = find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
-                let token = inner.trim();
-                if token == "when" || arg_after(token, "when").is_some() {
-                    let arg = if token == "when" {
-                        ""
-                    } else {
-                        arg_after(token, "when").unwrap_or("")
-                    };
-                    let apps: Vec<String> = arg
-                        .split(|ch: char| ch == ',' || ch.is_whitespace())
-                        .map(str::trim)
-                        .filter(|name| !name.is_empty())
-                        .map(str::to_string)
-                        .collect();
+                if let Some(kind) = when_kind(inner.trim()) {
                     marks.push(Mark {
                         start: i,
                         end: close + 2,
-                        apps,
+                        kind,
                     });
-                    i = close + 2;
-                    continue;
                 }
                 i = close + 2;
                 continue;
@@ -250,20 +260,115 @@ pub fn apply_when(text: &str, app: &str) -> String {
             .map(|next| next.start)
             .unwrap_or(chars.len());
         let body: String = chars[mark.end..body_end].iter().collect();
-        if mark.apps.is_empty() {
-            fallback = Some(body);
-        } else if chosen.is_none()
-            && mark
-                .apps
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(app))
-        {
-            chosen = Some(body);
+        match &mark.kind {
+            WhenKind::Fallback => fallback = Some(body),
+            _ if chosen.is_none() && when_hits(&mark.kind, env) => chosen = Some(body),
+            _ => {}
         }
     }
     let mut out = prefix;
     out.push_str(chosen.as_deref().or(fallback.as_deref()).unwrap_or(""));
     out
+}
+
+fn when_kind(token: &str) -> Option<WhenKind> {
+    if token == "when" {
+        return Some(WhenKind::Fallback);
+    }
+    let arg = arg_after(token, "when")?;
+    let arg = arg.trim();
+    if let Some(rest) = arg.strip_prefix("app:") {
+        let names: Vec<String> = rest
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect();
+        if names.is_empty() {
+            return None;
+        }
+        return Some(WhenKind::App(names));
+    }
+    if let Some(rest) = arg.strip_prefix("var:") {
+        return when_var(rest.trim());
+    }
+    if let Some(rest) = arg.strip_prefix("focus:") {
+        let name = rest.trim();
+        if name.is_empty() {
+            return None;
+        }
+        return Some(WhenKind::Focus(name.to_string()));
+    }
+    None
+}
+
+fn when_var(rest: &str) -> Option<WhenKind> {
+    let (name, raw) = rest.split_once(':')?;
+    let name = name.trim();
+    if !is_ident(name) {
+        return None;
+    }
+    let value = unquote_double(raw.trim())?;
+    Some(WhenKind::Var {
+        name: name.to_string(),
+        value,
+    })
+}
+
+fn when_hits(kind: &WhenKind, env: &WhenEnv<'_>) -> bool {
+    match kind {
+        WhenKind::App(names) => names
+            .iter()
+            .any(|name| !env.app.is_empty() && name.eq_ignore_ascii_case(env.app)),
+        WhenKind::Var { name, value } => env.vars.get(name).is_some_and(|current| current == value),
+        WhenKind::Focus(name) => !env.focus.is_empty() && name.eq_ignore_ascii_case(env.focus),
+        WhenKind::Fallback => false,
+    }
+}
+
+pub(crate) fn is_ident(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+/// `"` で括った値。`\"` は `"`、`\t` はタブ、`\n` は改行。閉じたあとに文字があればなし。
+pub(crate) fn unquote_double(raw: &str) -> Option<String> {
+    let text = raw.trim();
+    let mut chars = text.chars();
+    if chars.next() != Some('"') {
+        return None;
+    }
+    let body: Vec<char> = chars.collect();
+    let mut out = String::new();
+    let mut escaped = false;
+    for (index, ch) in body.iter().copied().enumerate() {
+        if escaped {
+            out.push(match ch {
+                't' => '\t',
+                'n' => '\n',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            let tail: String = body[index + 1..].iter().collect();
+            if !tail.trim().is_empty() {
+                return None;
+            }
+            return Some(out);
+        }
+        out.push(ch);
+    }
+    None
 }
 
 /// `{{sel|clip}}` の `|`。入れ子の `{{ }}` の中では切らない。
@@ -368,6 +473,9 @@ fn token_value(
     }
     if inner == "front" {
         return Some(ctx.front.clone());
+    }
+    if inner == "focus" {
+        return Some(ctx.focus.clone());
     }
     if let Some(spec) = arg_after(inner, "pick") {
         return Some(
@@ -575,18 +683,18 @@ pub fn has_sel_token(text: &str) -> bool {
 /// 本文と差し込んだエイリアスから、書いてある `{{var:名前}}`。
 pub fn referenced_vars(
     text: &str,
-    app: &str,
+    env: &WhenEnv<'_>,
     aliases: &std::collections::HashMap<String, String>,
 ) -> Vec<String> {
     let mut names = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    collect_vars(&apply_when(text, app), app, aliases, &mut seen, &mut names);
+    collect_vars(&apply_when(text, env), env, aliases, &mut seen, &mut names);
     names
 }
 
 fn collect_vars(
     text: &str,
-    app: &str,
+    env: &WhenEnv<'_>,
     aliases: &std::collections::HashMap<String, String>,
     seen_alias: &mut std::collections::HashSet<String>,
     names: &mut Vec<String>,
@@ -598,7 +706,7 @@ fn collect_vars(
                 if !name.is_empty()
                     && !name.contains('{')
                     && !names.iter().any(|existing| existing == name)
-                {
+            {
                     names.push(name.to_string());
                 }
             }
@@ -607,20 +715,20 @@ fn collect_vars(
                 if !alias.is_empty() && !alias.contains('{') && seen_alias.insert(alias.to_string())
                 {
                     if let Some(body) = aliases.get(alias) {
-                        collect_vars(&apply_when(body, app), app, aliases, seen_alias, names);
+                        collect_vars(&apply_when(body, env), env, aliases, seen_alias, names);
                     }
                 }
             }
             if part.contains("{{") && walk_tokens(&part, |_| true) {
-                collect_vars(&part, app, aliases, seen_alias, names);
+                collect_vars(&part, env, aliases, seen_alias, names);
             }
         }
         false
     });
 }
 
-pub fn has_sel_token_in(text: &str, app: &str) -> bool {
-    has_sel_token(&apply_when(text, app))
+pub fn has_sel_token_in(text: &str, env: &WhenEnv<'_>) -> bool {
+    has_sel_token(&apply_when(text, env))
 }
 
 /// 出現順。同じ名前は 1 回だけ。
@@ -1217,6 +1325,7 @@ mod tests {
             host: "pc".into(),
             app: "code".into(),
             front: "TODO.md".into(),
+            focus: "Edit".into(),
             now: chrono::Local::now(),
             answers: std::collections::HashMap::from([
                 ("名前".into(), "hatamon".into()),
@@ -1314,14 +1423,15 @@ mod tests {
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
         assert!(has_sel_token("x {{sel}} y"));
         assert!(has_sel_token("{{sel|clip}}"));
-        assert!(has_sel_token_in("{{sel|clip}}", "code"));
+        let empty_vars = std::collections::HashMap::new();
+        assert!(has_sel_token_in("{{sel|clip}}", &bare("code", &empty_vars)));
         assert!(has_sel_token_in(
-            "{{when chrome}}{{sel|clip}}{{when}}",
-            "chrome"
+            "{{when app: chrome}}{{sel|clip}}{{when}}",
+            &bare("chrome", &empty_vars)
         ));
         assert!(!has_sel_token_in(
-            "{{when chrome}}{{sel|clip}}{{when}}",
-            "code"
+            "{{when app: chrome}}{{sel|clip}}{{when}}",
+            &bare("code", &empty_vars)
         ));
         assert!(!has_sel_token("{{clip}}"));
         assert!(!has_sel_token("{{clip|front}}"));
@@ -1341,13 +1451,19 @@ mod tests {
             "hello 2026/09/20"
         );
         let aliases = std::collections::HashMap::from([("foo".into(), "{{var:a}}".into())]);
+        let empty_vars = std::collections::HashMap::new();
         assert_eq!(
-            referenced_vars("{{var:b}} {{@foo}}", "code", &aliases),
+            referenced_vars("{{var:b}} {{@foo}}", &bare("code", &empty_vars), &aliases),
             vec!["b".to_string(), "a".to_string()]
         );
-        assert!(referenced_vars("{{when excel}}{{var:a}}{{when}}", "code", &aliases).is_empty());
+        assert!(referenced_vars(
+            "{{when app: excel}}{{var:a}}{{when}}",
+            &bare("code", &empty_vars),
+            &aliases
+        )
+        .is_empty());
         assert_eq!(
-            referenced_vars("{{var:a|なし}}", "code", &std::collections::HashMap::new()),
+            referenced_vars("{{var:a|なし}}", &bare("code", &empty_vars), &std::collections::HashMap::new()),
             vec!["a".to_string()]
         );
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
@@ -1356,33 +1472,99 @@ mod tests {
     #[test]
     fn when_picks_matching_app_and_fallback() {
         let ctx = sample_ctx();
+        let empty_vars = std::collections::HashMap::new();
         assert_eq!(
-            expand_template("id{{when chrome}}c{{when code}}k{{when}}x", &ctx),
+            expand_template("id{{when app: chrome}}c{{when app: code}}k{{when}}x", &ctx),
             "idk"
         );
         assert_eq!(
-            expand_template("{{when chrome}}c{{when excel}}e{{when}}d", &ctx),
+            expand_template("{{when app: chrome}}c{{when app: excel}}e{{when}}d", &ctx),
             "d"
+        );
+        assert_eq!(
+            expand_template("{{when chrome}}c{{when}}d", &ctx),
+            "{{when chrome}}cd"
         );
         let mut excel = sample_ctx();
         excel.app = "EXCEL".into();
         assert_eq!(
-            expand_template("{{when chrome, excel}}hit{{when}}miss", &excel),
+            expand_template("{{when app: chrome, msedge}}hit{{when}}miss", &excel),
+            "miss"
+        );
+        excel.app = "msedge".into();
+        assert_eq!(
+            expand_template("{{when app: chrome, msedge}}hit{{when}}miss", &excel),
             "hit"
+        );
+        let mut named = sample_ctx();
+        named.vars.insert("a".into(), "AAA".into());
+        assert_eq!(
+            expand_template(
+                r#"{{when var: a: "AAA"}}git{{when var: a: "BBB"}}hg{{when}}none"#,
+                &named
+            ),
+            "git"
+        );
+        assert_eq!(
+            expand_template(
+                r#"{{when var: a: "say \"hi\""}}yes{{when}}no"#,
+                &named
+            ),
+            "no"
+        );
+        named.vars.insert("a".into(), "say \"hi\"".into());
+        assert_eq!(
+            expand_template(
+                r#"{{when var: a: "say \"hi\""}}yes{{when}}no"#,
+                &named
+            ),
+            "yes"
+        );
+        assert_eq!(
+            expand_template("{{when focus: Edit}}box{{when}}other", &ctx),
+            "box"
+        );
+        let mut doc = sample_ctx();
+        doc.focus = "Document".into();
+        assert_eq!(
+            expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}out", &doc),
+            "out"
+        );
+        assert_eq!(expand_template("{{focus}}", &ctx), "Edit");
+        let mut blank = sample_ctx();
+        blank.app.clear();
+        blank.focus.clear();
+        assert_eq!(
+            expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}none", &blank),
+            "none"
         );
         assert_eq!(
             expand_template("keep {{date}}", &ctx),
             "keep 2026/09/20"
         );
-        assert_eq!(apply_when("a{{whenever}}b", "code"), "a{{whenever}}b");
+        assert_eq!(
+            apply_when("a{{whenever}}b", &bare("code", &empty_vars)),
+            "a{{whenever}}b"
+        );
         assert!(!has_sel_token_in(
-            "{{when chrome}}{{sel}}{{when}}plain",
-            "code"
+            "{{when app: chrome}}{{sel}}{{when}}plain",
+            &bare("code", &empty_vars)
         ));
         assert!(has_sel_token_in(
-            "{{when chrome}}{{sel}}{{when}}plain",
-            "chrome"
+            "{{when app: chrome}}{{sel}}{{when}}plain",
+            &bare("chrome", &empty_vars)
         ));
+    }
+
+    fn bare<'a>(
+        app: &'a str,
+        vars: &'a std::collections::HashMap<String, String>,
+    ) -> WhenEnv<'a> {
+        WhenEnv {
+            app,
+            focus: "",
+            vars,
+        }
     }
 
     #[test]

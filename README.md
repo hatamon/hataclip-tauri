@@ -131,7 +131,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 | `{{ask:名前}}` | 貼る前に入力。同じ名前は 1 回 |
 | `{{pick: prod, stg, dev}}` | 貼る前に候補から選ぶ。`j` / `k` と Enter。候補が 9 個までなら `1`〜`9` でその番を確定する。10 個以上は `j` / `k`。Esc は中止（一覧は残す）。同じ候補は 1 回。`{{ask:}}` があるときは先に全部聞く。候補に `{{var:a}}` を書ける。`{{pick tag:env}}` はタグ `env` の本文（重複は除く） |
 | `{{app}}` / `{{front}}` | 前面アプリのプロセス名 / ウィンドウタイトル。無ければ空 |
-| `{{when chrome}}` / `{{when excel}}` / `{{when}}` | 前面アプリで本文を切り替える。`#app:` は行の出し分け。名前は実行ファイル（拡張子なし）。複数は `{{when chrome, msedge}}`。当たるものが無ければ `{{when}}`、それも無ければ空 |
+| `{{when app: chrome}}` / `{{when var: a: "AAA"}}` / `{{when focus: Edit}}` / `{{when}}` | 先に当たった枝だけ残す。アプリは複数可（`chrome, msedge`）。変数は `:set` のそのままの文字列。フォーカスは `Edit` `Document` `ComboBox`。どれにも当たらなければ `{{when}}`、それも無ければ空。`{{when chrome}}` は展開せずそのまま。Ubuntu では app と focus は空 |
 | `{{n}}` / `{{n:2}}` | 連番。`Ctrl+Enter` で増える。`:n 100` で初期値。閉じると初期値に戻る。`ge` や `Ctrl+C` では進まない |
 | `{{uuid}}` | UUID v4 |
 | `{{user}}` / `{{host}}` | ログイン名 / コンピュータ名 |
