@@ -168,14 +168,8 @@ export function quotePrefix(line: string): string | null {
   return null;
 }
 
-/** `:join` の区切り。未指定なら `,`。`:join "\\t"` はタブ。`:comma` / `:tab` は別名。 */
+/** `:join` の区切り。未指定なら `,`。`:join "\\t"` はタブ。 */
 export function joinSeparator(line: string): string | null {
-  if (line === "comma") {
-    return ",";
-  }
-  if (line === "tab") {
-    return "\t";
-  }
   if (line === "join") {
     return ",";
   }

@@ -224,11 +224,8 @@ fn quote_prefix(line: &str) -> Option<String> {
 }
 
 fn join_separator(line: &str) -> Option<String> {
-    if line == "comma" || line == "join" {
+    if line == "join" {
         return Some(",".to_string());
-    }
-    if line == "tab" {
-        return Some("\t".to_string());
     }
     if let Some(rest) = line.strip_prefix("join ").or_else(|| line.strip_prefix("join\t")) {
         return Some(colon_arg(rest, ","));
@@ -422,6 +419,9 @@ mod tests {
         assert_eq!(echo.ops[0].arg, "3+4");
         assert_eq!(classify("hello"), PasteBody::Text);
         assert_eq!(classify("help"), PasteBody::Text);
+        assert_eq!(classify("comma"), PasteBody::Text);
+        assert_eq!(classify("sel | comma"), PasteBody::Bad);
+        assert_eq!(classify("sel | tab"), PasteBody::Bad);
     }
 
     #[test]

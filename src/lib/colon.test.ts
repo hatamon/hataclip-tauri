@@ -99,8 +99,8 @@ describe("joinSeparator", () => {
     expect(joinSeparator("join")).toBe(",");
     expect(joinSeparator('join "\\t"')).toBe("\t");
     expect(joinSeparator('join ", "')).toBe(", ");
-    expect(joinSeparator("comma")).toBe(",");
-    expect(joinSeparator("tab")).toBe("\t");
+    expect(joinSeparator("comma")).toBeNull();
+    expect(joinSeparator("tab")).toBeNull();
     expect(joinSeparator("quote")).toBeNull();
   });
 });
