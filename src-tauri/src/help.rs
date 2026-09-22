@@ -65,6 +65,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{app}}            前面アプリのプロセス名。無ければ空\n\
 {{front}}          前面ウィンドウのタイトル。無ければ空\n\
 {{focus}}          フォーカスしている入力欄の種類。Edit Document ComboBox。取れなければ空。Ubuntu は空。常時監視はしない\n\
+{{cred:github}}    貼るときに資格情報マネージャーのパスワード。履歴に残るのはこの文字だけ。無ければ貼らない。ge と Ctrl+C では展開しない。プレビューは ••••。Ubuntu はこのトークンがある行を貼らない\n\
 {{when app: chrome}}  前面が chrome のときだけその区間。複数は {{when app: chrome, msedge}}。{{when var: a: \"AAA\"}} は :set のそのままの文字列。{{when focus: Edit}} は入力欄の種類。{{when}} はどれにも当たらないとき。{{when chrome}} は展開せずそのまま。Ubuntu では app と focus は空\n\
 {{n}} / {{n:2}}    連番。Ctrl+Enter で増える。:n 100 で初期値。閉じると初期値に戻る。ge やコピーでは進まない\n\
 {{uuid}}           UUID v4\n\

@@ -1221,7 +1221,9 @@ fn run_paste(
     let ctx = if raw {
         None
     } else {
-        Some(expand_context(state, sel, answers))
+        let mut ctx = expand_context(state, sel, answers);
+        ctx.read_cred = true;
+        Some(ctx)
     };
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
@@ -1488,6 +1490,8 @@ fn expand_context(
         app: app_name,
         front,
         focus: platform::focused_control(),
+        read_cred: false,
+        cred_fail: std::cell::Cell::new(false),
         now,
         answers,
         aliases: alias_map(state),
@@ -1627,12 +1631,18 @@ fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<t
     let file = item.tags.iter().any(|tag| tag == "file");
     if run && !shell::has_sh_token(&item.text) {
         let expanded = text::expand_template(&item.text, ctx);
+        if ctx.cred_fail.get() {
+            return None;
+        }
         return Some(vec![text::PasteOp::Text(apply_tsv(
             item,
             shell::run_script(&expanded).ok()?,
         )?)]);
     }
     let expanded = text::expand_template(&item.text, ctx);
+    if ctx.cred_fail.get() {
+        return None;
+    }
     let expanded = shell::apply_sh(&expanded, run || force_sh).ok()?;
     let expanded = if file && !run {
         shell::read_file_contents(&text::flatten_ops(&text::take_type_ops(&expanded))).ok()?

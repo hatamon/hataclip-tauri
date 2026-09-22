@@ -36,6 +36,9 @@ pub struct Expand {
     pub app: String,
     pub front: String,
     pub focus: String,
+    /// 貼るときだけ資格情報を読む。`ge` とコピーは false。
+    pub read_cred: bool,
+    pub cred_fail: std::cell::Cell<bool>,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
     pub aliases: std::collections::HashMap<String, String>,
@@ -630,6 +633,32 @@ fn token_value(
     }
     if inner == "focus" {
         return Some(ctx.focus.clone());
+    }
+    if let Some(name) = arg_after(inner, "cred") {
+        let name = name.trim();
+        if !is_ident(name) {
+            ctx.cred_fail.set(true);
+            return Some(String::new());
+        }
+        if !ctx.read_cred {
+            return None;
+        }
+        #[cfg(windows)]
+        {
+            return match crate::platform::read_credential(name) {
+                Some(secret) => Some(secret),
+                None => {
+                    ctx.cred_fail.set(true);
+                    Some(String::new())
+                }
+            };
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = name;
+            ctx.cred_fail.set(true);
+            return Some(String::new());
+        }
     }
     if let Some(spec) = arg_after(inner, "pick") {
         if pick_kind(spec).is_none() {
@@ -1589,6 +1618,8 @@ mod tests {
             app: "code".into(),
             front: "TODO.md".into(),
             focus: "Edit".into(),
+            read_cred: false,
+            cred_fail: std::cell::Cell::new(false),
             now: chrono::Local::now(),
             answers: std::collections::HashMap::from([
                 ("名前".into(), "hatamon".into()),
@@ -1822,6 +1853,14 @@ mod tests {
             "out"
         );
         assert_eq!(expand_template("{{focus}}", &ctx), "Edit");
+        assert_eq!(expand_template("{{cred:github}}", &ctx), "{{cred:github}}");
+        let mut reading = sample_ctx();
+        reading.read_cred = true;
+        assert_eq!(expand_template("{{cred:nope name}}", &reading), "");
+        assert!(reading.cred_fail.get());
+        reading.cred_fail.set(false);
+        let _ = expand_template("{{cred:hataclip_missing_cred}}", &reading);
+        assert!(reading.cred_fail.get());
         let mut blank = sample_ctx();
         blank.app.clear();
         blank.focus.clear();
