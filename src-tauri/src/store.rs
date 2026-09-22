@@ -611,6 +611,32 @@ impl Store {
     }
 
     /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
+    /// `#grab` の1行目と2行目を入れ替える。タグの無い行と2行目の無い行は飛ばす。
+    pub fn swap_grab(&mut self, ids: &[String]) -> bool {
+        let updates: Vec<(String, String)> = ids
+            .iter()
+            .filter_map(|id| {
+                let item = self.get(id)?;
+                if !item.tags.iter().any(|tag| tag == "grab") {
+                    return None;
+                }
+                let next = crate::text::swap_grab_lines(&item.text)?;
+                (next != item.text).then(|| (id.clone(), next))
+            })
+            .collect();
+        if updates.is_empty() {
+            return false;
+        }
+        self.push_undo();
+        for (id, text) in updates {
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+                item.text = text;
+            }
+        }
+        self.save();
+        true
+    }
+
     pub fn sort_items(&mut self, ids: &[String]) -> bool {
         if ids.len() < 2 {
             return false;

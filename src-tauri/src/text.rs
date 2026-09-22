@@ -326,6 +326,26 @@ fn when_hits(kind: &WhenKind, env: &WhenEnv<'_>) -> bool {
     }
 }
 
+/// `#grab` の1行目と2行目を入れ替える。2行目が無ければなし。3行目以降はそのまま。
+pub fn swap_grab_lines(text: &str) -> Option<String> {
+    let (first, rest) = text.split_once('\n')?;
+    let (second, tail) = match rest.split_once('\n') {
+        Some((second, tail)) => (second, Some(tail)),
+        None => (rest, None),
+    };
+    let mut out = String::new();
+    out.push_str(second);
+    out.push('\n');
+    out.push_str(first);
+    if let Some(tail) = tail {
+        out.push('\n');
+        out.push_str(tail);
+    } else if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
 /// `#grab` の1行目に入力を当て、当たった行だけ2行目を埋める。どれも当たらなければなし。
 pub fn grab_fill(body: &str, input: &str) -> Option<String> {
     if input.is_empty() {
@@ -1667,6 +1687,15 @@ mod tests {
         assert_eq!(grab_fill("only one line", "error at src/a.rs:12"), None);
         assert_eq!(grab_fill(logs, ""), None);
         assert_eq!(grab_fill("error at <file>:<line>\n<file>:<line>", "error at :12"), None);
+        assert_eq!(
+            swap_grab_lines("https://github.com/<org>/<repo>\ngh pr checkout <pr>").as_deref(),
+            Some("gh pr checkout <pr>\nhttps://github.com/<org>/<repo>")
+        );
+        assert_eq!(
+            swap_grab_lines("a\nb\nrest").as_deref(),
+            Some("b\na\nrest")
+        );
+        assert_eq!(swap_grab_lines("only"), None);
     }
 
     #[test]
