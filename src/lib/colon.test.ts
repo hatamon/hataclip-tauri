@@ -30,6 +30,12 @@ describe("matchingColonCommands", () => {
       "settings",
       "tags",
       "clip",
+      "camel",
+      "pascal",
+      "snake",
+      "kebab",
+      "upper",
+      "lower",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);
@@ -41,7 +47,7 @@ describe("matchingColonCommands", () => {
 
   it("completes the stage after a pipe", () => {
     expect(matchingColonCommands("sh dir | qu")).toEqual(["quote"]);
-    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip"]);
+    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip", "camel"]);
   });
 });
 
@@ -153,6 +159,15 @@ describe("parseColonPipe", () => {
       ops: [
         { kind: "dot", arg: "", selectionStdin: false },
         { kind: "sh", arg: "sort", selectionStdin: false },
+      ],
+    });
+    expect(parseColonPipe(". | snake | clip")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "clip" },
+      usesSelection: true,
+      ops: [
+        { kind: "dot", arg: "", selectionStdin: false },
+        { kind: "snake", arg: "", selectionStdin: false },
       ],
     });
     expect(parseColonPipe("clip | show")).toMatchObject({

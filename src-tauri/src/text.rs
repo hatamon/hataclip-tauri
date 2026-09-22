@@ -824,6 +824,85 @@ pub fn format_for_paste(text: &str) -> String {
     unwrap_quotes(lines.join("\n").trim())
 }
 
+/// 名前は `_` `-` 空白と大文字の境目で切る。`upper` / `lower` は文字だけ。
+pub fn recase(text: &str, style: &str) -> String {
+    match style {
+        "upper" => text.to_uppercase(),
+        "lower" => text.to_lowercase(),
+        "camel" | "pascal" | "snake" | "kebab" => text
+            .lines()
+            .map(|line| recase_line(line, style))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => text.to_string(),
+    }
+}
+
+fn recase_line(line: &str, style: &str) -> String {
+    let words = ident_words(line);
+    if words.is_empty() {
+        return String::new();
+    }
+    match style {
+        "snake" => words.join("_"),
+        "kebab" => words.join("-"),
+        "pascal" => words.into_iter().map(|word| capitalize(&word)).collect(),
+        "camel" => {
+            let mut out = String::new();
+            for (index, word) in words.into_iter().enumerate() {
+                if index == 0 {
+                    out.push_str(&word);
+                } else {
+                    out.push_str(&capitalize(&word));
+                }
+            }
+            out
+        }
+        _ => line.to_string(),
+    }
+}
+
+fn capitalize(word: &str) -> String {
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = first.to_uppercase().to_string();
+    out.extend(chars);
+    out
+}
+
+fn ident_words(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut words = Vec::new();
+    let mut buf = String::new();
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if ch == '_' || ch == '-' || ch.is_whitespace() {
+            push_word(&mut words, &mut buf);
+            continue;
+        }
+        let next = chars.get(index + 1).copied();
+        if !buf.is_empty() && ch.is_uppercase() {
+            let prev = buf.chars().last().unwrap();
+            if !prev.is_uppercase() || next.is_some_and(|item| item.is_lowercase()) {
+                push_word(&mut words, &mut buf);
+            }
+        }
+        buf.push(ch);
+    }
+    push_word(&mut words, &mut buf);
+    words
+        .into_iter()
+        .map(|word| word.to_lowercase())
+        .collect()
+}
+
+fn push_word(words: &mut Vec<String>, buf: &mut String) {
+    if !buf.is_empty() {
+        words.push(std::mem::take(buf));
+    }
+}
+
 fn strip_quote_marker(line: &str) -> &str {
     let mut rest = line.trim_start();
     let mut stripped = false;
@@ -1320,6 +1399,19 @@ mod tests {
         assert_eq!(format_for_paste("\"quoted\""), "quoted");
         assert_eq!(format_for_paste("「かぎ括弧」"), "かぎ括弧");
         assert_eq!(format_for_paste("\"half"), "\"half");
+    }
+
+    #[test]
+    fn recase_splits_on_separators_and_capitals() {
+        assert_eq!(recase("foo_bar", "camel"), "fooBar");
+        assert_eq!(recase("foo bar", "pascal"), "FooBar");
+        assert_eq!(recase("fooBar", "snake"), "foo_bar");
+        assert_eq!(recase("fooBar", "kebab"), "foo-bar");
+        assert_eq!(recase("HTTPResponse", "snake"), "http_response");
+        assert_eq!(recase("XMLParser", "kebab"), "xml-parser");
+        assert_eq!(recase("Foo_Bar\nbaz", "camel"), "fooBar\nbaz");
+        assert_eq!(recase("AbC", "upper"), "ABC");
+        assert_eq!(recase("AbC", "lower"), "abc");
     }
 
     #[test]

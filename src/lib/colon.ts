@@ -24,6 +24,12 @@ export const COLON_COMMANDS = [
   "settings",
   "tags",
   "clip",
+  "camel",
+  "pascal",
+  "snake",
+  "kebab",
+  "upper",
+  "lower",
 ];
 
 /** 末尾の `> clip` を行き先として外す。 */
@@ -180,7 +186,7 @@ export function joinSeparator(line: string): string | null {
 }
 
 export type PipeOp = {
-  kind: "sh" | "quote" | "format" | "join" | "raw" | "dot" | "clip";
+  kind: "sh" | "quote" | "format" | "join" | "raw" | "dot" | "clip" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower";
   arg: string;
   selectionStdin: boolean;
 };
@@ -289,6 +295,16 @@ function stageOf(part: string): PipeOp | null {
   }
   if (part === "format") {
     return { kind: "format", arg: "", selectionStdin: false };
+  }
+  if (
+    part === "camel" ||
+    part === "pascal" ||
+    part === "snake" ||
+    part === "kebab" ||
+    part === "upper" ||
+    part === "lower"
+  ) {
+    return { kind: part, arg: "", selectionStdin: false };
   }
   const prefix = quotePrefix(part);
   if (prefix !== null) {

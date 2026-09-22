@@ -620,6 +620,7 @@ fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
         "quote" => text::prefix_lines(text, arg),
         "format" => text::format_for_paste(text),
         "join" => text.lines().collect::<Vec<_>>().join(arg),
+        "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => text::recase(text, kind),
         _ => text.to_string(),
     }
 }
@@ -714,7 +715,7 @@ fn run_pipe(
                 text = Some(output);
                 raw = false;
             }
-            "quote" | "format" | "join" => {
+            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                 if text.is_none() {
                     used_selection = true;
                     let sep = if op.kind == "join" { op.arg.as_str() } else { "\n" };
