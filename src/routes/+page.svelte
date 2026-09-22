@@ -325,6 +325,42 @@
     });
   }
 
+  async function runRowPipe(ids: string[], keepOpen: boolean): Promise<boolean> {
+    if (ids.length !== 1) {
+      return false;
+    }
+    const item = items.find((row) => row.id === ids[0]);
+    if (!item || !item.text.includes("|")) {
+      return false;
+    }
+    let result: { status: string; text: string | null };
+    try {
+      result = await invoke("paste_pipe_item", { id: ids[0], keepOpen });
+    } catch {
+      clearSelection();
+      return true;
+    }
+    if (result.status === "text") {
+      return false;
+    }
+    clearSelection();
+    if (result.status === "show") {
+      helpText = result.text ?? "";
+      mode = "help";
+    }
+    if (result.status === "done" || result.status === "show") {
+      lastPaste = {
+        ids: [...ids],
+        keepOpen,
+        format: false,
+        raw: false,
+        separator: "\n",
+        answers: {},
+      };
+    }
+    return true;
+  }
+
   async function pasteSelection(
     keepOpen: boolean,
     format = false,
@@ -339,6 +375,17 @@
     }
     const ids = selectedIds;
     const rows = selectedItems;
+    if (
+      !format &&
+      !raw &&
+      !typed &&
+      !toClipboard &&
+      separator === "\n" &&
+      prefix === undefined &&
+      (await runRowPipe(ids, keepOpen))
+    ) {
+      return;
+    }
     if (!raw && !toClipboard) {
       const names = uniqueAskNames(rows, frontApp());
       if (names.length > 0) {
@@ -376,6 +423,9 @@
   async function pasteRow(index: number, keepOpen: boolean) {
     const item = filtered[index];
     if (!item) {
+      return;
+    }
+    if (await runRowPipe([item.id], keepOpen)) {
       return;
     }
     clearSelection();
@@ -420,6 +470,18 @@
     const rows = opts.ids
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined);
+    if (
+      !opts.format &&
+      !opts.raw &&
+      !opts.typed &&
+      !opts.toClipboard &&
+      opts.separator === "\n" &&
+      opts.prefix === undefined &&
+      Object.keys(opts.answers).length === 0 &&
+      (await runRowPipe(opts.ids, opts.keepOpen))
+    ) {
+      return;
+    }
     if (
       !opts.raw &&
       !opts.toClipboard &&
@@ -1968,6 +2030,10 @@
     const unlistenChanged = listen<Item[]>("items-changed", (event) => {
       items = event.payload;
     });
+    const unlistenPipe = listen<string>("pipe-shown", (event) => {
+      helpText = event.payload;
+      mode = "help";
+    });
 
     void invoke<{ leader: string; maps: KeyMap[] }>("get_keymaps").then((next) => {
       mapLeader = next.leader;
@@ -1998,6 +2064,7 @@
       window.removeEventListener("keydown", onKey, true);
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
+      void unlistenPipe.then((stop) => stop());
       void unlistenSettings.then((stop) => stop());
       stopDrop?.();
     };

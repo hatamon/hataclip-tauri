@@ -202,7 +202,8 @@ export type PipeOp = {
     | "lower"
     | "json"
     | "xml"
-    | "echo";
+    | "echo"
+    | "sel";
   arg: string;
   selectionStdin: boolean;
 };

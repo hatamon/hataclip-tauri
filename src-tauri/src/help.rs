@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{when chrome}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:join 区切りつなぎ（V 中。未指定は , 。タブは :join \"\\t\"）。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick:}} {{pick tag:env}} {{app}} {{front}} {{when chrome}} {{env:}} {{@foo}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set paste shift+insert。Ctrl+Shift+H は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない。パイプは実行しない）。本文がパイプの行は Enter / Ctrl+Enter / 1〜9 / Ctrl+1〜9 / Ctrl+Shift+1〜9 でそのパイプを実行する。例: #slot:1 の本文が :sel | snake。メモ帳で getUserName を選んで Ctrl+Shift+1 すると一覧は出ずに get_user_name に置き換わる。:sel | quote で行頭に > を付けて | clip ならクリップボードへ置き、前面には貼らない。段の名前が不正、または sel が空なら何もしない。{{ }} の中だけの | はパイプにしない。",
     ),
     (
         "tag",
@@ -172,6 +172,8 @@ mod tests {
         assert!(render(Some("template")).contains(":set a+=1"));
         assert!(render(Some("template")).contains("{{env:USERPROFILE}}"));
         assert!(render(Some("paste")).contains("次に一覧を出すとその行"));
+        assert!(render(Some("paste")).contains(":sel | snake"));
+        assert!(render(Some("paste")).contains("Ctrl+Shift+H は前面の"));
         assert!(render(Some("sh")).contains(":!!sh"));
         assert!(render(Some("colon")).contains(":!!sh"));
         assert!(render(Some("edit")).contains(":!!sh"));

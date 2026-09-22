@@ -6,6 +6,7 @@ mod editor;
 mod eval;
 mod expr;
 mod help;
+mod pipe;
 mod platform;
 mod settings;
 mod shell;
@@ -673,8 +674,29 @@ fn run_pipe(
     ops: Vec<PipeOp>,
     sink: String,
     set_name: Option<String>,
+    keep_open: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    execute_pipe(
+        &app,
+        &state,
+        &ids,
+        &ops,
+        &sink,
+        set_name.as_deref(),
+        keep_open.unwrap_or(false),
+    )
+}
+
+fn execute_pipe(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    ops: &[PipeOp],
+    sink: &str,
+    set_name: Option<&str>,
+    keep_open: bool,
 ) -> Result<Option<String>, String> {
     if ops.is_empty() {
         return Err("段がない".into());
@@ -685,7 +707,7 @@ fn run_pipe(
     let mut text: Option<String> = None;
     let mut raw = false;
     let mut used_selection = false;
-    for op in &ops {
+    for op in ops {
         match op.kind.as_str() {
             "raw" => {
                 if text.is_none() {
@@ -769,13 +791,13 @@ fn run_pipe(
         text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, raw)?, "\n"));
     }
     let text = text.unwrap_or_default();
-    let pasted_ids: Vec<String> = if used_selection { ids } else { Vec::new() };
-    match sink.as_str() {
+    let pasted_ids: Vec<String> = if used_selection { ids.to_vec() } else { Vec::new() };
+    match sink {
         "paste" => {
             if text.is_empty() {
                 return Ok(None);
             }
-            if !paste_resolved_text(&app, &state, &pasted_ids, &text, false, false, None, false) {
+            if !paste_resolved_text(app, state, &pasted_ids, &text, keep_open, false, None, false) {
                 return Err("貼れない".into());
             }
             Ok(None)
@@ -803,7 +825,7 @@ fn run_pipe(
             Ok(None)
         }
         "set" => {
-            let name = set_name.unwrap_or_default();
+            let name = set_name.unwrap_or("").to_string();
             if !state.settings.lock().expect("settings").set_var(&name, text) {
                 return Err("名前が違う".into());
             }
@@ -894,6 +916,15 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
     else {
         return;
     };
+    match apply_row_pipe(app, state, &item.id, &item.text, false) {
+        RowPipe::Text => {}
+        RowPipe::Show(text) => {
+            reveal_picker(app, state);
+            let _ = app.emit("pipe-shown", text);
+            return;
+        }
+        RowPipe::Noop | RowPipe::Done => return,
+    }
     run_paste(
         app,
         state,
@@ -908,6 +939,101 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         false,
         false,
     );
+}
+
+#[derive(Serialize)]
+struct PipePaste {
+    status: String,
+    text: Option<String>,
+}
+
+enum RowPipe {
+    Text,
+    Noop,
+    Done,
+    Show(String),
+}
+
+/// 本文がパイプなら実行する。テンプレートなら `Text`。
+fn apply_row_pipe(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    text: &str,
+    keep_open: bool,
+) -> RowPipe {
+    let script = match pipe::classify(text) {
+        pipe::PasteBody::Text => return RowPipe::Text,
+        pipe::PasteBody::Bad => return RowPipe::Noop,
+        pipe::PasteBody::Run(script) => script,
+    };
+    let show = script.sink == "show";
+    let ids = if script.uses_selection {
+        vec![id.to_string()]
+    } else {
+        Vec::new()
+    };
+    let ops: Vec<PipeOp> = script
+        .ops
+        .into_iter()
+        .map(|op| PipeOp {
+            kind: op.kind,
+            arg: op.arg,
+            selection_stdin: op.selection_stdin,
+        })
+        .collect();
+    match execute_pipe(
+        app,
+        state,
+        &ids,
+        &ops,
+        &script.sink,
+        script.set_name.as_deref(),
+        keep_open,
+    ) {
+        Ok(Some(text)) if show => RowPipe::Show(text),
+        Ok(_) => RowPipe::Done,
+        Err(_) => RowPipe::Noop,
+    }
+}
+
+#[tauri::command]
+fn paste_pipe_item(
+    id: String,
+    keep_open: Option<bool>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> PipePaste {
+    let text = state
+        .store
+        .lock()
+        .expect("store")
+        .get(&id)
+        .map(|item| item.text.clone());
+    let Some(text) = text else {
+        return PipePaste {
+            status: "noop".into(),
+            text: None,
+        };
+    };
+    match apply_row_pipe(&app, &state, &id, &text, keep_open.unwrap_or(false)) {
+        RowPipe::Text => PipePaste {
+            status: "text".into(),
+            text: None,
+        },
+        RowPipe::Noop => PipePaste {
+            status: "noop".into(),
+            text: None,
+        },
+        RowPipe::Done => PipePaste {
+            status: "done".into(),
+            text: None,
+        },
+        RowPipe::Show(text) => PipePaste {
+            status: "show".into(),
+            text: Some(text),
+        },
+    }
 }
 
 pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
@@ -1906,6 +2032,7 @@ pub fn run() {
             import_items,
             clear_unpinned,
             run_pipe,
+            paste_pipe_item,
             paste_script,
             paste_echo,
             paste_last_script,
