@@ -289,6 +289,10 @@
       previewText = "••••";
       return;
     }
+    if (item.hint) {
+      previewText = maskCred(item.hint);
+      return;
+    }
     previewText = maskCred(item.text);
     const id = item.id;
     const raw = item.text;
@@ -305,6 +309,14 @@
     }, 200);
     return () => clearTimeout(timer);
   });
+
+  function rowText(item: Item): string {
+    if (isSecret(item)) {
+      return "••••";
+    }
+    const hint = item.hint?.split("\n")[0];
+    return maskCred(hint || item.text);
+  }
 
   function maskCred(text: string): string {
     return text.replace(/\{\{cred(?::|\s)[^}]*\}\}/g, "••••");
@@ -2292,7 +2304,7 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
           >
             <span class="gutter">{index < 9 ? index + 1 : ""}</span>
             <span class="body">
-              <span class="text">{isSecret(item) ? "••••" : maskCred(item.text)}</span>
+              <span class="text">{rowText(item)}</span>
               {#if item.pinned || item.tags.length > 0}
                 <span class="meta">
                   {#if item.pinned}<span class="pin">pin</span>{/if}

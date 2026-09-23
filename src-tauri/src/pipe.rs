@@ -520,6 +520,123 @@ fn middle_clip(ops: &[Op]) -> bool {
     false
 }
 
+/// 一覧を開いたときのプレビュー。`sel` を前面の選択にし、`sh` は実行しない。
+pub(crate) fn selection_preview(body: &str, sel: &str, clip: &str) -> Option<String> {
+    let PasteBody::Run(script) = classify(body) else {
+        return None;
+    };
+    if script.ops.iter().any(|op| op.kind == "sh") {
+        return None;
+    }
+    if !script.ops.iter().any(|op| op.kind == "sel") {
+        return None;
+    }
+    eval_local(&script.ops, None, sel, clip).filter(|text| !text.is_empty())
+}
+
+fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Option<String> {
+    let mut index = 0;
+    while index < ops.len() {
+        let op = &ops[index];
+        if op.kind == "each" {
+            let body = text.take()?;
+            let mut kept = Vec::new();
+            for line in body.lines() {
+                if let Some(out) = eval_local(&ops[index + 1..], Some(line.to_string()), sel, clip)
+                {
+                    kept.push(out);
+                }
+            }
+            if kept.is_empty() {
+                return None;
+            }
+            return Some(kept.join("\n"));
+        }
+        match op.kind.as_str() {
+            "raw" => {}
+            "sel" => {
+                if text.is_none() {
+                    if sel.is_empty() {
+                        return None;
+                    }
+                    text = Some(sel.to_string());
+                }
+            }
+            "clip" => {
+                if text.is_some() {
+                    return None;
+                }
+                text = Some(clip.to_string());
+            }
+            "dot" => return None,
+            "echo" => {
+                let value = crate::expr::eval_with(&op.arg, &std::collections::HashMap::new())?;
+                text = Some(crate::expr::format_number(value));
+            }
+            "sh" => return None,
+            "json" | "xml" => {
+                let current = text.take()?;
+                let pretty = if op.kind == "json" {
+                    crate::text::pretty_json(&current)
+                } else {
+                    crate::text::pretty_xml(&current)
+                };
+                text = Some(pretty?);
+            }
+            "put" => {
+                let current = text.take()?;
+                let (pointer, value) = op.arg.split_once('\u{1}')?;
+                text = Some(crate::text::json_put(&current, pointer, value)?);
+            }
+            "diff" | "only" => {
+                let current = text.take()?;
+                let other = match op.arg.as_str() {
+                    "clip" => clip,
+                    _ => return None,
+                };
+                let next = if op.kind == "diff" {
+                    crate::text::line_diff(&current, other)
+                } else {
+                    crate::text::only_lines(&current, other)
+                };
+                text = Some(next?);
+            }
+            "split" | "col" | "get" => {
+                let current = text.take()?;
+                let next = match op.kind.as_str() {
+                    "split" => Some(crate::text::split_fields(&current, &op.arg)),
+                    "col" => {
+                        let index = op.arg.parse::<i64>().unwrap_or(0);
+                        crate::text::take_column(&current, index)
+                    }
+                    "get" => crate::text::json_at(&current, &op.arg),
+                    _ => None,
+                };
+                text = Some(next?);
+            }
+            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper"
+            | "lower" => {
+                let current = text.take()?;
+                text = Some(match op.kind.as_str() {
+                    "join" => current.lines().collect::<Vec<_>>().join(&op.arg),
+                    "quote" => {
+                        let (prefix, suffix) = crate::text::split_quote_arg(&op.arg);
+                        crate::text::affix_lines(&current, prefix, suffix)
+                    }
+                    "format" => crate::text::format_for_paste(&current),
+                    "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
+                        crate::text::recase(&current, &op.kind)
+                    }
+                    _ => current,
+                });
+            }
+            _ => return None,
+        }
+        index += 1;
+    }
+    text
+}
+
 fn pipe_uses_selection(ops: &[Op]) -> bool {
     let mut produced = false;
     for op in ops {
@@ -653,5 +770,21 @@ mod tests {
         };
         assert!(script.uses_selection);
         assert_eq!(script.sink, "paste");
+    }
+
+    #[test]
+    fn selection_preview_skips_sh_and_rows_without_sel() {
+        assert_eq!(
+            selection_preview(":sel | upper", "hello", "").as_deref(),
+            Some("HELLO")
+        );
+        assert_eq!(
+            selection_preview("sel | split , | col 2", "a,b,c", "").as_deref(),
+            Some("b")
+        );
+        assert!(selection_preview("sel | sh dir", "hello", "").is_none());
+        assert!(selection_preview("upper", "hello", "").is_none());
+        assert!(selection_preview("sel | json", "{", "").is_none());
+        assert!(selection_preview("hello", "hello", "").is_none());
     }
 }
