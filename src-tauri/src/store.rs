@@ -97,6 +97,23 @@ impl Store {
         self.items.iter().find(|item| item.id == id)
     }
 
+    /// 同じ本文があれば先頭へ寄せてタグを足す。無ければ新規。取り消しは1回。
+    pub fn insert_marked(&mut self, text: String, tags: Vec<String>) {
+        self.push_undo();
+        if let Some(index) = self.items.iter().position(|existing| existing.text == text) {
+            let mut existing = self.items.remove(index);
+            for tag in tags {
+                if !existing.tags.iter().any(|have| have == &tag) {
+                    existing.tags.push(tag);
+                }
+            }
+            self.items.insert(0, existing);
+            self.save();
+            return;
+        }
+        self.insert_at(0, Item::new(text, tags));
+    }
+
     pub fn insert(&mut self, item: Item) {
         self.push_undo();
         if let Some(index) = self

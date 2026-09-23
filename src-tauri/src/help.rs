@@ -10,7 +10,7 @@ const TOPICS: &[(&str, &str)] = &[
     (
         "tag",
         "t で付ける。T で外す。V 中は範囲の全行。/ のあと #tag で絞る。Tab / Shift+Tab でよく使うタグ切替。編集中はチップで付け外し。\n\
-自動  Ctrl+4 のとき http(s) なら #url、パスなら #path。ほかは自分で付ける。\n\
+自動  Ctrl+4 のとき http(s) なら #url、パスなら #path。ほかは自分で付ける。2秒以内にもう一度押すと、1回目を入力、2回目を出力として :sel | snake か #grab を仮の行にする（候補は camel pascal snake kebab upper lower の順。当たらなければ共通の英数字を <a> <b> <c> にする）。Enter で残す。Esc で消す。当たらなければ2回目は普通に1件登録。一覧を閉じても仮の行は消える。\n\
 \n\
 #pin相当 gp で付ける。先頭に固定。+ / - で順\n\
 #secret  一覧を ••••。貼り付けは普通\n\

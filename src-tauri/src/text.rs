@@ -1198,6 +1198,137 @@ fn capitalize(word: &str) -> String {
     out
 }
 
+pub struct Inferred {
+    pub text: String,
+    pub grab: bool,
+}
+
+/// 2回の `Ctrl+4` から式を1つ推測する。当たらなければなし。
+pub fn infer_pair(input: &str, output: &str) -> Option<Inferred> {
+    if input.is_empty() || output.is_empty() || input == output {
+        return None;
+    }
+    for style in ["camel", "pascal", "snake", "kebab", "upper", "lower"] {
+        if recase(input, style) == output {
+            return Some(Inferred {
+                text: format!(":sel | {style}"),
+                grab: false,
+            });
+        }
+    }
+    if input.contains('\n') || output.contains('\n') {
+        return None;
+    }
+    let input_parts = alnum_parts(input);
+    let output_parts = alnum_parts(output);
+    let output_tokens: std::collections::HashSet<&str> = output_parts
+        .iter()
+        .filter(|(token, _)| *token)
+        .map(|(_, text)| text.as_str())
+        .collect();
+    let mut holes = std::collections::HashMap::new();
+    let mut next = 0usize;
+    for (token, text) in &input_parts {
+        if *token && output_tokens.contains(text.as_str()) && !holes.contains_key(text) {
+            holes.insert(text.clone(), hole_name(next));
+            next += 1;
+        }
+    }
+    if holes.is_empty() {
+        return None;
+    }
+    let pattern = apply_holes(&input_parts, &holes);
+    let template = apply_holes(&output_parts, &holes);
+    if !shares_literal(&pattern, &template) {
+        return None;
+    }
+    Some(Inferred {
+        text: format!("{pattern}\n{template}"),
+        grab: true,
+    })
+}
+
+fn alnum_parts(text: &str) -> Vec<(bool, String)> {
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut token = false;
+    for ch in text.chars() {
+        let is_token = ch.is_ascii_alphanumeric();
+        if buf.is_empty() {
+            token = is_token;
+            buf.push(ch);
+            continue;
+        }
+        if is_token == token {
+            buf.push(ch);
+            continue;
+        }
+        parts.push((token, std::mem::take(&mut buf)));
+        token = is_token;
+        buf.push(ch);
+    }
+    if !buf.is_empty() {
+        parts.push((token, buf));
+    }
+    parts
+}
+
+fn apply_holes(parts: &[(bool, String)], holes: &std::collections::HashMap<String, String>) -> String {
+    let mut out = String::new();
+    for (token, text) in parts {
+        if *token {
+            if let Some(name) = holes.get(text) {
+                out.push('<');
+                out.push_str(name);
+                out.push('>');
+                continue;
+            }
+        }
+        out.push_str(text);
+    }
+    out
+}
+
+fn hole_name(index: usize) -> String {
+    let mut n = index;
+    let mut name = String::new();
+    loop {
+        name.insert(0, (b'a' + (n % 26) as u8) as char);
+        if n < 26 {
+            break;
+        }
+        n = n / 26 - 1;
+    }
+    name
+}
+
+fn shares_literal(pattern: &str, template: &str) -> bool {
+    let left: std::collections::HashSet<char> = literal_chars(pattern).chars().collect();
+    literal_chars(template).chars().any(|ch| left.contains(&ch))
+}
+
+fn literal_chars(pattern: &str) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '<' {
+            let start = index + 1;
+            let mut end = start;
+            while end < chars.len() && chars[end] != '>' {
+                end += 1;
+            }
+            if end < chars.len() && is_ident(&chars[start..end].iter().collect::<String>()) {
+                index = end + 1;
+                continue;
+            }
+        }
+        out.push(chars[index]);
+        index += 1;
+    }
+    out
+}
+
 fn ident_words(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut words = Vec::new();
@@ -2120,6 +2251,24 @@ mod tests {
         assert_eq!(recase("Foo_Bar\nbaz", "camel"), "fooBar\nbaz");
         assert_eq!(recase("AbC", "upper"), "ABC");
         assert_eq!(recase("AbC", "lower"), "abc");
+    }
+
+    #[test]
+    fn infers_a_case_stage_or_a_grab() {
+        let snake = infer_pair("getUserName", "get_user_name").unwrap();
+        assert!(!snake.grab);
+        assert_eq!(snake.text, ":sel | snake");
+        let input = "https://github.com/hatamon/hataclip/pull/12";
+        let output = "gh pr checkout 12 --repo hatamon/hataclip";
+        let grab = infer_pair(input, output).unwrap();
+        assert!(grab.grab);
+        assert_eq!(
+            grab_fill(&grab.text, input).as_deref(),
+            Some(output)
+        );
+        assert!(infer_pair("fooX", "fooY").is_none());
+        assert!(infer_pair("abc", "xyz").is_none());
+        assert!(infer_pair("same", "same").is_none());
     }
 
     #[test]
