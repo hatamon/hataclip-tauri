@@ -219,6 +219,24 @@ fn swap_grab(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
     view(&state)
 }
 
+#[derive(Serialize)]
+struct ColonSample {
+    sel: String,
+    clip: String,
+}
+
+#[tauri::command]
+fn colon_sample(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> ColonSample {
+    let clip = clipboard::peek_text().unwrap_or_default();
+    let sel = capture_pipe_selection(&app, &state).unwrap_or_default();
+    ColonSample { sel, clip }
+}
+
+#[tauri::command]
+fn preview_colon(expr: String, sel: String, dot: String, clip: String) -> Option<String> {
+    pipe::colon_preview(&expr, &sel, &dot, &clip)
+}
+
 #[tauri::command]
 fn set_formula(id: String, formula: String, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state
@@ -2348,6 +2366,8 @@ pub fn run() {
             dedup_items,
             swap_grab,
             set_formula,
+            colon_sample,
+            preview_colon,
             rerun_formula,
             sort_items,
             drop_paths,

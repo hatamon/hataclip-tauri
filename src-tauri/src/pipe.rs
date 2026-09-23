@@ -531,10 +531,46 @@ pub(crate) fn selection_preview(body: &str, sel: &str, clip: &str) -> Option<Str
     if !script.ops.iter().any(|op| op.kind == "sel") {
         return None;
     }
-    eval_local(&script.ops, None, sel, clip).filter(|text| !text.is_empty())
+    eval_local(&script.ops, None, sel, "", clip).filter(|text| !text.is_empty())
 }
 
-fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Option<String> {
+/// `:` の入力中に出す結果。`sh` は実行しない。12行を超えたら末尾に `...`。
+pub(crate) fn colon_preview(body: &str, sel: &str, dot: &str, clip: &str) -> Option<String> {
+    let line = body.trim().trim_start_matches(':').trim();
+    if line.is_empty() {
+        return None;
+    }
+    let PasteBody::Run(script) = classify(line) else {
+        return None;
+    };
+    if script.ops.iter().any(|op| op.kind == "sh") {
+        return None;
+    }
+    let sel_src = if sel.is_empty() { dot } else { sel };
+    let text = eval_local(&script.ops, None, sel_src, dot, clip)?;
+    if text.is_empty() {
+        return None;
+    }
+    Some(clip_preview(&text, 12))
+}
+
+fn clip_preview(text: &str, limit: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= limit {
+        return text.to_string();
+    }
+    let mut out = lines[..limit].join("\n");
+    out.push_str("\n...");
+    out
+}
+
+fn eval_local(
+    ops: &[Op],
+    mut text: Option<String>,
+    sel: &str,
+    dot: &str,
+    clip: &str,
+) -> Option<String> {
     let mut index = 0;
     while index < ops.len() {
         let op = &ops[index];
@@ -542,7 +578,8 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
             let body = text.take()?;
             let mut kept = Vec::new();
             for line in body.lines() {
-                if let Some(out) = eval_local(&ops[index + 1..], Some(line.to_string()), sel, clip)
+                if let Some(out) =
+                    eval_local(&ops[index + 1..], Some(line.to_string()), sel, dot, clip)
                 {
                     kept.push(out);
                 }
@@ -568,14 +605,21 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
                 }
                 text = Some(clip.to_string());
             }
-            "dot" => return None,
+            "dot" => {
+                if text.is_none() {
+                    if dot.is_empty() {
+                        return None;
+                    }
+                    text = Some(dot.to_string());
+                }
+            }
             "echo" => {
                 let value = crate::expr::eval_with(&op.arg, &std::collections::HashMap::new())?;
                 text = Some(crate::expr::format_number(value));
             }
             "sh" => return None,
             "json" | "xml" => {
-                let current = text.take()?;
+                let current = take_or_dot(&mut text, dot)?;
                 let pretty = if op.kind == "json" {
                     crate::text::pretty_json(&current)
                 } else {
@@ -584,12 +628,12 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
                 text = Some(pretty?);
             }
             "put" => {
-                let current = text.take()?;
+                let current = take_or_dot(&mut text, dot)?;
                 let (pointer, value) = op.arg.split_once('\u{1}')?;
                 text = Some(crate::text::json_put(&current, pointer, value)?);
             }
             "diff" | "only" => {
-                let current = text.take()?;
+                let current = take_or_dot(&mut text, dot)?;
                 let other = match op.arg.as_str() {
                     "clip" => clip,
                     _ => return None,
@@ -602,7 +646,7 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
                 text = Some(next?);
             }
             "split" | "col" | "get" => {
-                let current = text.take()?;
+                let current = take_or_dot(&mut text, dot)?;
                 let next = match op.kind.as_str() {
                     "split" => Some(crate::text::split_fields(&current, &op.arg)),
                     "col" => {
@@ -616,7 +660,7 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
             }
             "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
-                let current = text.take()?;
+                let current = take_or_dot(&mut text, dot)?;
                 text = Some(match op.kind.as_str() {
                     "join" => current.lines().collect::<Vec<_>>().join(&op.arg),
                     "quote" => {
@@ -635,6 +679,13 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
         index += 1;
     }
     text
+}
+
+fn take_or_dot(text: &mut Option<String>, dot: &str) -> Option<String> {
+    if text.is_none() && !dot.is_empty() {
+        *text = Some(dot.to_string());
+    }
+    text.take()
 }
 
 pub(crate) fn render_ops(ops: &[Op]) -> String {
@@ -841,6 +892,22 @@ mod tests {
         assert!(selection_preview("upper", "hello", "").is_none());
         assert!(selection_preview("sel | json", "{", "").is_none());
         assert!(selection_preview("hello", "hello", "").is_none());
+    }
+
+    #[test]
+    fn colon_preview_uses_the_front_selection() {
+        assert_eq!(
+            colon_preview(":sel | kebab", "helloWorld", "", "").as_deref(),
+            Some("hello-world")
+        );
+        assert_eq!(colon_preview("upper", "", "ab", "").as_deref(), Some("AB"));
+        assert!(colon_preview("sel | sh dir", "hello", "", "").is_none());
+        assert!(colon_preview("sel | json", "{", "", "").is_none());
+        assert!(colon_preview("nope", "hello", "", "").is_none());
+        let long = "ab\n".repeat(20);
+        let shown = colon_preview("upper", "", &long, "").unwrap();
+        assert!(shown.ends_with("\n..."));
+        assert_eq!(shown.lines().count(), 13);
     }
 
     #[test]

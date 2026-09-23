@@ -95,6 +95,10 @@
   let colonInput = $state("");
   let colonHistory = $state<string[]>([]);
   let colonHistIndex = $state(-1);
+  let colonSel = $state("");
+  let colonDot = $state("");
+  let colonClip = $state("");
+  let colonPreview = $state("");
   let colonDraft = $state("");
   let helpText = $state("");
   let helpEl = $state<HTMLPreElement | undefined>(undefined);
@@ -273,6 +277,28 @@
         whichTimer = null;
       }
     };
+  });
+
+  $effect(() => {
+    const line = colonInput;
+    const active = mode === "colon";
+    if (!active) {
+      colonPreview = "";
+      return;
+    }
+    const timer = setTimeout(() => {
+      void invoke<string | null>("preview_colon", {
+        expr: line,
+        sel: colonSel,
+        dot: colonDot,
+        clip: colonClip,
+      }).then((text) => {
+        if (mode === "colon" && colonInput === line) {
+          colonPreview = text ?? "";
+        }
+      });
+    }, 50);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
@@ -1982,7 +2008,13 @@
       event.preventDefault();
       pending = "";
       colonInput = "";
+      colonPreview = "";
+      colonDot = currentItem()?.text ?? "";
       mode = "colon";
+      void invoke<{ sel: string; clip: string }>("colon_sample").then((sample) => {
+        colonSel = sample.sel;
+        colonClip = sample.clip;
+      });
       if (helpTopics.length === 0) {
         void invoke<string[]>("help_topics").then((topics) => {
           helpTopics = topics;
@@ -2271,6 +2303,9 @@
             </li>
           {/each}
         </ul>
+      {/if}
+      {#if colonPreview.length > 0}
+        <pre class="help">{colonPreview}</pre>
       {/if}
     {/if}
     {#if mode === "search" || query.length > 0}
