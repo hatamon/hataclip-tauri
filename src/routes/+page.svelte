@@ -7,6 +7,7 @@
     applyColonCompletion,
     bangFilterScript,
     joinSeparator,
+    keepVisibleIndex,
     matchingColonCommands,
     parseColonPipe,
     quotePrefix,
@@ -304,7 +305,20 @@
     if (filtered.length === 0) {
       return;
     }
-    listEl?.children[selected]?.scrollIntoView({ block: "nearest" });
+    const colon = mode === "colon";
+    const index = keepVisibleIndex(selected, anchor, colon);
+    void (colon ? colonPreview.length + colonSuggestions.length : 0);
+    const row = listEl?.children[index];
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+    const scroll = () => row.scrollIntoView({ block: "nearest" });
+    scroll();
+    if (!colon) {
+      return;
+    }
+    const frame = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(frame);
   });
 
   $effect(() => {

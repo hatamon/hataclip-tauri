@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, bangFilterScript, joinSeparator, matchingColonCommands, parseColonPipe, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, joinSeparator, keepVisibleIndex, matchingColonCommands, parseColonPipe, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
+
+describe("keepVisibleIndex", () => {
+  it("keeps the current row, or the start of a visual range while colon is open", () => {
+    expect(keepVisibleIndex(4, null, false)).toBe(4);
+    expect(keepVisibleIndex(4, 2, false)).toBe(4);
+    expect(keepVisibleIndex(4, null, true)).toBe(4);
+    expect(keepVisibleIndex(4, 2, true)).toBe(2);
+    expect(keepVisibleIndex(2, 4, true)).toBe(2);
+  });
+});
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {

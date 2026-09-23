@@ -69,6 +69,14 @@ export function colonCommandToken(input: string): string {
   return line.split(/\s/)[0] ?? "";
 }
 
+/** `:` の一覧で残す行。`V` なら範囲の先頭。それ以外は選択行。 */
+export function keepVisibleIndex(selected: number, anchor: number | null, colon: boolean): number {
+  if (!colon || anchor === null) {
+    return selected;
+  }
+  return Math.min(anchor, selected);
+}
+
 export function matchingColonCommands(input: string): string[] {
   const segments = colonSegments(input);
   const line = segments[segments.length - 1] ?? "";
