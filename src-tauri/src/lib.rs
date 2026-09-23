@@ -235,9 +235,9 @@ struct ColonSample {
 }
 
 #[tauri::command]
-fn colon_sample(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> ColonSample {
+fn colon_sample(state: tauri::State<'_, AppState>) -> ColonSample {
     let clip = clipboard::peek_text().unwrap_or_default();
-    let sel = capture_pipe_selection(&app, &state).unwrap_or_default();
+    let sel = state.open_sel.lock().expect("open_sel").clone();
     ColonSample { sel, clip }
 }
 
