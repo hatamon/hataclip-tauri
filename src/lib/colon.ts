@@ -23,6 +23,7 @@ export const COLON_COMMANDS = [
   "n",
   "settings",
   "tags",
+  "from",
   "clip",
   "sel",
   "camel",

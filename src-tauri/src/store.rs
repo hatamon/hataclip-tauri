@@ -26,6 +26,9 @@ pub struct Item {
     /// 登録時刻（UNIX 秒）。#ttl 用。無い行は 0 で期限切れにしない。
     #[serde(default)]
     pub created_at: u64,
+    /// `| add` か `:!!sh` で残した式。`g:` でもう一度実行する。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub formula: String,
     /// 一覧を開いたときの当たり。保存しない。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub hint: String,
@@ -42,6 +45,7 @@ impl Item {
             paste_count: 0,
             pin_rank: 0,
             created_at: now_secs(),
+            formula: String::new(),
             hint: String::new(),
         }
     }
@@ -614,7 +618,49 @@ impl Store {
         true
     }
 
-    /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
+    /// 本文を置き換え、同じ式を残す。本文も式も同じなら何もしない。
+    pub fn rewrite_with_formula(&mut self, updates: &[(String, String)], formula: &str) -> bool {
+        if updates.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for (id, text) in updates {
+            let Some(item) = self.get(id) else {
+                return false;
+            };
+            if item.text != *text || item.formula != formula {
+                changed = true;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        for (id, text) in updates {
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == *id) {
+                item.text = text.clone();
+                item.formula = formula.to_string();
+            }
+        }
+        self.save();
+        true
+    }
+
+    pub fn set_formula(&mut self, id: &str, formula: String) -> bool {
+        let Some(item) = self.get(id) else {
+            return false;
+        };
+        if item.formula == formula {
+            return false;
+        }
+        self.push_undo();
+        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+            item.formula = formula;
+        }
+        self.save();
+        true
+    }
+
     /// `#grab` の1行目と2行目を入れ替える。タグの無い行と2行目の無い行は飛ばす。
     pub fn swap_grab(&mut self, ids: &[String]) -> bool {
         let updates: Vec<(String, String)> = ids
@@ -641,6 +687,7 @@ impl Store {
         true
     }
 
+    /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
     pub fn sort_items(&mut self, ids: &[String]) -> bool {
         if ids.len() < 2 {
             return false;
@@ -929,6 +976,7 @@ mod tests {
             paste_count: 0,
             pin_rank: 0,
             created_at: 0,
+            formula: String::new(),
             hint: String::new(),
         }
     }
@@ -1533,5 +1581,23 @@ mod tests {
         assert_eq!(ranked[2].hint, "HTTPS://GITHUB.COM/HATAMON/HATACLIP/PULL/12");
         assert!(ranked[3].hint.is_empty());
         assert!(ranked[4].hint.is_empty());
+    }
+
+    #[test]
+    fn formula_stays_when_the_body_changes() {
+        let mut store = fresh("formula");
+        store.insert(item("a", "user-name"));
+        assert!(store.set_formula("a", "sel | kebab".into()));
+        assert!(store.replace_texts(&[("a".into(), "http-response".into())]));
+        assert_eq!(store.get("a").unwrap().text, "http-response");
+        assert_eq!(store.get("a").unwrap().formula, "sel | kebab");
+        assert!(store.rewrite_with_formula(
+            &[("a".into(), "USER".into())],
+            "!! tr a-z A-Z"
+        ));
+        assert_eq!(store.get("a").unwrap().formula, "!! tr a-z A-Z");
+        store.undo();
+        assert_eq!(store.get("a").unwrap().formula, "sel | kebab");
+        assert_eq!(store.get("a").unwrap().text, "http-response");
     }
 }

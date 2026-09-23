@@ -7,5 +7,6 @@ export type Item = {
   paste_count: number;
   pin_rank: number;
   created_at: number;
+  formula?: string;
   hint?: string;
 };

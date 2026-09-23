@@ -62,6 +62,7 @@
     | { kind: "filter"; script: string }
     | { kind: "sort" }
     | { kind: "swap" }
+    | { kind: "formula" }
     | { kind: "app" };
 
   let items = $state<Item[]>([]);
@@ -78,6 +79,7 @@
   let editTags = $state<string[]>([]);
   let tagDraft = $state("");
   let editingId = $state<string | null>(null);
+  let editingFormula = $state(false);
   let yanked = $state<{ text: string; tags: string[] } | null>(null);
   let anchor = $state<number | null>(null);
   let tagInput = $state("");
@@ -195,6 +197,7 @@
         { key: "a", label: "#app" },
         { key: ".", label: "直前の貼り付け" },
         { key: "~", label: "#grab 入替" },
+        { key: ":", label: "式" },
         { key: "?", label: "行の情報" },
         ...mapped,
       ];
@@ -763,7 +766,20 @@
       case "swap":
         await swapGrab();
         return;
+      case "formula":
+        await rerunFormula();
+        return;
     }
+  }
+
+  async function rerunFormula() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const id = selectedItems[0].id;
+    items = await invoke<Item[]>("rerun_formula", { ids: selectedIds });
+    selectById(id);
+    lastChange = { kind: "formula" };
   }
 
   async function swapGrab() {
@@ -886,6 +902,7 @@
     }
     draftNewId = null;
     clearSelection();
+    editingFormula = false;
     editingId = item.id;
     editText = item.text;
     editTags = [...item.tags];
@@ -906,8 +923,24 @@
     }
   }
 
+  function startFormulaEdit() {
+    const item = currentItem();
+    if (!item) {
+      return;
+    }
+    draftNewId = null;
+    clearSelection();
+    editingFormula = true;
+    editingId = item.id;
+    editText = item.formula ?? "";
+    editTags = [];
+    tagDraft = "";
+    mode = "editing";
+  }
+
   function cancelEdit() {
     const created = draftNewId;
+    editingFormula = false;
     editingId = null;
     draftNewId = null;
     mode = "normal";
@@ -921,6 +954,14 @@
 
   async function saveEdit() {
     if (editingId === null) {
+      return;
+    }
+    if (editingFormula) {
+      const id = editingId;
+      const formula = editText;
+      editingFormula = false;
+      items = await invoke<Item[]>("set_formula", { id, formula });
+      cancelEdit();
       return;
     }
     const tags = tagDraft.trim().length > 0 ? [...editTags, tagDraft.trim()] : editTags;
@@ -1180,6 +1221,19 @@
     colonHistIndex = -1;
     if (historyLine.length > 0 && colonHistory[colonHistory.length - 1] !== historyLine) {
       colonHistory = [...colonHistory, historyLine];
+    }
+    if (historyLine === "from" || historyLine.startsWith("from ")) {
+      const rest = historyLine === "from" ? "" : historyLine.slice(5).trim();
+      if (rest.length === 0) {
+        startFormulaEdit();
+        return;
+      }
+      const item = currentItem();
+      if (!item) {
+        return;
+      }
+      items = await invoke<Item[]>("set_formula", { id: item.id, formula: rest });
+      return;
     }
     const pipe = parseColonPipe(historyLine);
     if (pipe.kind === "bad") {
@@ -1789,6 +1843,12 @@
       preview = !preview;
       return;
     }
+    if (pending === "g" && event.key === ":") {
+      event.preventDefault();
+      pending = "";
+      void rerunFormula();
+      return;
+    }
     if (pending === "g" && event.key === "~") {
       event.preventDefault();
       pending = "";
@@ -2114,6 +2174,7 @@
   {#if mode === "editing"}
     <div class="edit">
       <textarea bind:this={editEl} bind:value={editText} rows="6"></textarea>
+      {#if !editingFormula}
       <div class="tags">
         {#each editTags as tag (tag)}
           <button
@@ -2155,7 +2216,8 @@
           {/each}
         </ul>
       {/if}
-      <p class="hint">Ctrl+Enter save · Esc cancel</p>
+      {/if}
+      <p class="hint">{editingFormula ? "式 · Ctrl+Enter save · Esc cancel" : "Ctrl+Enter save · Esc cancel"}</p>
     </div>
   {:else if mode === "help"}
     <pre class="help" bind:this={helpEl}>{helpText}</pre>
@@ -2274,7 +2336,7 @@
     {#if info && currentItem()}
       <pre class="preview">{`count ${currentItem()!.paste_count}
 context ${currentItem()!.contexts.join(" ") || "—"}
-tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}`}</pre>
+tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentItem()!.formula ? `\nformula ${currentItem()!.formula}` : ""}`}</pre>
     {/if}
     {#if whichKeys.length > 0}
       <ul class="suggest which">

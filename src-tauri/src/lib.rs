@@ -196,11 +196,12 @@ fn filter_items(
         updates.push((id.clone(), out));
     }
     drop(store);
+    let formula = format!("!! {script}");
     state
         .store
         .lock()
         .expect("store")
-        .replace_texts(&updates);
+        .rewrite_with_formula(&updates, &formula);
     Ok(view(&state))
 }
 
@@ -213,6 +214,73 @@ fn dedup_items(state: tauri::State<'_, AppState>) -> Vec<Item> {
 #[tauri::command]
 fn swap_grab(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").swap_grab(&ids);
+    view(&state)
+}
+
+#[tauri::command]
+fn set_formula(id: String, formula: String, state: tauri::State<'_, AppState>) -> Vec<Item> {
+    state
+        .store
+        .lock()
+        .expect("store")
+        .set_formula(&id, formula);
+    view(&state)
+}
+
+/// 行に残した式をもう一度実行して本文を置き換える。失敗した行はそのまま。
+#[tauri::command]
+fn rerun_formula(
+    ids: Vec<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Vec<Item> {
+    let mut updates = Vec::new();
+    for id in &ids {
+        let Some(item) = state.store.lock().expect("store").get(id).cloned() else {
+            continue;
+        };
+        let formula = item.formula.trim().to_string();
+        if formula.is_empty() {
+            continue;
+        }
+        if let Some(script) = formula.strip_prefix("!! ") {
+            if let Ok(out) = shell::run_script_with_stdin(script, Some(&item.text)) {
+                if out != item.text {
+                    updates.push((id.clone(), out));
+                }
+            }
+            continue;
+        }
+        let pipe::PasteBody::Run(script) = pipe::classify(&formula) else {
+            continue;
+        };
+        let row_ids = if script.uses_selection {
+            vec![id.clone()]
+        } else {
+            Vec::new()
+        };
+        let ops: Vec<PipeOp> = script
+            .ops
+            .into_iter()
+            .map(|op| PipeOp {
+                kind: op.kind,
+                arg: op.arg,
+                selection_stdin: op.selection_stdin,
+            })
+            .collect();
+        if let Ok((text, _)) = walk_pipe(&app, &state, &row_ids, &ops, None) {
+            if !text.is_empty() && text != item.text {
+                updates.push((id.clone(), text));
+            }
+        }
+    }
+    if !updates.is_empty() {
+        state
+            .store
+            .lock()
+            .expect("store")
+            .replace_texts(&updates);
+    }
     view(&state)
 }
 
@@ -626,6 +694,18 @@ struct PipeOp {
     selection_stdin: bool,
 }
 
+fn render_formula(ops: &[PipeOp]) -> String {
+    let ops: Vec<pipe::Op> = ops
+        .iter()
+        .map(|op| pipe::Op {
+            kind: op.kind.clone(),
+            arg: op.arg.clone(),
+            selection_stdin: op.selection_stdin,
+        })
+        .collect();
+    pipe::render_ops(&ops)
+}
+
 fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
     match kind {
         "quote" => {
@@ -929,11 +1009,9 @@ fn execute_pipe(
                 return Ok(None);
             }
             let tags = text::auto_tags(&text);
-            state
-                .store
-                .lock()
-                .expect("store")
-                .insert(Item::new(text, tags));
+            let mut item = Item::new(text, tags);
+            item.formula = render_formula(ops);
+            state.store.lock().expect("store").insert(item);
             let _ = app.emit("items-changed", view(&state));
             Ok(None)
         }
@@ -2240,6 +2318,8 @@ pub fn run() {
             filter_items,
             dedup_items,
             swap_grab,
+            set_formula,
+            rerun_formula,
             sort_items,
             drop_paths,
             edit_external,

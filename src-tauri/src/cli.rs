@@ -70,7 +70,9 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
                 return Err(());
             }
             let tags = text::auto_tags(&text);
-            store.insert(Item::new(text, tags));
+            let mut item = Item::new(text, tags);
+            item.formula = pipe::render_ops(&script.ops);
+            store.insert(item);
             Ok(CliResult::Quiet)
         }
         "set" => {

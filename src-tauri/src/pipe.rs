@@ -637,6 +637,61 @@ fn eval_local(ops: &[Op], mut text: Option<String>, sel: &str, clip: &str) -> Op
     text
 }
 
+pub(crate) fn render_ops(ops: &[Op]) -> String {
+    ops.iter().map(render_op).collect::<Vec<_>>().join(" | ")
+}
+
+fn render_op(op: &Op) -> String {
+    match op.kind.as_str() {
+        "dot" => ".".to_string(),
+        "clip" | "sel" | "raw" | "each" | "format" | "json" | "xml" | "camel" | "pascal"
+        | "snake" | "kebab" | "upper" | "lower" => op.kind.clone(),
+        "echo" => format!("echo {}", op.arg),
+        "sh" => {
+            let script = quote_render(&op.arg);
+            if op.selection_stdin {
+                format!(".!sh {script}")
+            } else {
+                format!("sh {script}")
+            }
+        }
+        "quote" => {
+            let (prefix, suffix) = crate::text::split_quote_arg(&op.arg);
+            if suffix.is_empty() {
+                format!("quote {}", quote_render(&prefix))
+            } else {
+                format!("quote {} {}", quote_render(&prefix), quote_render(&suffix))
+            }
+        }
+        "join" => format!("join {}", quote_render(&op.arg)),
+        "split" => format!("split {}", quote_render(&op.arg)),
+        "col" => format!("col {}", op.arg),
+        "get" => format!("get {}", op.arg),
+        "diff" => format!("diff {}", op.arg),
+        "only" => format!("only {}", op.arg),
+        "put" => {
+            let (pointer, value) = op.arg.split_once('\u{1}').unwrap_or((op.arg.as_str(), ""));
+            format!("put {pointer} {}", quote_render(value))
+        }
+        other => other.to_string(),
+    }
+}
+
+fn quote_render(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn pipe_uses_selection(ops: &[Op]) -> bool {
     let mut produced = false;
     for op in ops {
@@ -786,5 +841,18 @@ mod tests {
         assert!(selection_preview("upper", "hello", "").is_none());
         assert!(selection_preview("sel | json", "{", "").is_none());
         assert!(selection_preview("hello", "hello", "").is_none());
+    }
+
+    #[test]
+    fn rendered_formula_parses_again() {
+        let PasteBody::Run(script) = classify("sel | kebab") else {
+            panic!("run");
+        };
+        assert_eq!(render_ops(&script.ops), "sel | kebab");
+        let PasteBody::Run(again) = classify(&render_ops(&script.ops)) else {
+            panic!("again");
+        };
+        assert_eq!(again.ops[0].kind, "sel");
+        assert_eq!(again.ops[1].kind, "kebab");
     }
 }
