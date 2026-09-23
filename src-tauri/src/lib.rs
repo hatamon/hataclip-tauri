@@ -1021,7 +1021,7 @@ fn execute_pipe(
     let pasted_ids: Vec<String> = if used_selection { ids.to_vec() } else { Vec::new() };
     match sink {
         "paste" => {
-            if text.is_empty() {
+            if text.is_empty() && !ops.iter().any(|op| op.kind == "sub") {
                 return Ok(None);
             }
             if !paste_resolved_text(app, state, &pasted_ids, &text, keep_open, false, None, false) {
