@@ -841,12 +841,16 @@ fn walk_pipe(
                     text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, true)?, "\n"));
                 }
             }
-            "clip" => {
-                if text.is_some() {
-                    return Err("段が違う".into());
+            "clip" => match text.as_deref() {
+                Some(current) => {
+                    if !current.is_empty() && !clipboard::write_clipboard_text(current) {
+                        return Err("クリップボードに書けない".into());
+                    }
                 }
-                text = Some(clipboard::peek_text().unwrap_or_default());
-            }
+                None => {
+                    text = Some(clipboard::peek_text().unwrap_or_default());
+                }
+            },
             "sel" => {
                 if text.is_none() {
                     text = Some(capture_pipe_selection(&app, &state)?);

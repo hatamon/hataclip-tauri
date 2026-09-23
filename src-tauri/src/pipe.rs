@@ -86,7 +86,7 @@ fn parse(input: &str) -> Parse {
         };
         ops.push(stage);
     }
-    if middle_clip(&ops) || sh_after_each(&ops) {
+    if sh_after_each(&ops) {
         return Parse::Bad;
     }
     let uses_selection = pipe_uses_selection(&ops);
@@ -571,24 +571,6 @@ fn sh_after_each(ops: &[Op]) -> bool {
     false
 }
 
-fn middle_clip(ops: &[Op]) -> bool {
-    let mut produced = false;
-    for op in ops {
-        if op.kind == "clip" {
-            if produced {
-                return true;
-            }
-            produced = true;
-            continue;
-        }
-        if op.kind == "raw" {
-            continue;
-        }
-        produced = true;
-    }
-    false
-}
-
 /// `:` の入力中に出す結果。`sh` と `sel` は出さない。12行を超えたら末尾に `...`。
 pub(crate) fn colon_preview(body: &str, dot: &str, clip: &str) -> Option<String> {
     let line = body.trim().trim_start_matches(':').trim();
@@ -657,10 +639,9 @@ fn eval_local(
                 }
             }
             "clip" => {
-                if text.is_some() {
-                    return None;
+                if text.is_none() {
+                    text = Some(clip.to_string());
                 }
-                text = Some(clip.to_string());
             }
             "dot" => {
                 if text.is_none() {
@@ -1004,10 +985,21 @@ mod tests {
     }
 
     #[test]
-    fn unknown_stage_and_middle_clip_do_nothing() {
+    fn unknown_stage_is_rejected_and_middle_clip_passes_through() {
         assert_eq!(classify("sel | snak"), PasteBody::Bad);
-        assert_eq!(classify("sel | clip | upper"), PasteBody::Bad);
-        assert_eq!(classify("echo 1 | clip | show"), PasteBody::Bad);
+        let PasteBody::Run(script) = classify("sel | clip | upper") else {
+            panic!("run");
+        };
+        assert_eq!(script.sink, "paste");
+        assert_eq!(
+            script.ops.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>(),
+            vec!["sel", "clip", "upper"]
+        );
+        let PasteBody::Run(shown) = classify("echo 1 | clip | show") else {
+            panic!("show");
+        };
+        assert_eq!(shown.sink, "show");
+        assert_eq!(colon_preview(". | clip | upper", "ab", "ZZ").as_deref(), Some("AB"));
     }
 
     #[test]

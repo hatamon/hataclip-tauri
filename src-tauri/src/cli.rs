@@ -129,12 +129,16 @@ fn walk(
                     text = Some(String::new());
                 }
             }
-            "clip" => {
-                if text.is_some() {
-                    return Err(());
+            "clip" => match text.as_deref() {
+                Some(current) => {
+                    if !current.is_empty() && !crate::clipboard::write_clipboard_text(current) {
+                        return Err(());
+                    }
                 }
-                text = Some(crate::clipboard::peek_text().unwrap_or_default());
-            }
+                None => {
+                    text = Some(crate::clipboard::peek_text().unwrap_or_default());
+                }
+            },
             "echo" => {
                 let value = crate::expr::eval_with(&op.arg, vars).ok_or(())?;
                 text = Some(crate::expr::format_number(value));
