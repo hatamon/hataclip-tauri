@@ -52,7 +52,20 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let text = walk(&script.ops, stdin.map(str::to_string), &vars, stdin.is_some())?;
+    let mut added = Vec::new();
+    let text = walk(
+        &script.ops,
+        stdin.map(str::to_string),
+        &vars,
+        stdin.is_some(),
+        &mut added,
+    )?;
+    for (body, formula) in added {
+        let tags = text::auto_tags(&body);
+        let mut item = Item::new(body, tags);
+        item.formula = formula;
+        store.insert(item);
+    }
     match script.sink.as_str() {
         "paste" | "show" => {
             if text.is_empty() {
@@ -102,6 +115,7 @@ fn walk(
     seed: Option<String>,
     vars: &std::collections::HashMap<String, String>,
     piped: bool,
+    added: &mut Vec<(String, String)>,
 ) -> Result<String, ()> {
     let mut text = seed;
     let mut index = 0;
@@ -111,7 +125,7 @@ fn walk(
             let body = take_text(&mut text, piped)?;
             let mut kept = Vec::new();
             for line in body.lines() {
-                if let Ok(out) = walk(&ops[index + 1..], Some(line.to_string()), vars, true) {
+                if let Ok(out) = walk(&ops[index + 1..], Some(line.to_string()), vars, true, added) {
                     kept.push(out);
                 }
             }
@@ -127,6 +141,14 @@ fn walk(
                         return Err(());
                     }
                     text = Some(String::new());
+                }
+            }
+            "add" => {
+                let Some(current) = text.as_deref() else {
+                    return Err(());
+                };
+                if !current.is_empty() {
+                    added.push((current.to_string(), pipe::render_ops(&ops[..index])));
                 }
             }
             "clip" => match text.as_deref() {
@@ -237,11 +259,13 @@ fn transform(expr: &str, stdin: Option<&str>) -> Result<String, ()> {
     if script.ops.iter().any(|op| op.kind == "sel") {
         return Err(());
     }
+    let mut added = Vec::new();
     walk(
         &script.ops,
         stdin.map(str::to_string),
         &std::collections::HashMap::new(),
         stdin.is_some(),
+        &mut added,
     )
 }
 
@@ -267,6 +291,28 @@ mod tests {
         assert_eq!(transform("clip", Some("hello")).as_deref(), Ok("hello"));
         assert_eq!(transform("show", Some("hello")).as_deref(), Ok("hello"));
         assert!(transform("add", None).is_err());
+        let script = resolve("kebab | add | quote", true).expect("pipe");
+        let mut added = Vec::new();
+        let text = walk(
+            &script.ops,
+            Some("userName".into()),
+            &std::collections::HashMap::new(),
+            true,
+            &mut added,
+        )
+        .expect("walk");
+        assert_eq!(text, "> user-name");
+        assert_eq!(added, vec![("user-name".into(), "kebab".into())]);
+        let bare = resolve("add | upper", false).expect("add");
+        let mut added = Vec::new();
+        assert!(walk(
+            &bare.ops,
+            None,
+            &std::collections::HashMap::new(),
+            false,
+            &mut added,
+        )
+        .is_err());
     }
 }
 

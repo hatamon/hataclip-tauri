@@ -286,7 +286,17 @@ fn rerun_formula(
                 selection_stdin: op.selection_stdin,
             })
             .collect();
-        if let Ok((text, _)) = walk_pipe(&app, &state, &row_ids, &ops, None) {
+        let mut added = Vec::new();
+        if let Ok((text, _)) = walk_pipe(&app, &state, &row_ids, &ops, None, &mut added) {
+            if !added.is_empty() {
+                let mut store = state.store.lock().expect("store");
+                for (body, formula) in added {
+                    let tags = text::auto_tags(&body);
+                    let mut item = Item::new(body, tags);
+                    item.formula = formula;
+                    store.insert(item);
+                }
+            }
             if !text.is_empty() && text != item.text {
                 updates.push((id.clone(), text));
             }
@@ -819,6 +829,7 @@ fn walk_pipe(
     ids: &[String],
     ops: &[PipeOp],
     seed: Option<String>,
+    added: &mut Vec<(String, String)>,
 ) -> Result<(String, bool), String> {
     let mut text: Option<String> = seed;
     let mut raw = false;
@@ -839,6 +850,14 @@ fn walk_pipe(
                 if text.is_none() {
                     used_selection = true;
                     text = Some(pipe_text(&pipe_bodies(&app, &state, &ids, true)?, "\n"));
+                }
+            }
+            "add" => {
+                let Some(current) = text.as_deref() else {
+                    return Err("段がない".into());
+                };
+                if !current.is_empty() {
+                    added.push((current.to_string(), render_formula(&ops[..index])));
                 }
             }
             "clip" => match text.as_deref() {
@@ -991,7 +1010,14 @@ fn walk_pipe(
         let body = text.unwrap_or_default();
         let mut kept = Vec::new();
         for line in body.lines() {
-            match walk_pipe(app, state, ids, &ops[index + 1..], Some(line.to_string())) {
+            match walk_pipe(
+                app,
+                state,
+                ids,
+                &ops[index + 1..],
+                Some(line.to_string()),
+                added,
+            ) {
                 Ok((out, used)) => {
                     if used {
                         used_selection = true;
@@ -1029,7 +1055,20 @@ fn execute_pipe(
     if seed.is_none() && !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
         return Err("選択を取れない".into());
     }
-    let (text, used_selection) = walk_pipe(app, state, ids, ops, seed)?;
+    let mut added = Vec::new();
+    let (text, used_selection) = walk_pipe(app, state, ids, ops, seed, &mut added)?;
+    if !added.is_empty() {
+        {
+            let mut store = state.store.lock().expect("store");
+            for (body, formula) in added {
+                let tags = text::auto_tags(&body);
+                let mut item = Item::new(body, tags);
+                item.formula = formula;
+                store.insert(item);
+            }
+        }
+        let _ = app.emit("items-changed", view(state));
+    }
     let pasted_ids: Vec<String> = if used_selection { ids.to_vec() } else { Vec::new() };
     match sink {
         "paste" => {

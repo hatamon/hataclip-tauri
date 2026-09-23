@@ -51,6 +51,9 @@ fn parse(input: &str) -> Parse {
         if peel_clip(only).1 {
             return Parse::Bad;
         }
+        if only == "add" {
+            return Parse::None;
+        }
         let Some(stage) = stage_of(only) else {
             return Parse::None;
         };
@@ -459,6 +462,9 @@ fn stage_of(part: &str) -> Option<Op> {
     if part == "clip" {
         return Some(op("clip", "", false));
     }
+    if part == "add" {
+        return Some(op("add", "", false));
+    }
     if part == "sel" {
         return Some(op("sel", "", false));
     }
@@ -641,6 +647,11 @@ fn eval_local(
             "clip" => {
                 if text.is_none() {
                     text = Some(clip.to_string());
+                }
+            }
+            "add" => {
+                if text.is_none() {
+                    return None;
                 }
             }
             "dot" => {
@@ -1000,6 +1011,18 @@ mod tests {
         };
         assert_eq!(shown.sink, "show");
         assert_eq!(colon_preview(". | clip | upper", "ab", "ZZ").as_deref(), Some("AB"));
+        assert_eq!(classify("add"), PasteBody::Text);
+        let PasteBody::Run(added) = classify("kebab | add | quote") else {
+            panic!("add");
+        };
+        assert_eq!(
+            added.ops.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>(),
+            vec!["kebab", "add", "quote"]
+        );
+        assert_eq!(
+            colon_preview("kebab | add | quote", "userName", "").as_deref(),
+            Some("> user-name")
+        );
     }
 
     #[test]
