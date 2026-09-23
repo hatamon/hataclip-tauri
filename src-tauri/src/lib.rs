@@ -49,9 +49,6 @@ pub(crate) struct AppState {
     /// 直前の Ctrl+4。2秒以内の2回目で式を推測する。
     infer_prev: Mutex<Option<(String, std::time::Instant)>>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
-    /// 一覧を開いたときの前面の選択と、その直前のクリップボード。空なら並べ替えない。
-    open_sel: Mutex<String>,
-    open_clip: Mutex<String>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -228,22 +225,14 @@ fn swap_grab(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
     view(&state)
 }
 
-#[derive(Serialize)]
-struct ColonSample {
-    sel: String,
-    clip: String,
+#[tauri::command]
+fn colon_sample() -> String {
+    clipboard::peek_text().unwrap_or_default()
 }
 
 #[tauri::command]
-fn colon_sample(state: tauri::State<'_, AppState>) -> ColonSample {
-    let clip = clipboard::peek_text().unwrap_or_default();
-    let sel = state.open_sel.lock().expect("open_sel").clone();
-    ColonSample { sel, clip }
-}
-
-#[tauri::command]
-fn preview_colon(expr: String, sel: String, dot: String, clip: String) -> Option<String> {
-    pipe::colon_preview(&expr, &sel, &dot, &clip)
+fn preview_colon(expr: String, dot: String, clip: String) -> Option<String> {
+    pipe::colon_preview(&expr, &dot, &clip)
 }
 
 #[tauri::command]
@@ -450,6 +439,15 @@ fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<S
         Some(SetCommand::List) => Ok(Some(
             state.settings.lock().expect("settings").format_vars(),
         )),
+        Some(SetCommand::Copy(spec)) => {
+            let app = foreground_app(&state);
+            let _ = state
+                .settings
+                .lock()
+                .expect("settings")
+                .set_target_copy(&app, &spec);
+            Ok(None)
+        }
         Some(SetCommand::Paste(spec)) => {
             let app = foreground_app(&state);
             let _ = state
@@ -1905,28 +1903,6 @@ fn capture_pipe_selection(app: &tauri::AppHandle, state: &AppState) -> Result<St
     }
 }
 
-/// 一覧を出す直前の選択。Ctrl+C の 200ms 後を読んで、すぐクリップボードを戻す。
-#[cfg(windows)]
-fn capture_open_sample(state: &AppState) -> (String, String) {
-    let previous = clipboard::peek_text();
-    let _ = platform::simulate_copy(&copy_spec(state));
-    std::thread::sleep(Duration::from_millis(200));
-    let captured = clipboard::peek_text();
-    if let Some(previous) = previous.as_ref() {
-        let _ = clipboard::write_clipboard_text(previous);
-    }
-    let sel = match captured {
-        Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
-        _ => String::new(),
-    };
-    (sel, previous.unwrap_or_default())
-}
-
-#[cfg(not(windows))]
-fn capture_open_sample(_state: &AppState) -> (String, String) {
-    (String::new(), String::new())
-}
-
 fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<text::PasteOp>> {
     let run = item.tags.iter().any(|tag| tag == "run");
     let file = item.tags.iter().any(|tag| tag == "file");
@@ -2095,13 +2071,8 @@ fn view(state: &AppState) -> Vec<Item> {
 
 fn view_keeping(state: &AppState, keep: &[String]) -> Vec<Item> {
     let context = current_context(state);
-    let items = {
-        let store = state.store.lock().expect("store");
-        store::ordered_keeping(store.list(), context.as_deref(), keep)
-    };
-    let sel = state.open_sel.lock().expect("open_sel").clone();
-    let clip = state.open_clip.lock().expect("open_clip").clone();
-    store::rank_for_open(items, &sel, &clip)
+    let store = state.store.lock().expect("store");
+    store::ordered_keeping(store.list(), context.as_deref(), keep)
 }
 
 fn current_context(state: &AppState) -> Option<String> {
@@ -2285,8 +2256,6 @@ fn show_window(app: &tauri::AppHandle) {
 
 fn hide_window(app: &tauri::AppHandle, state: &AppState) {
     *state.picker_open.lock().expect("picker_open") = false;
-    *state.open_sel.lock().expect("open_sel") = String::new();
-    *state.open_clip.lock().expect("open_clip") = String::new();
     if let Some(window) = app.get_webview_window("main") {
         persist_geometry(&window, state);
         let _ = window.hide();
@@ -2398,9 +2367,6 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
     let already = *state.picker_open.lock().expect("picker_open");
     if !already {
         *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-        let (sel, clip) = capture_open_sample(state);
-        *state.open_sel.lock().expect("open_sel") = sel;
-        *state.open_clip.lock().expect("open_clip") = clip;
     }
     reset_n(state);
     apply_saved_size(&window, state);
@@ -2512,8 +2478,6 @@ pub fn run() {
                 picker_open: Mutex::new(false),
                 infer_prev: Mutex::new(None),
                 complete_cycle: Mutex::new(None),
-                open_sel: Mutex::new(String::new()),
-                open_clip: Mutex::new(String::new()),
             });
             tray::setup(app)?;
             if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {

@@ -8,5 +8,4 @@ export type Item = {
   pin_rank: number;
   created_at: number;
   formula?: string;
-  hint?: string;
 };

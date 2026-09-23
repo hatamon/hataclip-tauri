@@ -125,6 +125,7 @@ pub struct Settings {
 
 pub enum SetCommand {
     List,
+    Copy(String),
     Paste(String),
     Var { name: String, value: String },
     Step(String),
@@ -294,7 +295,15 @@ impl Settings {
             .unwrap_or_else(|| chord::DEFAULT_PASTE.to_string())
     }
 
+    pub fn set_target_copy(&mut self, app: &str, spec: &str) -> bool {
+        self.set_target_chord(app, spec, true)
+    }
+
     pub fn set_target_paste(&mut self, app: &str, spec: &str) -> bool {
+        self.set_target_chord(app, spec, false)
+    }
+
+    fn set_target_chord(&mut self, app: &str, spec: &str, copy: bool) -> bool {
         let app = app.trim().to_lowercase();
         let Some(parsed) = chord::parse(spec) else {
             return false;
@@ -302,7 +311,13 @@ impl Settings {
         if app.is_empty() {
             return false;
         }
-        self.target_keys.entry(app).or_default().paste = Some(chord::display(&parsed));
+        let shown = chord::display(&parsed);
+        let row = self.target_keys.entry(app).or_default();
+        if copy {
+            row.copy = Some(shown);
+        } else {
+            row.paste = Some(shown);
+        }
         self.save();
         true
     }
@@ -402,15 +417,11 @@ pub fn parse_set(rest: &str) -> Option<SetCommand> {
         }
         return Some(SetCommand::Step(name.to_string()));
     }
-    if let Some(spec) = rest.strip_prefix("paste") {
-        let spec = spec.trim();
-        if spec.starts_with('=') {
-            return None;
-        }
-        if spec.is_empty() {
-            return None;
-        }
-        return Some(SetCommand::Paste(spec.to_string()));
+    if let Some(parsed) = chord_spec(rest, "copy") {
+        return parsed.map(SetCommand::Copy);
+    }
+    if let Some(parsed) = chord_spec(rest, "paste") {
+        return parsed.map(SetCommand::Paste);
     }
     let eq = rest.find('=')?;
     let name = rest[..eq].trim();
@@ -423,6 +434,24 @@ pub fn parse_set(rest: &str) -> Option<SetCommand> {
         name: name.to_string(),
         value,
     })
+}
+
+/// キーワードそのものなら `Some(None)`。別の名前なら `None`。
+fn chord_spec(rest: &str, word: &str) -> Option<Option<String>> {
+    let Some(tail) = rest.strip_prefix(word) else {
+        return None;
+    };
+    if tail.is_empty() || tail.starts_with('=') {
+        return Some(None);
+    }
+    if !tail.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let spec = tail.trim();
+    if spec.is_empty() {
+        return Some(None);
+    }
+    Some(Some(spec.to_string()))
 }
 
 pub fn parse_n(rest: &str) -> Option<NCommand> {
@@ -485,7 +514,7 @@ fn unquote(raw: &str, quote: char) -> Option<String> {
 }
 
 fn valid_var_name(name: &str) -> bool {
-    if name == "paste" {
+    if name == "paste" || name == "copy" {
         return false;
     }
     let mut chars = name.chars();
@@ -728,12 +757,15 @@ mod tests {
         let path = temp_path("targets");
         let _ = fs::remove_file(&path);
         let mut settings = Settings::load(path.clone());
+        assert!(settings.set_target_copy("PuTTY", "Ctrl+Shift+C"));
         assert!(settings.set_target_paste("PuTTY", "Shift+Insert"));
+        assert!(!settings.set_target_copy("putty", "nope"));
         assert!(!settings.set_target_paste("putty", "nope"));
+        assert!(!settings.set_target_copy("", "ctrl+c"));
         assert!(!settings.set_target_paste("", "ctrl+v"));
         let reloaded = Settings::load(path.clone());
         assert_eq!(reloaded.paste_for("putty"), "shift+insert");
-        assert_eq!(reloaded.copy_for("putty"), "ctrl+c");
+        assert_eq!(reloaded.copy_for("putty"), "ctrl+shift+c");
         fs::write(
             &path,
             r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"target_keys":{"WT":{"copy":"ctrl+shift+c","paste":"nope"}}}"#,
@@ -751,6 +783,10 @@ mod tests {
     #[test]
     fn parse_set_reads_paste_quotes_and_unquoted() {
         assert!(matches!(parse_set(""), Some(SetCommand::List)));
+        assert!(matches!(
+            parse_set("copy ctrl+shift+c"),
+            Some(SetCommand::Copy(spec)) if spec == "ctrl+shift+c"
+        ));
         assert!(matches!(
             parse_set("paste shift+insert"),
             Some(SetCommand::Paste(spec)) if spec == "shift+insert"
@@ -775,6 +811,8 @@ mod tests {
             parse_set("b={{date}}"),
             Some(SetCommand::Var { name, value }) if name == "b" && value == "{{date}}"
         ));
+        assert!(parse_set("copy=\"no\"").is_none());
+        assert!(parse_set("copy").is_none());
         assert!(parse_set("paste=\"no\"").is_none());
         assert!(parse_set("paste").is_none());
         assert!(matches!(
@@ -800,6 +838,7 @@ mod tests {
         let mut settings = Settings::load(path.clone());
         assert!(settings.set_var("a", "{{date}}".into()));
         assert!(!settings.set_var("paste", "no".into()));
+        assert!(!settings.set_var("copy", "no".into()));
         assert_eq!(
             Settings::load(path.clone()).vars().get("a").map(String::as_str),
             Some("{{date}}")
@@ -808,12 +847,13 @@ mod tests {
         assert!(Settings::load(path.clone()).vars().get("a").is_none());
         fs::write(
             &path,
-            r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"vars":{"ok":"1","paste":"x","1bad":"y"}}"#,
+            r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"vars":{"ok":"1","paste":"x","copy":"y","1bad":"z"}}"#,
         )
         .unwrap();
         assert!(settings.reload());
         assert_eq!(settings.vars().get("ok").map(String::as_str), Some("1"));
         assert!(!settings.vars().contains_key("paste"));
+        assert!(!settings.vars().contains_key("copy"));
         assert!(settings.vars().get("1bad").is_none());
         let _ = fs::remove_file(path);
     }

@@ -95,7 +95,6 @@
   let colonInput = $state("");
   let colonHistory = $state<string[]>([]);
   let colonHistIndex = $state(-1);
-  let colonSel = $state("");
   let colonDot = $state("");
   let colonClip = $state("");
   let colonPreview = $state("");
@@ -289,7 +288,6 @@
     const timer = setTimeout(() => {
       void invoke<string | null>("preview_colon", {
         expr: line,
-        sel: colonSel,
         dot: colonDot,
         clip: colonClip,
       }).then((text) => {
@@ -331,10 +329,6 @@
       previewText = "••••";
       return;
     }
-    if (item.hint) {
-      previewText = maskCred(item.hint);
-      return;
-    }
     previewText = maskCred(item.text);
     const id = item.id;
     const raw = item.text;
@@ -356,8 +350,7 @@
     if (isSecret(item)) {
       return "••••";
     }
-    const hint = item.hint?.split("\n")[0];
-    return maskCred(hint || item.text);
+    return maskCred(item.text);
   }
 
   function maskCred(text: string): string {
@@ -2000,9 +1993,8 @@
       colonPreview = "";
       colonDot = currentItem()?.text ?? "";
       mode = "colon";
-      void invoke<{ sel: string; clip: string }>("colon_sample").then((sample) => {
-        colonSel = sample.sel;
-        colonClip = sample.clip;
+      void invoke<string>("colon_sample").then((clip) => {
+        colonClip = clip;
       });
       if (helpTopics.length === 0) {
         void invoke<string[]>("help_topics").then((topics) => {

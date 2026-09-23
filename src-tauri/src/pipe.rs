@@ -573,22 +573,8 @@ fn middle_clip(ops: &[Op]) -> bool {
     false
 }
 
-/// 一覧を開いたときのプレビュー。`sel` を前面の選択にし、`sh` は実行しない。
-pub(crate) fn selection_preview(body: &str, sel: &str, clip: &str) -> Option<String> {
-    let PasteBody::Run(script) = classify(body) else {
-        return None;
-    };
-    if script.ops.iter().any(|op| op.kind == "sh") {
-        return None;
-    }
-    if !script.ops.iter().any(|op| op.kind == "sel") {
-        return None;
-    }
-    eval_local(&script.ops, None, sel, "", clip).filter(|text| !text.is_empty())
-}
-
-/// `:` の入力中に出す結果。`sh` は実行しない。12行を超えたら末尾に `...`。
-pub(crate) fn colon_preview(body: &str, sel: &str, dot: &str, clip: &str) -> Option<String> {
+/// `:` の入力中に出す結果。`sh` と `sel` は出さない。12行を超えたら末尾に `...`。
+pub(crate) fn colon_preview(body: &str, dot: &str, clip: &str) -> Option<String> {
     let line = body.trim().trim_start_matches(':').trim();
     if line.is_empty() {
         return None;
@@ -599,11 +585,10 @@ pub(crate) fn colon_preview(body: &str, sel: &str, dot: &str, clip: &str) -> Opt
     if script.ops.len() == 1 && script.ops[0].kind == "sub" && script.sink == "paste" {
         return None;
     }
-    if script.ops.iter().any(|op| op.kind == "sh") {
+    if script.ops.iter().any(|op| op.kind == "sh" || op.kind == "sel") {
         return None;
     }
-    let sel_src = if sel.is_empty() { dot } else { sel };
-    let text = eval_local(&script.ops, None, sel_src, dot, clip)?;
+    let text = eval_local(&script.ops, None, "", dot, clip)?;
     if text.is_empty() {
         return None;
     }
@@ -1038,38 +1023,16 @@ mod tests {
     }
 
     #[test]
-    fn selection_preview_skips_sh_and_rows_without_sel() {
-        assert_eq!(
-            selection_preview(":sel | upper", "hello", "").as_deref(),
-            Some("HELLO")
-        );
-        assert_eq!(
-            selection_preview("sel | split , | col 2", "a,b,c", "").as_deref(),
-            Some("b")
-        );
-        assert!(selection_preview("sel | sh dir", "hello", "").is_none());
-        assert!(selection_preview("upper", "hello", "").is_none());
-        assert!(selection_preview("sel | json", "{", "").is_none());
-        assert!(selection_preview("hello", "hello", "").is_none());
-    }
-
-    #[test]
-    fn colon_preview_uses_the_front_selection() {
-        assert_eq!(
-            colon_preview(":sel | kebab", "helloWorld", "", "").as_deref(),
-            Some("hello-world")
-        );
-        assert_eq!(colon_preview("upper", "", "ab", "").as_deref(), Some("AB"));
-        assert!(colon_preview("sel | sh dir", "hello", "", "").is_none());
-        assert!(colon_preview("sel | json", "{", "", "").is_none());
-        assert!(colon_preview("nope", "hello", "", "").is_none());
-        assert!(colon_preview("s/old/new", "old", "", "").is_none());
-        assert_eq!(
-            colon_preview("sel | s/old/new", "a old", "", "").as_deref(),
-            Some("a new")
-        );
+    fn colon_preview_skips_sel_and_sh() {
+        assert!(colon_preview(":sel | kebab", "", "").is_none());
+        assert_eq!(colon_preview("upper", "ab", "").as_deref(), Some("AB"));
+        assert!(colon_preview("sel | sh dir", "", "").is_none());
+        assert!(colon_preview("sel | json", "", "").is_none());
+        assert!(colon_preview("nope", "", "").is_none());
+        assert!(colon_preview("s/old/new", "", "").is_none());
+        assert!(colon_preview("sel | s/old/new", "", "").is_none());
         let long = "ab\n".repeat(20);
-        let shown = colon_preview("upper", "", &long, "").unwrap();
+        let shown = colon_preview("upper", &long, "").unwrap();
         assert!(shown.ends_with("\n..."));
         assert_eq!(shown.lines().count(), 13);
     }

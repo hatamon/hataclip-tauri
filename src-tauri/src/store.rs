@@ -29,9 +29,6 @@ pub struct Item {
     /// `| add` か `:!!sh` で残した式。`g:` でもう一度実行する。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub formula: String,
-    /// 一覧を開いたときの当たり。保存しない。
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub hint: String,
 }
 
 impl Item {
@@ -46,7 +43,6 @@ impl Item {
             pin_rank: 0,
             created_at: now_secs(),
             formula: String::new(),
-            hint: String::new(),
         }
     }
 
@@ -824,40 +820,6 @@ pub fn ordered_keeping(items: &[Item], context: Option<&str>, keep: &[String]) -
     list
 }
 
-/// ピンの下に、選択へ当たった `#grab`、その次に `sel` のパイプ。本文は変えない。
-pub fn rank_for_open(items: Vec<Item>, sel: &str, clip: &str) -> Vec<Item> {
-    if sel.is_empty() {
-        return items;
-    }
-    let mut pinned = Vec::new();
-    let mut grabs = Vec::new();
-    let mut pipes = Vec::new();
-    let mut rest = Vec::new();
-    for mut item in items {
-        if item.pinned {
-            pinned.push(item);
-            continue;
-        }
-        if item.tags.iter().any(|tag| tag == "grab") {
-            if let Some(hint) = crate::text::grab_fill(&item.text, sel) {
-                item.hint = hint;
-                grabs.push(item);
-                continue;
-            }
-        }
-        if let Some(hint) = crate::pipe::selection_preview(&item.text, sel, clip) {
-            item.hint = hint;
-            pipes.push(item);
-            continue;
-        }
-        rest.push(item);
-    }
-    pinned.append(&mut grabs);
-    pinned.append(&mut pipes);
-    pinned.append(&mut rest);
-    pinned
-}
-
 fn visible_app(item: &Item, context: Option<&str>) -> bool {
     let apps: Vec<_> = tagged_apps(&item.tags, "app");
     if apps.is_empty() {
@@ -994,7 +956,6 @@ mod tests {
             pin_rank: 0,
             created_at: 0,
             formula: String::new(),
-            hint: String::new(),
         }
     }
 
@@ -1558,46 +1519,6 @@ mod tests {
         assert_eq!(store.list().len(), 1);
         assert_eq!(store.list()[0].id, "2");
         let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn open_rank_lifts_grab_then_sel_pipe() {
-        let grab = "https://github.com/<org>/<repo>/pull/<pr>\ngh pr checkout <pr> --repo <org>/<repo>";
-        let items = vec![
-            item("plain", "hello"),
-            Item {
-                tags: vec!["grab".into()],
-                ..item("grab", grab)
-            },
-            item("pipe", ":sel | upper"),
-            item("sh", "sel | sh dir"),
-            Item {
-                pinned: true,
-                ..item("pin", "stay")
-            },
-        ];
-        let same = rank_for_open(items.clone(), "", "");
-        assert_eq!(
-            same.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
-            vec!["plain", "grab", "pipe", "sh", "pin"]
-        );
-        let ranked = rank_for_open(
-            items,
-            "https://github.com/hatamon/hataclip/pull/12",
-            "",
-        );
-        assert_eq!(
-            ranked.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
-            vec!["pin", "grab", "pipe", "plain", "sh"]
-        );
-        assert_eq!(
-            ranked[1].hint,
-            "gh pr checkout 12 --repo hatamon/hataclip"
-        );
-        assert_eq!(ranked[1].text, grab);
-        assert_eq!(ranked[2].hint, "HTTPS://GITHUB.COM/HATAMON/HATACLIP/PULL/12");
-        assert!(ranked[3].hint.is_empty());
-        assert!(ranked[4].hint.is_empty());
     }
 
     #[test]
