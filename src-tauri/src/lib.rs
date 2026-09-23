@@ -1394,7 +1394,7 @@ fn play_script(
     }
 }
 
-/// 前面の選択語で履歴を補完して貼る。テンプレートは展開しない。一覧は出さない。
+/// 前面の選択語で履歴を補完して貼る。テンプレートは一覧の Enter と同じく展開する。一覧は出さない。
 pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) {
     if *state.picker_open.lock().expect("picker_open") {
         return;
@@ -1417,16 +1417,12 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
         return;
     };
     let ids = completion_ids(state, &query);
-    if ids.is_empty() {
-        return;
-    }
-    let Some(body) = item_body(state, &ids[0]) else {
+    let Some(index) = paste_completion_from(app, state, &ids, 0, &query) else {
         return;
     };
-    paste_text(app, state, &body, false);
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
         query,
-        index: 0,
+        index,
         at: now,
         ids,
     });
@@ -1446,38 +1442,117 @@ fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCy
             return false;
         }
     }
-    let next = (cycle.index + 1) % cycle.ids.len();
-    let Some(body) = item_body(state, &cycle.ids[next]) else {
+    let Some(index) = paste_completion_from(
+        app,
+        state,
+        &cycle.ids,
+        cycle.index.wrapping_add(1),
+        &cycle.query,
+    ) else {
         return false;
     };
-    paste_text(app, state, &body, false);
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
         query: cycle.query.clone(),
-        index: next,
+        index,
         at: std::time::Instant::now(),
         ids: cycle.ids.clone(),
     });
     true
 }
 
+/// `start` から順に展開して貼る。空や対象外は飛ばす。全部だめなら `None`。
+fn paste_completion_from(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    ids: &[String],
+    start: usize,
+    sel: &str,
+) -> Option<usize> {
+    if ids.is_empty() {
+        return None;
+    }
+    let start = start % ids.len();
+    for offset in 0..ids.len() {
+        let index = (start + offset) % ids.len();
+        match deliver_completion(app, state, &ids[index], sel) {
+            Some(true) => return Some(index),
+            Some(false) => return None,
+            None => continue,
+        }
+    }
+    None
+}
+
+fn deliver_completion(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    sel: &str,
+) -> Option<bool> {
+    let item = {
+        state
+            .store
+            .lock()
+            .expect("store")
+            .get(id)
+            .cloned()
+    }?;
+    let mut ctx = expand_context(state, sel.to_string(), HashMap::new());
+    ctx.read_cred = true;
+    let ops = completion_ops(&item, &ctx)?;
+    let ok = play_resolved(app, state, ops, false, false);
+    if ok {
+        bump_n(state);
+        bump_step_vars(state, &[id.to_string()]);
+    }
+    Some(ok)
+}
+
+fn completion_blocked(tags: &[String], text: &str) -> bool {
+    if tags.iter().any(|tag| {
+        matches!(tag.as_str(), "secret" | "run" | "confirm" | "grab")
+    }) {
+        return true;
+    }
+    if !text::ask_names(text).is_empty() || !text::pick_specs(text).is_empty() {
+        return true;
+    }
+    !matches!(pipe::classify(text), pipe::PasteBody::Text)
+}
+
+fn completion_ops(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>> {
+    if completion_blocked(&item.tags, &item.text) {
+        return None;
+    }
+    let ops = resolve_item(item, ctx, false)?;
+    if text::flatten_ops(&ops).is_empty() && !text::has_keys(&ops) {
+        return None;
+    }
+    Some(ops)
+}
+
 fn completion_ids(state: &AppState, query: &str) -> Vec<String> {
     let context = current_context(state);
     let store = state.store.lock().expect("store");
-    let rows: Vec<(String, String)> = store::ordered(store.list(), context.as_deref())
+    let rows: Vec<Item> = store::ordered(store.list(), context.as_deref())
         .into_iter()
-        .filter(|item| !item.tags.iter().any(|tag| tag == "secret"))
+        .filter(|item| !completion_blocked(&item.tags, &item.text))
+        .collect();
+    if let Some(tags) = text::tag_query(query) {
+        if tags.is_empty() {
+            return Vec::new();
+        }
+        return rows
+            .into_iter()
+            .filter(|item| text::has_all_tags(&item.tags, &tags))
+            .map(|item| item.id)
+            .collect();
+    }
+    let pairs: Vec<(String, String)> = rows
+        .into_iter()
         .map(|item| (item.id, item.text))
         .collect();
-    text::rank_matches(&rows, query)
-}
-
-fn item_body(state: &AppState, id: &str) -> Option<String> {
-    state
-        .store
-        .lock()
-        .expect("store")
-        .get(id)
-        .map(|item| item.text.clone())
+    text::rank_matches(&pairs, query)
 }
 
 fn remember_last_sh(text: &str, state: &AppState) {
@@ -2661,6 +2736,49 @@ mod tests {
     #[test]
     fn minimum_wins_over_a_smaller_maximum() {
         assert_eq!(next_side(200, 24, 200, 150), 200);
+    }
+
+    fn completion_ctx() -> text::Expand {
+        text::Expand {
+            date: "2026/09/20".into(),
+            time: "10:54".into(),
+            clip: "CLIP".into(),
+            sel: "SEL".into(),
+            n: 3,
+            uuid: "uuid-here".into(),
+            user: "hatamon".into(),
+            host: "pc".into(),
+            app: "code".into(),
+            front: "TODO.md".into(),
+            focus: "Edit".into(),
+            read_cred: true,
+            cred_fail: std::cell::Cell::new(false),
+            now: Local::now(),
+            answers: HashMap::new(),
+            aliases: HashMap::new(),
+            vars: HashMap::new(),
+            tags: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn completion_expands_date_and_drops_nop() {
+        let ctx = completion_ctx();
+        let item = Item::new("報告 {{date}} {{nop: 仕事}}".into(), Vec::new());
+        let ops = completion_ops(&item, &ctx).unwrap();
+        assert_eq!(text::flatten_ops(&ops), "報告 2026/09/20 ");
+        assert!(completion_ops(&Item::new("{{nop: x}}".into(), Vec::new()), &ctx).is_none());
+        assert!(completion_ops(&Item::new("{{ask:名前}}".into(), Vec::new()), &ctx).is_none());
+        assert!(completion_ops(
+            &Item::new("{{pick list: a, b}}".into(), Vec::new()),
+            &ctx
+        )
+        .is_none());
+        assert!(completion_ops(&Item::new(":sel | upper".into(), Vec::new()), &ctx).is_none());
+        assert!(completion_ops(&Item::new("echo hi".into(), vec!["run".into()]), &ctx).is_none());
+        assert!(completion_ops(&Item::new("ok".into(), vec!["confirm".into()]), &ctx).is_none());
+        assert!(completion_ops(&Item::new("ok".into(), vec!["grab".into()]), &ctx).is_none());
+        assert!(completion_ops(&Item::new("ok".into(), vec!["secret".into()]), &ctx).is_none());
     }
 
     #[test]

@@ -1340,6 +1340,29 @@ fn literal_chars(pattern: &str) -> String {
     out
 }
 
+/// `#` で始まる選択はタグ。`None` は本文の検索。空なら何もしない。
+pub fn tag_query(query: &str) -> Option<Vec<String>> {
+    let query = query.trim();
+    if !query.starts_with('#') {
+        return None;
+    }
+    let mut tags = Vec::new();
+    for word in query.split_whitespace() {
+        let Some(name) = word.strip_prefix('#') else {
+            return Some(Vec::new());
+        };
+        if name.is_empty() || name == "secret" {
+            return Some(Vec::new());
+        }
+        tags.push(name.to_string());
+    }
+    Some(tags)
+}
+
+pub fn has_all_tags(have: &[String], need: &[String]) -> bool {
+    !need.is_empty() && need.iter().all(|tag| have.iter().any(|item| item == tag))
+}
+
 /// `/` と同じ順。点数が高い順。同じ点数は渡した順。
 pub fn rank_matches(rows: &[(String, String)], query: &str) -> Vec<String> {
     let mut scored = Vec::new();
@@ -2352,6 +2375,27 @@ mod tests {
             vec!["mail".to_string(), "admin".to_string()]
         );
         assert!(rank_matches(&rows, "zzz").is_empty());
+    }
+
+    #[test]
+    fn hash_query_is_tags_and_plain_query_is_text() {
+        assert_eq!(tag_query("#work").as_deref(), Some(["work".to_string()].as_slice()));
+        assert_eq!(
+            tag_query("  #work   #home  ").as_deref(),
+            Some(["work".to_string(), "home".to_string()].as_slice())
+        );
+        assert_eq!(tag_query("#wor").as_deref(), Some(["wor".to_string()].as_slice()));
+        assert!(tag_query("work").is_none());
+        assert_eq!(tag_query("#"), Some(Vec::new()));
+        assert_eq!(tag_query("#secret"), Some(Vec::new()));
+        assert_eq!(tag_query("#work #secret"), Some(Vec::new()));
+        assert_eq!(tag_query("#work hello"), Some(Vec::new()));
+        assert!(has_all_tags(
+            &["work".into(), "home".into()],
+            &["home".into(), "work".into()]
+        ));
+        assert!(!has_all_tags(&["work".into()], &["work".into(), "home".into()]));
+        assert!(!has_all_tags(&["#work".into()], &["work".into()]));
     }
 
     #[test]
