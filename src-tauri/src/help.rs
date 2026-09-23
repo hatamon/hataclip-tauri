@@ -59,7 +59,7 @@ const TOPICS: &[(&str, &str)] = &[
 {{date:%Y%m%d}}    chrono の strftime\n\
 {{date-1d}}        昨日。{{date-1d:%Y%m%d}} {{date+2d}} {{date+1w}} {{date+1m}} も可\n\
 {{clip}}           いまのクリップボード。空なら空\n\
-{{sel}}            前面の選択。無ければ空。{{sel|clip}} は空なら隣。隣がトークンなら展開し、違う文字ならそのまま。{{front|無題}} {{sel|clip|なし}}\n\
+{{sel}}            前面の選択。Ctrl+C の 200ms 後。クリップボードが変わらなければ空。{{sel|clip}} は空なら隣。隣がトークンなら展開し、違う文字ならそのまま。{{front|無題}} {{sel|clip|なし}}\n\
 {{ask:名前}}       貼る前に入力。同じ名前は 1 回\n\
 {{pick list: a, b}}  貼る前に候補から選ぶ。j / k と Enter。候補が 9 個までなら 1〜9 でその番。10 個以上は j / k。Esc は中止。同じ候補は 1 回。{{ask:}} があるときは先に全部聞く。{{pick: a, b}} は空。{{pick tag:env}} はタグ env の本文。{{pick search: \"xx\"}} は / と同じ当たりの行。自分自身は入れない。無ければ聞かない\n\
 {{app}}            前面アプリのプロセス名。無ければ空\n\
@@ -246,6 +246,7 @@ mod tests {
         assert!(render(Some("template")).contains("{{wait:200}}"));
         assert!(render(Some("template")).contains("{{date-1d}}"));
         assert!(render(Some("template")).contains("{{sel|clip}}"));
+        assert!(render(Some("template")).contains("クリップボードが変わらなければ空"));
         assert!(render(Some("colon")).contains(":tags"));
         assert!(render(None).contains(":help template"));
         assert!(render(Some("colon")).contains(":n 100"));

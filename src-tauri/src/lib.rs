@@ -1422,12 +1422,15 @@ fn capture_front_text(state: &AppState) -> Option<String> {
         let previous = clipboard::peek_text();
         let spec = copy_spec(state);
         let _ = platform::simulate_copy(&spec);
-        std::thread::sleep(Duration::from_millis(70));
+        std::thread::sleep(Duration::from_millis(200));
         let captured = clipboard::peek_text();
         if let Some(previous) = previous.as_ref() {
             let _ = clipboard::write_clipboard_text(previous);
         }
-        captured
+        match captured {
+            Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => Some(text),
+            _ => None,
+        }
     }
     #[cfg(not(windows))]
     {
@@ -1814,13 +1817,13 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
         std::thread::sleep(Duration::from_millis(70));
     }
     let _ = platform::simulate_copy(&copy_spec(state));
-    std::thread::sleep(Duration::from_millis(70));
+    std::thread::sleep(Duration::from_millis(200));
     let captured = clipboard::peek_text();
     if let Some(previous) = previous.as_ref() {
         let _ = clipboard::write_clipboard_text(previous);
     }
     match captured {
-        Some(text) if previous.as_ref() != Some(&text) => text,
+        Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
         _ => String::new(),
     }
 }
