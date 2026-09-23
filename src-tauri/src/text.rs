@@ -1150,6 +1150,17 @@ pub fn format_for_paste(text: &str) -> String {
     unwrap_quotes(lines.join("\n").trim())
 }
 
+/// `s/old/new` の引数。`old` と `new` は `\u{1}` で区切る。空の `old` は置換しない。
+pub fn substitute_literal(text: &str, arg: &str) -> String {
+    let Some((old, new)) = arg.split_once('\u{1}') else {
+        return text.to_string();
+    };
+    if old.is_empty() {
+        return text.to_string();
+    }
+    text.replace(old, new)
+}
+
 /// 名前は `_` `-` 空白と大文字の境目で切る。`upper` / `lower` は文字だけ。
 pub fn recase(text: &str, style: &str) -> String {
     match style {

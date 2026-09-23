@@ -43,6 +43,20 @@ export const COLON_COMMANDS = [
   "each",
 ];
 
+/** 一覧で打つ `:s/old/new` だけ本文を書き換える。`|` があればパイプ。 */
+export function historySubstitute(line: string): { old: string; next: string } | null {
+  const trimmed = line.trim().replace(/^:/, "");
+  if (splitUnquotedPipe(trimmed).length !== 1 || !trimmed.startsWith("s/")) {
+    return null;
+  }
+  const rest = trimmed.slice(2);
+  const cut = rest.indexOf("/");
+  if (cut <= 0) {
+    return null;
+  }
+  return { old: rest.slice(0, cut), next: rest.slice(cut + 1) };
+}
+
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
 export function stripClipSink(line: string): { cmd: string; clip: boolean } {
   return { cmd: line.trim().replace(/^:/, ""), clip: false };
@@ -388,6 +402,18 @@ function putArg(part: string): string | null {
   return `${pointer}\u0001${raw}`;
 }
 
+function subArg(part: string): string | null {
+  if (!part.startsWith("s/")) {
+    return null;
+  }
+  const rest = part.slice(2);
+  const cut = rest.indexOf("/");
+  if (cut <= 0) {
+    return null;
+  }
+  return `${rest.slice(0, cut)}\u0001${rest.slice(cut + 1)}`;
+}
+
 function sideArg(part: string, name: string): string | null {
   const prefix = `${name} `;
   const tab = `${name}\t`;
@@ -509,6 +535,10 @@ function stageOf(part: string): PipeOp | null {
   const put = putArg(part);
   if (put !== null) {
     return { kind: "put", arg: put, selectionStdin: false };
+  }
+  const sub = subArg(part);
+  if (sub !== null) {
+    return { kind: "sub", arg: sub, selectionStdin: false };
   }
   if (part === "sh" || part.startsWith("sh ") || part.startsWith("sh\t")) {
     const script = shScript(part === "sh" ? "" : part.slice(3));

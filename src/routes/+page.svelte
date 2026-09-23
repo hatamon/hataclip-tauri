@@ -6,6 +6,7 @@
   import {
     applyColonCompletion,
     bangFilterScript,
+    historySubstitute,
     joinSeparator,
     matchingColonCommands,
     parseColonPipe,
@@ -1276,6 +1277,11 @@
       items = await invoke<Item[]>("set_formula", { id: item.id, formula: rest });
       return;
     }
+    const swapped = historySubstitute(line);
+    if (swapped) {
+      void substituteSelection(swapped.old, swapped.next);
+      return;
+    }
     const pipe = parseColonPipe(historyLine);
     if (pipe.kind === "bad") {
       return;
@@ -1359,17 +1365,6 @@
       } catch {
         // 計算できなければ貼らない
       }
-      return;
-    }
-    if (line.startsWith("s/")) {
-      const rest = line.slice(2);
-      const cut = rest.indexOf("/");
-      if (cut <= 0) {
-        return;
-      }
-      const old = rest.slice(0, cut);
-      const next = rest.slice(cut + 1);
-      void substituteSelection(old, next);
       return;
     }
     if (line === "dedup") {

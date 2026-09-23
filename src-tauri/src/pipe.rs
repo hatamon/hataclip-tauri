@@ -382,6 +382,16 @@ fn sink_of(part: &str) -> Option<(String, Option<String>)> {
     var_sink_name(part).map(|name| ("set".to_string(), Some(name)))
 }
 
+/// `s/old/new`。`old` が空なら段にしない。`new` は2つ目の `/` の後ろ全部。
+fn sub_arg(part: &str) -> Option<String> {
+    let rest = part.strip_prefix("s/")?;
+    let (old, new) = rest.split_once('/')?;
+    if old.is_empty() {
+        return None;
+    }
+    Some(format!("{old}\u{1}{new}"))
+}
+
 fn sh_script(raw: &str) -> String {
     if let Some(quoted) = unquote(raw) {
         return quoted.trim().to_string();
@@ -441,6 +451,9 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if let Some(arg) = put_arg(part) {
         return Some(op("put", &arg, false));
+    }
+    if let Some(arg) = sub_arg(part) {
+        return Some(op("sub", &arg, false));
     }
     if part == "sh" || part.starts_with("sh ") || part.starts_with("sh\t") {
         let raw = if part == "sh" { "" } else { &part[2..] };
@@ -543,6 +556,9 @@ pub(crate) fn colon_preview(body: &str, sel: &str, dot: &str, clip: &str) -> Opt
     let PasteBody::Run(script) = classify(line) else {
         return None;
     };
+    if script.ops.len() == 1 && script.ops[0].kind == "sub" && script.sink == "paste" {
+        return None;
+    }
     if script.ops.iter().any(|op| op.kind == "sh") {
         return None;
     }
@@ -658,7 +674,7 @@ fn eval_local(
                 };
                 text = Some(next?);
             }
-            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper"
+            "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 let current = take_or_dot(&mut text, dot)?;
                 text = Some(match op.kind.as_str() {
@@ -668,6 +684,7 @@ fn eval_local(
                         crate::text::affix_lines(&current, prefix, suffix)
                     }
                     "format" => crate::text::format_for_paste(&current),
+                    "sub" => crate::text::substitute_literal(&current, &op.arg),
                     "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                         crate::text::recase(&current, &op.kind)
                     }
@@ -724,6 +741,10 @@ fn render_op(op: &Op) -> String {
             let (pointer, value) = op.arg.split_once('\u{1}').unwrap_or((op.arg.as_str(), ""));
             format!("put {pointer} {}", quote_render(value))
         }
+        "sub" => {
+            let (old, new) = op.arg.split_once('\u{1}').unwrap_or((op.arg.as_str(), ""));
+            format!("s/{old}/{new}")
+        }
         other => other.to_string(),
     }
 }
@@ -776,6 +797,41 @@ fn pipe_uses_selection(ops: &[Op]) -> bool {
         }
     }
     !produced
+}
+
+/// Ctrl+Shift+H の複数行。1行目が `:` のパイプなら、残りがその流れ。
+pub(crate) enum Headed {
+    /// 今までの展開（`{{date}}` や1行の `:echo` / `:sh`）に戻す。
+    Skip,
+    /// この形だが実行しない。
+    Noop,
+    Run { script: Script, flow: String },
+}
+
+pub(crate) fn headed_pipe(text: &str) -> Headed {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let Some((first, rest)) = normalized.split_once('\n') else {
+        return Headed::Skip;
+    };
+    let first = first.trim();
+    if !first.starts_with(':') {
+        return Headed::Skip;
+    }
+    let flow = rest.trim_end_matches('\n').to_string();
+    match classify(first) {
+        PasteBody::Text => Headed::Skip,
+        PasteBody::Bad => Headed::Noop,
+        PasteBody::Run(script) if flow.is_empty() && plain_echo_or_sh(&script) => Headed::Skip,
+        PasteBody::Run(_) if flow.is_empty() => Headed::Noop,
+        PasteBody::Run(script) => Headed::Run { script, flow },
+    }
+}
+
+fn plain_echo_or_sh(script: &Script) -> bool {
+    script.sink == "paste"
+        && script.ops.len() == 1
+        && (script.ops[0].kind == "echo"
+            || (script.ops[0].kind == "sh" && !script.ops[0].selection_stdin))
 }
 
 #[cfg(test)]
@@ -904,6 +960,11 @@ mod tests {
         assert!(colon_preview("sel | sh dir", "hello", "", "").is_none());
         assert!(colon_preview("sel | json", "{", "", "").is_none());
         assert!(colon_preview("nope", "hello", "", "").is_none());
+        assert!(colon_preview("s/old/new", "old", "", "").is_none());
+        assert_eq!(
+            colon_preview("sel | s/old/new", "a old", "", "").as_deref(),
+            Some("a new")
+        );
         let long = "ab\n".repeat(20);
         let shown = colon_preview("upper", "", &long, "").unwrap();
         assert!(shown.ends_with("\n..."));
@@ -921,5 +982,65 @@ mod tests {
         };
         assert_eq!(again.ops[0].kind, "sel");
         assert_eq!(again.ops[1].kind, "kebab");
+    }
+
+    #[test]
+    fn substitute_replaces_every_occurrence() {
+        let PasteBody::Run(script) = classify(":s/old/new") else {
+            panic!("run");
+        };
+        assert_eq!(script.ops[0].kind, "sub");
+        assert_eq!(
+            eval_local(
+                &script.ops,
+                Some("abc def old ghi\noldabc ddd".into()),
+                "",
+                "",
+                ""
+            )
+            .as_deref(),
+            Some("abc def new ghi\nnewabc ddd")
+        );
+        assert_eq!(
+            eval_local(&script.ops, Some("none".into()), "", "", "").as_deref(),
+            Some("none")
+        );
+        assert!(matches!(classify(":s//new"), PasteBody::Text));
+        assert!(matches!(classify("s/old/new | upper"), PasteBody::Run(_)));
+        let PasteBody::Run(quoted) = classify(":quote | upper") else {
+            panic!("quote");
+        };
+        assert_eq!(
+            eval_local(&quoted.ops, Some("xxx\nyyy".into()), "", "", "").as_deref(),
+            Some("> XXX\n> YYY")
+        );
+    }
+
+    #[test]
+    fn headed_pipe_runs_the_first_line_on_the_rest() {
+        match headed_pipe(":s/old/new\nabc def old ghi\noldabc ddd") {
+            Headed::Run { script, flow } => {
+                assert_eq!(script.ops[0].kind, "sub");
+                assert_eq!(flow, "abc def old ghi\noldabc ddd");
+            }
+            _ => panic!("run"),
+        }
+        match headed_pipe(":quote | upper\nxxx\nyyy") {
+            Headed::Run { flow, .. } => assert_eq!(flow, "xxx\nyyy"),
+            _ => panic!("quote"),
+        }
+        assert!(matches!(headed_pipe(":echo 2+3"), Headed::Skip));
+        assert!(matches!(headed_pipe(":sh dir"), Headed::Skip));
+        assert!(matches!(headed_pipe("hello\nworld"), Headed::Skip));
+        assert!(matches!(headed_pipe(":s/old/new"), Headed::Skip));
+        assert!(matches!(headed_pipe(":s/old/new\n"), Headed::Noop));
+        assert!(matches!(headed_pipe(":nope | zz\nx"), Headed::Noop));
+        let PasteBody::Run(script) = classify(":sel | s/old/new") else {
+            panic!("sel");
+        };
+        assert_eq!(
+            eval_local(&script.ops, Some("a old".into()), "other", "", "").as_deref(),
+            Some("a new")
+        );
     }
 }

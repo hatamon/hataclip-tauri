@@ -188,7 +188,7 @@ fn walk(
                 };
                 text = Some(next.ok_or(())?);
             }
-            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper"
+            "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 if text.is_none() && !piped {
                     return Err(());
@@ -204,6 +204,7 @@ fn walk(
                     "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                         text::recase(&current, &op.kind)
                     }
+                    "sub" => text::substitute_literal(&current, &op.arg),
                     _ => current,
                 });
             }
@@ -247,6 +248,10 @@ mod tests {
         assert_eq!(transform("quote", Some("hello")).as_deref(), Ok("> hello"));
         assert_eq!(transform("split , | col 2", Some("a,b,c")).as_deref(), Ok("b"));
         assert_eq!(transform("upper", Some("Ab")).as_deref(), Ok("AB"));
+        assert_eq!(
+            transform("s/old/new", Some("abc old")).as_deref(),
+            Ok("abc new")
+        );
         assert!(transform("json", Some("{")).is_err());
         assert!(transform("sel | upper", Some("hello")).is_err());
         assert!(transform("nope", Some("hello")).is_err());

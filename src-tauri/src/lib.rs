@@ -746,6 +746,7 @@ fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
         "format" => text::format_for_paste(text),
         "join" => text.lines().collect::<Vec<_>>().join(arg),
         "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => text::recase(text, kind),
+        "sub" => text::substitute_literal(text, arg),
         _ => text.to_string(),
     }
 }
@@ -810,6 +811,7 @@ fn run_pipe(
         &sink,
         set_name.as_deref(),
         keep_open.unwrap_or(false),
+        None,
     )
 }
 
@@ -948,7 +950,7 @@ fn walk_pipe(
                     }
                 }
             }
-            "quote" | "format" | "join" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
+            "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                 if text.is_none() {
                     used_selection = true;
                     let sep = if op.kind == "join" { op.arg.as_str() } else { "\n" };
@@ -1007,14 +1009,15 @@ fn execute_pipe(
     sink: &str,
     set_name: Option<&str>,
     keep_open: bool,
+    seed: Option<String>,
 ) -> Result<Option<String>, String> {
     if ops.is_empty() {
         return Err("段がない".into());
     }
-    if !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
+    if seed.is_none() && !cfg!(windows) && ops.iter().any(|op| op.kind == "sel") {
         return Err("選択を取れない".into());
     }
-    let (text, used_selection) = walk_pipe(app, state, ids, ops, None)?;
+    let (text, used_selection) = walk_pipe(app, state, ids, ops, seed)?;
     let pasted_ids: Vec<String> = if used_selection { ids.to_vec() } else { Vec::new() };
     match sink {
         "paste" => {
@@ -1212,6 +1215,7 @@ fn apply_row_pipe(
         &script.sink,
         script.set_name.as_deref(),
         keep_open,
+        None,
     ) {
         Ok(Some(text)) if show => RowPipe::Show(text),
         Ok(_) => RowPipe::Done,
@@ -1267,6 +1271,9 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     let Some(text) = captured else {
         return;
     };
+    if apply_headed_pipe(app, state, &text) {
+        return;
+    }
     let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
@@ -1274,6 +1281,43 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     };
     remember_last_sh(&text, state);
     play_resolved(app, state, text::take_type_ops(&out), false, false);
+}
+
+/// 1行目が `:` のパイプなら、2行目以降を流れにして実行する。扱ったら真。
+fn apply_headed_pipe(app: &tauri::AppHandle, state: &AppState, text: &str) -> bool {
+    let (script, flow) = match pipe::headed_pipe(text) {
+        pipe::Headed::Skip => return false,
+        pipe::Headed::Noop => return true,
+        pipe::Headed::Run { script, flow } => (script, flow),
+    };
+    let show = script.sink == "show";
+    let ops: Vec<PipeOp> = script
+        .ops
+        .into_iter()
+        .map(|op| PipeOp {
+            kind: op.kind,
+            arg: op.arg,
+            selection_stdin: op.selection_stdin,
+        })
+        .collect();
+    match execute_pipe(
+        app,
+        state,
+        &[],
+        &ops,
+        &script.sink,
+        script.set_name.as_deref(),
+        false,
+        Some(flow),
+    ) {
+        Ok(Some(shown)) if show => {
+            reveal_picker(app, state);
+            let _ = app.emit("pipe-shown", shown);
+        }
+        Ok(_) => {}
+        Err(_) => {}
+    }
+    true
 }
 
 /// 前面の選択語で履歴を補完して貼る。テンプレートは展開しない。一覧は出さない。
