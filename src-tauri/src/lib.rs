@@ -1274,6 +1274,9 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     if apply_headed_pipe(app, state, &text) {
         return;
     }
+    if apply_solo_pipe(app, state, &text) {
+        return;
+    }
     let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
@@ -1290,6 +1293,27 @@ fn apply_headed_pipe(app: &tauri::AppHandle, state: &AppState, text: &str) -> bo
         pipe::Headed::Noop => return true,
         pipe::Headed::Run { script, flow } => (script, flow),
     };
+    play_script(app, state, script, Some(flow));
+    true
+}
+
+/// 1行で `sh` か `echo` が結果を作るパイプ。引用符の外の `|` は段。扱ったら真。
+fn apply_solo_pipe(app: &tauri::AppHandle, state: &AppState, text: &str) -> bool {
+    let script = match pipe::solo_pipe(text) {
+        pipe::Solo::Skip => return false,
+        pipe::Solo::Noop => return true,
+        pipe::Solo::Run(script) => script,
+    };
+    play_script(app, state, script, None);
+    true
+}
+
+fn play_script(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    script: pipe::Script,
+    flow: Option<String>,
+) {
     let show = script.sink == "show";
     let ops: Vec<PipeOp> = script
         .ops
@@ -1308,7 +1332,7 @@ fn apply_headed_pipe(app: &tauri::AppHandle, state: &AppState, text: &str) -> bo
         &script.sink,
         script.set_name.as_deref(),
         false,
-        Some(flow),
+        flow,
     ) {
         Ok(Some(shown)) if show => {
             reveal_picker(app, state);
@@ -1317,7 +1341,6 @@ fn apply_headed_pipe(app: &tauri::AppHandle, state: &AppState, text: &str) -> bo
         Ok(_) => {}
         Err(_) => {}
     }
-    true
 }
 
 /// 前面の選択語で履歴を補完して貼る。テンプレートは展開しない。一覧は出さない。

@@ -821,7 +821,7 @@ pub(crate) fn headed_pipe(text: &str) -> Headed {
     match classify(first) {
         PasteBody::Text => Headed::Skip,
         PasteBody::Bad => Headed::Noop,
-        PasteBody::Run(script) if flow.is_empty() && plain_echo_or_sh(&script) => Headed::Skip,
+        PasteBody::Run(script) if flow.is_empty() && self_contained(&script) => Headed::Skip,
         PasteBody::Run(script) if plain_echo(&script) => Headed::Noop,
         PasteBody::Run(_) if flow.is_empty() => Headed::Noop,
         PasteBody::Run(script) => Headed::Run { script, flow },
@@ -832,11 +832,53 @@ fn plain_echo(script: &Script) -> bool {
     script.sink == "paste" && script.ops.len() == 1 && script.ops[0].kind == "echo"
 }
 
-fn plain_echo_or_sh(script: &Script) -> bool {
-    script.sink == "paste"
-        && script.ops.len() == 1
-        && (script.ops[0].kind == "echo"
-            || (script.ops[0].kind == "sh" && !script.ops[0].selection_stdin))
+/// `sh` か `echo` が流れを作り、`.` `sel` `clip` は読まない。
+pub(crate) fn self_contained(script: &Script) -> bool {
+    if script.ops.iter().any(|op| {
+        matches!(op.kind.as_str(), "sel" | "clip" | "dot")
+            || (op.kind == "sh" && op.selection_stdin)
+            || (matches!(op.kind.as_str(), "diff" | "only") && op.arg == ".")
+    }) {
+        return false;
+    }
+    let mut produced = false;
+    for op in &script.ops {
+        if op.kind == "raw" || op.kind == "each" {
+            continue;
+        }
+        if op.kind == "echo" || op.kind == "sh" {
+            produced = true;
+            continue;
+        }
+        if !produced {
+            return false;
+        }
+    }
+    produced
+}
+
+pub(crate) enum Solo {
+    Skip,
+    Noop,
+    Run(Script),
+}
+
+/// 1行（末尾の改行だけは空）の Ctrl+Shift+H。複数行の本体があるときは `Skip`。
+pub(crate) fn solo_pipe(text: &str) -> Solo {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let line = match normalized.split_once('\n') {
+        Some((first, rest)) if rest.trim().is_empty() => first.trim(),
+        Some(_) => return Solo::Skip,
+        None => normalized.trim(),
+    };
+    if line.is_empty() {
+        return Solo::Skip;
+    }
+    match classify(line) {
+        PasteBody::Run(script) if self_contained(&script) => Solo::Run(script),
+        PasteBody::Bad => Solo::Noop,
+        _ => Solo::Skip,
+    }
 }
 
 #[cfg(test)]
@@ -1036,6 +1078,8 @@ mod tests {
         }
         assert!(matches!(headed_pipe(":echo 2+3"), Headed::Skip));
         assert!(matches!(headed_pipe(":echo 2+3\nnotes"), Headed::Noop));
+        assert!(matches!(headed_pipe(":sh dir | quote\n"), Headed::Skip));
+        assert!(matches!(headed_pipe(":quote\n"), Headed::Noop));
         assert!(matches!(headed_pipe(":sh dir"), Headed::Skip));
         assert!(matches!(headed_pipe("hello\nworld"), Headed::Skip));
         assert!(matches!(headed_pipe(":s/old/new"), Headed::Skip));
@@ -1048,5 +1092,45 @@ mod tests {
             eval_local(&script.ops, Some("a old".into()), "other", "", "").as_deref(),
             Some("a new")
         );
+    }
+
+    #[test]
+    fn solo_pipe_runs_a_line_that_makes_its_own_flow() {
+        match solo_pipe(r#":sh "dir | sort" | quote ">" "<""#) {
+            Solo::Run(script) => {
+                assert_eq!(script.ops[0].kind, "sh");
+                assert!(!script.ops[0].selection_stdin);
+                assert_eq!(script.ops[0].arg, "dir | sort");
+                assert_eq!(script.ops[1].kind, "quote");
+                assert_eq!(script.ops[1].arg, format!(">\u{1}<"));
+            }
+            _ => panic!("quoted shell pipe"),
+        }
+        match solo_pipe(":echo 2+3 | quote") {
+            Solo::Run(script) => {
+                assert_eq!(
+                    eval_local(&script.ops, None, "", "", "").as_deref(),
+                    Some("> 5")
+                );
+            }
+            _ => panic!("echo"),
+        }
+        match solo_pipe(":echo 2+3 | quote \">\" \"<\"\n") {
+            Solo::Run(script) => {
+                assert_eq!(
+                    eval_local(&script.ops, None, "", "", "").as_deref(),
+                    Some(">5<")
+                );
+            }
+            _ => panic!("marks"),
+        }
+        assert!(matches!(solo_pipe(":sh dir | sort"), Solo::Noop));
+        assert!(matches!(solo_pipe(":quote"), Solo::Skip));
+        assert!(matches!(solo_pipe(":sel | upper"), Solo::Skip));
+        assert!(matches!(solo_pipe(":s/old/new"), Solo::Skip));
+        assert!(matches!(solo_pipe("{{date}}"), Solo::Skip));
+        assert!(matches!(solo_pipe(":sh dir | quote\nfoo"), Solo::Skip));
+        assert!(matches!(solo_pipe(":clip | upper"), Solo::Skip));
+        assert!(matches!(solo_pipe(":. | upper"), Solo::Skip));
     }
 }
