@@ -822,9 +822,14 @@ pub(crate) fn headed_pipe(text: &str) -> Headed {
         PasteBody::Text => Headed::Skip,
         PasteBody::Bad => Headed::Noop,
         PasteBody::Run(script) if flow.is_empty() && plain_echo_or_sh(&script) => Headed::Skip,
+        PasteBody::Run(script) if plain_echo(&script) => Headed::Noop,
         PasteBody::Run(_) if flow.is_empty() => Headed::Noop,
         PasteBody::Run(script) => Headed::Run { script, flow },
     }
+}
+
+fn plain_echo(script: &Script) -> bool {
+    script.sink == "paste" && script.ops.len() == 1 && script.ops[0].kind == "echo"
 }
 
 fn plain_echo_or_sh(script: &Script) -> bool {
@@ -1030,6 +1035,7 @@ mod tests {
             _ => panic!("quote"),
         }
         assert!(matches!(headed_pipe(":echo 2+3"), Headed::Skip));
+        assert!(matches!(headed_pipe(":echo 2+3\nnotes"), Headed::Noop));
         assert!(matches!(headed_pipe(":sh dir"), Headed::Skip));
         assert!(matches!(headed_pipe("hello\nworld"), Headed::Skip));
         assert!(matches!(headed_pipe(":s/old/new"), Headed::Skip));
