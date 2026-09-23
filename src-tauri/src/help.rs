@@ -122,7 +122,6 @@ const ENTRIES: &[(&str, &str)] = &[
     ("clip", "打つ: :clip | show のように先頭の段、または行き先の | clip。先頭はクリップボードを読む。| clip は結果をクリップボードへ書き、前面には貼らない。流れの途中の clip は不正で何もしない。末尾の > clip も何もしない。空なら何もしない。例: :clip | upper | clip はクリップボードの hello を HELLO にして戻す。"),
     ("sh", "打つ: :sh dir。変わるのは前面（標準出力を貼る）。履歴は触らない。stdin は無し。失敗したら貼らない。:.!sh は選択行を stdin に。:!!sh は本文を書き換え、式が残る。Ubuntu でもシェルは動く。例: :sh echo hi で前面は hi。"),
     ("echo", "打つ: :echo 2+3。変わるのは前面（計算結果を貼る）。履歴は触らない。* と / が先。() と :set の変数が使える。計算できなければ何もしない。例: :echo 3+4 で前面は 7。"),
-    ("s", "打つ: :s/old/new は選択行の本文の old を全部 new に書き換える。履歴の本文が変わる。前面には貼らない。正規表現は使わない。old が空なら何もしない。new は2つ目の / の後ろ全部。パイプの段 :sel | s/old/new は前面の選択を置換して貼る。old が無くても残りを貼る。例: 本文 hello old は hello new。Ctrl+Shift+H で選択の1行目が :s/old/new なら、2行目以降の old を new にして選択全体を置き換える。"),
     ("format", "打つ: :format。変わるのは前面。履歴は触らない。選択行を貼り付け向けに整える。空なら何もしない。例: 選択が {\"a\":1} なら整形して前面へ貼る。"),
     ("raw", "打つ: :raw。変わるのは前面。履歴は触らない。{{date}} などは展開せず本文のまま貼る。例: 本文 {{date}} は前面も {{date}}。"),
     ("type", "打つ: :type。変わるのは前面（1文字ずつ送る）。履歴は触らない。Ubuntu はキーを送らないので何もしない。例: 選択 hello を :type で前面へ1文字ずつ入る。"),
@@ -146,7 +145,7 @@ const ENTRIES: &[(&str, &str)] = &[
     ("show", "打つ: :echo 3+4 | show。変わるのはこのヘルプ画面。前面には貼らない。空なら出さない。例: :echo 3+4 | show で 7。"),
     ("set", "打つ: :set a=hello または | set a。:set は変数を残す。貼らない。| set a はパイプの結果をその変数へ。名前が不正なら何もしない。引用は \\\" \\t \\n を読む。例: :set a=\"say \\\"hi\\\"\" で値は say \"hi\"。"),
     ("from", "打つ: :from。変わるのはその行の式だけ。本文は e で編集する。引数が無ければ編集画面。引数があればその文字が式になる。式の無い行でも書ける。例: :from sel | upper。"),
-    ("s", "打つ: :s/old/new。変わるのは選択行の本文。履歴のその行だけ。old が空なら何もしない。u で戻せる。例: hello に :s/ell/ipp で hippo。"),
+    ("s", "打つ: :s/old/new。変わるのは選択行の本文。履歴のその行だけ。前面には貼らない。正規表現は使わない。old が空なら何もしない。u で戻せる。例: hello に :s/ell/ipp で hippo。段 :sel | s/old/new は前面の old を全部 new にして貼る。履歴は触らない。old が無くても残りを貼る。Ctrl+Shift+H で選択の1行目が :s/old/new なら、2行目以降を置換して選択全体を置き換える。"),
     ("sort", "打つ: :sort。変わるのは V した行の並び（本文の順）。1行だけなら何もしない。u で戻せる。例: b と a を V して :sort で a が先。"),
     ("clear", "打つ: :clear のあと :clear yes。変わるのは一覧。ピンと #lock 以外を消す。yes が無いと確認の文字を出すだけ。"),
     ("dedup", "打つ: :dedup のあと :dedup yes。変わるのは一覧。同じ本文は1件にまとめる。yes が無いと確認だけ。"),
@@ -226,6 +225,9 @@ mod tests {
         assert!(render(Some("paste")).contains(":s/old/new"));
         assert!(render(Some("paste")).contains(":quote | upper"));
         assert!(render(Some("s")).contains("選択行の本文"));
+        assert!(render(Some("s")).contains("u で戻せる"));
+        assert!(render(Some("s")).contains("Ctrl+Shift+H"));
+        assert_eq!(render(Some("s")).matches("打つ:").count(), 1);
         assert!(render(Some("colon")).contains("段の s/old/new"));
         assert!(render(Some("colon")).contains("Ctrl+C は送らない"));
         assert!(render(Some("paste")).contains("#slot:n"));
