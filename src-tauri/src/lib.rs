@@ -2381,6 +2381,7 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
         )));
     }
 
+    state.store.lock().expect("store").reload_if_newer();
     show_window(app);
     let _ = app.emit("picker-opened", view(state));
 }

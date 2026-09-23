@@ -27,10 +27,20 @@ enum CliResult {
     Quiet,
 }
 
+fn resolve(expr: &str, piped: bool) -> Result<pipe::Script, ()> {
+    if piped {
+        if let Some(script) = pipe::stdin_sink(expr) {
+            return Ok(script);
+        }
+    }
+    match pipe::classify(expr) {
+        pipe::PasteBody::Run(script) => Ok(script),
+        pipe::PasteBody::Text | pipe::PasteBody::Bad => Err(()),
+    }
+}
+
 fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
-    let pipe::PasteBody::Run(script) = pipe::classify(expr) else {
-        return Err(());
-    };
+    let script = resolve(expr, stdin.is_some())?;
     if script.ops.iter().any(|op| op.kind == "sel") {
         return Err(());
     }
@@ -219,9 +229,7 @@ fn take_text(text: &mut Option<String>, piped: bool) -> Result<String, ()> {
 
 #[cfg(test)]
 fn transform(expr: &str, stdin: Option<&str>) -> Result<String, ()> {
-    let pipe::PasteBody::Run(script) = pipe::classify(expr) else {
-        return Err(());
-    };
+    let script = resolve(expr, stdin.is_some())?;
     if script.ops.iter().any(|op| op.kind == "sel") {
         return Err(());
     }
@@ -251,6 +259,10 @@ mod tests {
         assert!(transform("sel | upper", Some("hello")).is_err());
         assert!(transform("nope", Some("hello")).is_err());
         assert!(transform("quote", None).is_err());
+        assert_eq!(transform("add", Some("hello")).as_deref(), Ok("hello"));
+        assert_eq!(transform("clip", Some("hello")).as_deref(), Ok("hello"));
+        assert_eq!(transform("show", Some("hello")).as_deref(), Ok("hello"));
+        assert!(transform("add", None).is_err());
     }
 }
 

@@ -419,6 +419,22 @@ fn sink_of(part: &str) -> Option<(String, Option<String>)> {
     var_sink_name(part).map(|name| ("set".to_string(), Some(name)))
 }
 
+/// 段のない行き先。標準入力があるときだけ使う。`clip` だけの履歴行はクリップボードを読む段のまま。
+pub(crate) fn stdin_sink(expr: &str) -> Option<Script> {
+    let line = expr.trim();
+    let line = line.strip_prefix(':').unwrap_or(line);
+    if split_bars(line, false).len() != 1 {
+        return None;
+    }
+    let (sink, set_name) = sink_of(line)?;
+    Some(Script {
+        ops: Vec::new(),
+        sink,
+        set_name,
+        uses_selection: false,
+    })
+}
+
 /// `s/old/new`。`old` が空なら段にしない。`new` は2つ目の `/` の後ろ全部。
 fn sub_arg(part: &str) -> Option<String> {
     let rest = part.strip_prefix("s/")?;
@@ -940,6 +956,12 @@ mod tests {
         assert!(!echo.uses_selection);
         assert_eq!(echo.ops[0].arg, "3+4");
         assert_eq!(classify("hello"), PasteBody::Text);
+        assert_eq!(classify("add"), PasteBody::Text);
+        let bare = stdin_sink("add").expect("add");
+        assert_eq!(bare.sink, "add");
+        assert!(bare.ops.is_empty());
+        assert!(stdin_sink("quote | add").is_none());
+        assert!(stdin_sink("upper").is_none());
         assert_eq!(classify("help"), PasteBody::Text);
         assert_eq!(classify("comma"), PasteBody::Text);
         let PasteBody::Run(split) = classify(r#"sel | split "\t" | col 2 | get /name"#) else {

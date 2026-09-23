@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -64,6 +65,8 @@ pub struct Store {
     items: Vec<Item>,
     undo: Vec<Vec<Item>>,
     redo: Vec<Vec<Item>>,
+    /// 読み込みまたは保存したときのファイル時刻。これより新しければ外から書かれている。
+    disk_ns: Cell<u128>,
 }
 
 impl Store {
@@ -78,11 +81,40 @@ impl Store {
             items,
             undo: Vec::new(),
             redo: Vec::new(),
+            disk_ns: Cell::new(0),
         };
         if store.items.len() != before {
             store.save();
+        } else {
+            store.note_disk();
         }
         store
+    }
+
+    /// パイプの `add` などでファイルが新しければ、一覧を開き直したときに取り込む。
+    pub fn reload_if_newer(&mut self) -> bool {
+        let newer = mtime_ns(&self.path);
+        if newer <= self.disk_ns.get() {
+            return false;
+        }
+        let mut items = read_items(&self.path);
+        let before = items.len();
+        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp") || item.locked());
+        let now = now_secs();
+        items.retain(|item| item.locked() || !crate::text::expired(&item.tags, item.created_at, now));
+        self.items = items;
+        self.undo.clear();
+        self.redo.clear();
+        if self.items.len() != before {
+            self.save();
+        } else {
+            self.disk_ns.set(newer);
+        }
+        true
+    }
+
+    fn note_disk(&self) {
+        self.disk_ns.set(mtime_ns(&self.path));
     }
 
     pub fn list(&self) -> &[Item] {
@@ -781,7 +813,17 @@ impl Store {
 
     fn save(&self) {
         let _ = write_items(&self.path, &self.items);
+        self.note_disk();
     }
+}
+
+fn mtime_ns(path: &Path) -> u128 {
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
 }
 
 /// 一覧に出す順番。ピン留め（手動順）、それ以外はストアの順（新しいものが先）。
@@ -971,6 +1013,24 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         let store = Store::load(path.clone());
         assert!(store.list().is_empty());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reload_picks_up_a_newer_file() {
+        let mut store = fresh("reload");
+        store.insert(item("a", "one"));
+        let path = store.path.clone();
+        {
+            let mut other = Store::load(path.clone());
+            other.insert(item("b", "two"));
+        }
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(store.reload_if_newer());
+        assert_eq!(store.list()[0].text, "two");
+        assert!(!store.reload_if_newer());
         let _ = fs::remove_file(path);
     }
 
