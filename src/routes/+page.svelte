@@ -1807,7 +1807,9 @@
         tagCycle < 0 &&
         anchor === null
       ) {
-        items = await invoke<Item[]>("delete_items", { ids: drafts.map((item) => item.id) });
+        void invoke<Item[]>("delete_items", { ids: drafts.map((item) => item.id) }).then((next) => {
+          items = next;
+        });
         return;
       }
       if (pending.length > 0 || whichPrefix.length > 0) {
