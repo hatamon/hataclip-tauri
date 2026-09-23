@@ -115,6 +115,67 @@ pub fn topics() -> Vec<String> {
     TOPICS.iter().map(|(name, _)| (*name).to_string()).collect()
 }
 
+const ENTRIES: &[(&str, &str)] = &[
+    ("quote", "打つ: :quote または :quote \"* \" または :quote \"> \" \"<\"。変わるのは前面へ貼る文字。履歴は触らない。未指定の行頭は > 。すでにその行頭（と行末）なら付けない。\"\" はその端を付けない。失敗はしない。例: 選択行 hello に :quote \"* \" で前面は * hello。"),
+    ("join", "打つ: :join または :join \" | \"。変わるのは前面へ貼る文字。履歴は触らない。1行ならその本文を貼る。V ならその範囲を区切りでつなぐ。未指定は , 。タブは :join \"\\t\"。空の選択は何もしない。例: hello と world を V して :join \" | \" で前面は hello | world。"),
+    ("sel", "打つ: :sel | upper のようにパイプの段。変わるのはそのパイプの結果（行き先が無ければ前面）。履歴は触らない。Windows は Ctrl+C の 200ms 後を読んで、すぐクリップボードを戻す。空なら何もしない。Ubuntu では sel を含むパイプは実行しない。例: 前面の hello に :sel | upper で前面は HELLO。"),
+    ("clip", "打つ: :clip | show のように先頭の段、または行き先の | clip。先頭はクリップボードを読む。| clip は結果をクリップボードへ書き、前面には貼らない。流れの途中の clip は不正で何もしない。末尾の > clip も何もしない。空なら何もしない。例: :clip | upper | clip はクリップボードの hello を HELLO にして戻す。"),
+    ("sh", "打つ: :sh dir。変わるのは前面（標準出力を貼る）。履歴は触らない。stdin は無し。失敗したら貼らない。:.!sh は選択行を stdin に。:!!sh は本文を書き換え、式が残る。Ubuntu でもシェルは動く。例: :sh echo hi で前面は hi。"),
+    ("echo", "打つ: :echo 2+3。変わるのは前面（計算結果を貼る）。履歴は触らない。* と / が先。() と :set の変数が使える。計算できなければ何もしない。例: :echo 3+4 で前面は 7。"),
+    ("format", "打つ: :format。変わるのは前面。履歴は触らない。選択行を貼り付け向けに整える。空なら何もしない。例: 選択が {\"a\":1} なら整形して前面へ貼る。"),
+    ("raw", "打つ: :raw。変わるのは前面。履歴は触らない。{{date}} などは展開せず本文のまま貼る。例: 本文 {{date}} は前面も {{date}}。"),
+    ("type", "打つ: :type。変わるのは前面（1文字ずつ送る）。履歴は触らない。Ubuntu はキーを送らないので何もしない。例: 選択 hello を :type で前面へ1文字ずつ入る。"),
+    ("open", "打つ: :open。変わるのは別アプリ（URL かパスを開く）。一覧とクリップボードは触らない。URL でもパスでもなければ何もしない。例: https://example.com を :open でブラウザが開く。"),
+    ("camel", "打つ: :camel または :sel | camel。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: foo_bar は fooBar。"),
+    ("pascal", "打つ: :pascal または :sel | pascal。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: foo_bar は FooBar。"),
+    ("snake", "打つ: :snake または :sel | snake。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: getUserName は get_user_name。"),
+    ("kebab", "打つ: :kebab または :sel | kebab。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: helloWorld は hello-world。"),
+    ("upper", "打つ: :upper または :sel | upper。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: hello は HELLO。"),
+    ("lower", "打つ: :lower または :sel | lower。変わるのは前面。履歴は触らない。入力が空なら何もしない。例: AbC は abc。"),
+    ("json", "打つ: :json。変わるのは前面。履歴は触らない。JSON を整形する。読めなければ何もしない。例: {\"a\":1} は改行付きになる。"),
+    ("xml", "打つ: :xml。変わるのは前面。履歴は触らない。XML を整形する。読めなければ何もしない。"),
+    ("split", "打つ: :sel | split , 。区切りは必須。タブは split \"\\t\"。変わるのは次の段へ渡す文字（列はタブ1つでつなぐ）。区切りが無ければ何もしない。例: a,b,c は a\\tb\\tc。"),
+    ("col", "打つ: col 2。1始まり。変わるのはその列だけ。短い行は落ちる。1未満や整数でないなら何もしない。例: a,b,c を split , | col 2 で b。"),
+    ("get", "打つ: get /name。変わるのはその値。文字列はそのまま、数と真偽と null は文字、オブジェクトと配列は JSON。読めないか無いなら何もしない。例: {\"name\":\"hata\"} の get /name は hata。"),
+    ("diff", "打つ: :sel | diff clip または diff . 。変わるのは前面（- の行のあと + の行）。同じ、または only 側が空なら何もしない。履歴は触らない。例: 選択 a\\nb とクリップボード a\\nc で - b と + c。"),
+    ("only", "打つ: :sel | only clip。変わるのは前面（左にだけある行）。右にもある行は出さない。全部同じなら何もしない。例: a\\nb と a なら b。"),
+    ("put", "打つ: put /n 2。変わるのはその JSON。ポインタが既に無いと何もしない。値が JSON ならその値、そうでなければ文字列。例: {\"name\":\"x\"} に put /n 2 で n が 2。"),
+    ("each", "打つ: :sel | each | upper。後ろの段を行ごとに実行する。失敗した行は落ちる。全部失敗なら何もしない。後ろに sh があると不正で何もしない。例: a\\nb を each | upper で A\\nB。"),
+    ("add", "打つ: :sel | kebab | add。変わるのは一覧（結果を1件足す）。前面とクリップボードは触らない。式が行に残る。空なら足さない。例: 前面 userName で本文 user-name、式 sel | kebab。"),
+    ("show", "打つ: :echo 3+4 | show。変わるのはこのヘルプ画面。前面には貼らない。空なら出さない。例: :echo 3+4 | show で 7。"),
+    ("set", "打つ: :set a=hello または | set a。:set は変数を残す。貼らない。| set a はパイプの結果をその変数へ。名前が不正なら何もしない。引用は \\\" \\t \\n を読む。例: :set a=\"say \\\"hi\\\"\" で値は say \"hi\"。"),
+    ("from", "打つ: :from。変わるのはその行の式だけ。本文は e で編集する。引数が無ければ編集画面。引数があればその文字が式になる。式の無い行でも書ける。例: :from sel | upper。"),
+    ("s", "打つ: :s/old/new。変わるのは選択行の本文。履歴のその行だけ。old が空なら何もしない。u で戻せる。例: hello に :s/ell/ipp で hippo。"),
+    ("sort", "打つ: :sort。変わるのは V した行の並び（本文の順）。1行だけなら何もしない。u で戻せる。例: b と a を V して :sort で a が先。"),
+    ("clear", "打つ: :clear のあと :clear yes。変わるのは一覧。ピンと #lock 以外を消す。yes が無いと確認の文字を出すだけ。"),
+    ("dedup", "打つ: :dedup のあと :dedup yes。変わるのは一覧。同じ本文は1件にまとめる。yes が無いと確認だけ。"),
+    ("export", "打つ: :export path。変わるのはそのファイル。一覧は残る。書けなければ何もしない。例: :export C:\\tmp\\hataclip.md。"),
+    ("import", "打つ: :import path。変わるのは一覧（Markdown から足す）。読めなければ何もしない。"),
+    ("map", "打つ: :map lhs rhs。変わるのはキー割り当て。一覧の本文は触らない。書き方が違えば何もしない。例: :map <leader>x :echo 1。"),
+    ("unmap", "打つ: :unmap lhs。その割り当てを消す。無ければ何もしない。"),
+    ("mapleader", "打つ: :mapleader ,。リーダーキーを変える。1文字で無いと何もしない。"),
+    ("n", "打つ: :n 100。変わるのは {{n}} の初期値。貼ったあと Ctrl+Enter で増える。閉じると初期値に戻る。"),
+    ("settings", "打つ: :settings。settings.json を開く。エディタが無ければ何もしない。"),
+    ("tags", "打つ: :tags。この画面にタグ一覧を出す。一覧自体は変わらない。"),
+    ("help", "打つ: :help または :help quote。この画面に使い方を出す。名前が無ければない、と出す。"),
+    ("date", "{{date}} は貼る直前に今日へ変わる。履歴は変わらない。{{date:%Y%m%d}} は chrono。{{date-1d}} は昨日。失敗はしない。Ubuntu でも動く。例: {{date:%Y}} は 2026。"),
+    ("time", "{{time}} は貼る直前にいまの時刻へ変わる。履歴は変わらない。例: 10:54。"),
+    ("ask", "{{ask:名前}} は貼る前に入力を聞く。同じ名前は1回。Esc は中止で貼らない。例: {{ask:name}} に hata と入れるとその文字になる。"),
+    ("pick", "{{pick list: prod, stg}} は貼る前に候補を聞く。{{pick tag:env}} はタグ。{{pick search: \"xx\"}} は / と同じ。昔の {{pick: a, b}} は空で聞かない。無ければ聞かない。"),
+    ("app", "{{app}} は前面アプリのプロセス名。取れなければ空。履歴は変わらない。Ubuntu は空。"),
+    ("front", "{{front}} は前面ウィンドウのタイトル。取れなければ空。Ubuntu は空。"),
+    ("focus", "{{focus}} は貼るときに入力欄の種類（Edit など）。常時監視はしない。取れなければ空。Ubuntu は空。"),
+    ("cred", "{{cred:github}} は貼るときだけ資格情報を読む。履歴に残るのはこの文字。無い、または Ubuntu なら貼らない。ge と一覧は ••••。"),
+    ("when", "{{when app: chrome}} はそのアプリのときだけ区間を残す。{{when var: a: \"AAA\"}} は変数。{{when focus: Edit}} は入力欄。{{when}} はどれにも当たらないとき。{{when chrome}} はそのまま残る。Ubuntu では app と focus は空なので、その枝は残らない。"),
+    ("uuid", "{{uuid}} は貼る直前に UUID v4。履歴は変わらない。"),
+    ("user", "{{user}} はログイン名。取れなければ空。"),
+    ("host", "{{host}} はコンピュータ名。取れなければ空。"),
+    ("env", "{{env:USERPROFILE}} はその環境変数。無ければ空。履歴は変わらない。"),
+    ("nop", "{{nop: メモ}} は貼るとき消える。中の {{date}} は展開しない。| と }} は書かない。"),
+    ("var", "{{var:a}} は :set a= の値。中の {{date}} も展開する。値が :sh ならそのとき実行。無い変数は空。"),
+    ("wait", "{{wait:200}} は貼る途中で 200ms 待つ。最大 5 秒。それより大きいと 5 秒。"),
+];
+
 pub fn render(topic: Option<&str>) -> String {
     let Some(name) = topic.map(str::trim).filter(|name| !name.is_empty()) else {
         return format!(
@@ -122,8 +183,14 @@ pub fn render(topic: Option<&str>) -> String {
             topics().join(" ")
         );
     };
-    if let Some((_, body)) = TOPICS.iter().find(|(key, _)| *key == name) {
-        return format!(":{name}\n\n{body}");
+    let key = name
+        .trim_start_matches(':')
+        .trim_matches(|ch: char| ch == '{' || ch == '}' || ch.is_whitespace());
+    if let Some((_, body)) = TOPICS.iter().find(|(topic, _)| *topic == key) {
+        return format!(":{key}\n\n{body}");
+    }
+    if let Some((_, body)) = ENTRIES.iter().find(|(topic, _)| *topic == key) {
+        return format!(":{key}\n\n{body}");
     }
     format!(
         "ない: {name}\n\nトピック: {}",
@@ -203,6 +270,11 @@ mod tests {
         assert!(render(Some("colon")).contains(":type"));
         assert!(render(Some("colon")).contains(":settings"));
         assert!(render(Some("colon")).contains(":set paste"));
+        assert!(render(Some("quote")).contains("* hello"));
+        assert!(!render(Some("quote")).contains("ない:"));
+        assert!(render(Some("join")).contains("1行ならその本文"));
+        assert!(render(Some("{{date}}")).contains("{{date}}"));
+        assert!(render(Some("when")).contains("{{when chrome}}"));
         assert!(render(Some("edit")).contains("メモ帳"));
         assert!(render(Some("map")).contains("<leader>"));
         assert!(render(Some("keys")).contains("J まとめ"));
