@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -67,6 +68,8 @@ pub struct Store {
     redo: Vec<Vec<Item>>,
     /// 読み込みまたは保存したときのファイル時刻。これより新しければ外から書かれている。
     disk_ns: Cell<u128>,
+    /// 直前に読み書きした id。これ以外でファイルにだけある行は、保存時に残す。
+    baseline: RefCell<HashSet<String>>,
 }
 
 impl Store {
@@ -76,19 +79,25 @@ impl Store {
         items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp") || item.locked());
         let now = now_secs();
         items.retain(|item| item.locked() || !crate::text::expired(&item.tags, item.created_at, now));
-        let store = Self {
+        let mut store = Self {
             path,
             items,
             undo: Vec::new(),
             redo: Vec::new(),
             disk_ns: Cell::new(0),
+            baseline: RefCell::new(HashSet::new()),
         };
+        store.note_disk();
+        store.note_baseline();
         if store.items.len() != before {
             store.save();
-        } else {
-            store.note_disk();
         }
         store
+    }
+
+    /// ファイルが新しければメモリをそちらに合わせる。取り消しは捨てる。
+    fn absorb(&mut self) {
+        self.reload_if_newer();
     }
 
     /// パイプの `add` などでファイルが新しければ、一覧を開き直したときに取り込む。
@@ -105,10 +114,10 @@ impl Store {
         self.items = items;
         self.undo.clear();
         self.redo.clear();
+        self.disk_ns.set(newer);
+        self.note_baseline();
         if self.items.len() != before {
             self.save();
-        } else {
-            self.disk_ns.set(newer);
         }
         true
     }
@@ -127,6 +136,7 @@ impl Store {
 
     /// 同じ本文があれば先頭へ寄せてタグを足す。無ければ新規。取り消しは1回。
     pub fn insert_marked(&mut self, text: String, tags: Vec<String>) {
+        self.absorb();
         self.push_undo();
         if let Some(index) = self.items.iter().position(|existing| existing.text == text) {
             let mut existing = self.items.remove(index);
@@ -143,6 +153,7 @@ impl Store {
     }
 
     pub fn insert(&mut self, item: Item) {
+        self.absorb();
         self.push_undo();
         if let Some(index) = self
             .items
@@ -159,6 +170,7 @@ impl Store {
 
     /// ドロップしたパスを先頭へ。1 回のドロップは 1 段の取り消し。
     pub fn drop_paths(&mut self, paths: &[String]) -> bool {
+        self.absorb();
         let paths: Vec<String> = paths
             .iter()
             .map(|path| path.trim().to_string())
@@ -188,6 +200,7 @@ impl Store {
 
     /// 指定した行のすぐ上か下に差し込む。同じ本文でもまとめない。
     pub fn insert_relative(&mut self, anchor: Option<&str>, above: bool, item: Item) {
+        self.absorb();
         self.push_undo();
         let at = anchor
             .and_then(|id| self.items.iter().position(|item| item.id == id))
@@ -206,6 +219,7 @@ impl Store {
     }
 
     pub fn update(&mut self, id: &str, text: String, tags: Vec<String>) -> bool {
+        self.absorb();
         if self.items.iter().any(|item| item.id == id) {
             self.push_undo();
             if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
@@ -220,6 +234,7 @@ impl Store {
     }
 
     pub fn delete_many(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         let ids: Vec<String> = ids
             .iter()
             .filter(|id| self.get(id).is_some_and(|item| !item.locked()))
@@ -238,6 +253,7 @@ impl Store {
 
     /// `#once` のように、取り消しスタックに残さない削除。
     pub fn remove_ids(&mut self, ids: &[String]) {
+        self.absorb();
         self.items.retain(|item| !ids.iter().any(|id| id == &item.id));
         self.save();
     }
@@ -266,6 +282,7 @@ impl Store {
     }
 
     pub fn set_tag(&mut self, ids: &[String], tag: &str, add: bool) -> bool {
+        self.absorb();
         let tag = tag.trim();
         if tag.is_empty() {
             return false;
@@ -301,6 +318,7 @@ impl Store {
     }
 
     pub fn set_app_tag(&mut self, ids: &[String], app: &str) -> bool {
+        self.absorb();
         let app = app.trim().to_lowercase();
         if app.is_empty() || ids.is_empty() {
             return false;
@@ -337,6 +355,7 @@ impl Store {
     }
 
     pub fn set_pinned(&mut self, ids: &[String], pinned: bool) -> bool {
+        self.absorb();
         let mut changed = false;
         for item in self.items.iter() {
             if ids.iter().any(|id| id == &item.id) && item.pinned != pinned {
@@ -371,6 +390,7 @@ impl Store {
     }
 
     pub fn record_context(&mut self, ids: &[String], key: &str) {
+        self.absorb();
         if key.is_empty() {
             return;
         }
@@ -390,6 +410,7 @@ impl Store {
     }
 
     pub fn bump_paste(&mut self, ids: &[String]) {
+        self.absorb();
         let mut changed = false;
         for item in self.items.iter_mut() {
             if ids.iter().any(|id| id == &item.id) {
@@ -403,6 +424,7 @@ impl Store {
     }
 
     pub fn clear_unpinned(&mut self) -> bool {
+        self.absorb();
         if self.items.iter().all(|item| item.pinned || item.locked()) {
             return false;
         }
@@ -413,6 +435,7 @@ impl Store {
     }
 
     pub fn move_pins(&mut self, ids: &[String], delta: i32) -> bool {
+        self.absorb();
         if ids.is_empty() || delta == 0 {
             return false;
         }
@@ -470,6 +493,7 @@ impl Store {
     }
 
     pub fn split_items(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         let targets: Vec<Item> = ids
             .iter()
             .filter_map(|id| self.get(id).cloned())
@@ -499,6 +523,7 @@ impl Store {
     }
 
     pub fn import_markdown(&mut self, markdown: &str) -> bool {
+        self.absorb();
         let parsed = parse_export(markdown);
         if parsed.is_empty() {
             return false;
@@ -536,6 +561,7 @@ impl Store {
     }
 
     pub fn merge_items(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         if ids.len() < 2 {
             return false;
         }
@@ -586,6 +612,7 @@ impl Store {
     }
 
     pub fn clone_items(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         let rows: Vec<(usize, Item)> = ids
             .iter()
             .filter_map(|id| {
@@ -613,6 +640,7 @@ impl Store {
     }
 
     pub fn substitute(&mut self, ids: &[String], old: &str, new: &str) -> bool {
+        self.absorb();
         if old.is_empty() || ids.is_empty() {
             return false;
         }
@@ -638,6 +666,7 @@ impl Store {
 
     /// 選んだ行の本文を置き換える。タグ・ピン・回数はそのまま。
     pub fn replace_texts(&mut self, updates: &[(String, String)]) -> bool {
+        self.absorb();
         if updates.is_empty() {
             return false;
         }
@@ -665,6 +694,7 @@ impl Store {
 
     /// 本文を置き換え、同じ式を残す。本文も式も同じなら何もしない。
     pub fn rewrite_with_formula(&mut self, updates: &[(String, String)], formula: &str) -> bool {
+        self.absorb();
         if updates.is_empty() {
             return false;
         }
@@ -692,6 +722,7 @@ impl Store {
     }
 
     pub fn set_formula(&mut self, id: &str, formula: String) -> bool {
+        self.absorb();
         let Some(item) = self.get(id) else {
             return false;
         };
@@ -708,6 +739,7 @@ impl Store {
 
     /// `#grab` の1行目と2行目を入れ替える。タグの無い行と2行目の無い行は飛ばす。
     pub fn swap_grab(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         let updates: Vec<(String, String)> = ids
             .iter()
             .filter_map(|id| {
@@ -734,6 +766,7 @@ impl Store {
 
     /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
     pub fn sort_items(&mut self, ids: &[String]) -> bool {
+        self.absorb();
         if ids.len() < 2 {
             return false;
         }
@@ -772,6 +805,7 @@ impl Store {
     }
 
     pub fn dedup(&mut self) -> bool {
+        self.absorb();
         let mut keep: Vec<String> = Vec::new();
         let mut seen = std::collections::HashMap::<String, (bool, usize)>::new();
         for (index, item) in self.items.iter().enumerate() {
@@ -811,9 +845,34 @@ impl Store {
         self.redo.clear();
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
+        self.keep_external();
         let _ = write_items(&self.path, &self.items);
         self.note_disk();
+        self.note_baseline();
+    }
+
+    /// 開いたあとにパイプが足した行を、この保存で消さない。
+    fn keep_external(&mut self) {
+        let newer = mtime_ns(&self.path);
+        if newer <= self.disk_ns.get() {
+            return;
+        }
+        let disk = read_items(&self.path);
+        let baseline = self.baseline.borrow();
+        let have: HashSet<&str> = self.items.iter().map(|item| item.id.as_str()).collect();
+        let external: Vec<Item> = disk
+            .into_iter()
+            .filter(|item| !have.contains(item.id.as_str()) && !baseline.contains(&item.id))
+            .collect();
+        drop(baseline);
+        for item in external.into_iter().rev() {
+            self.items.insert(0, item);
+        }
+    }
+
+    fn note_baseline(&self) {
+        *self.baseline.borrow_mut() = self.items.iter().map(|item| item.id.clone()).collect();
     }
 }
 
@@ -1031,6 +1090,24 @@ mod tests {
         assert!(store.reload_if_newer());
         assert_eq!(store.list()[0].text, "two");
         assert!(!store.reload_if_newer());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_keeps_a_row_added_outside() {
+        let mut store = fresh("merge");
+        store.insert(item("a", "one"));
+        let path = store.path.clone();
+        {
+            let mut other = Store::load(path.clone());
+            other.insert(item("b", "two"));
+        }
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(store.delete_many(&["a".to_string()]));
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].text, "two");
         let _ = fs::remove_file(path);
     }
 

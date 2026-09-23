@@ -2499,6 +2499,24 @@ pub fn run_cli(expr: &str, stdin: Option<&str>) -> i32 {
     cli::run(expr, stdin)
 }
 
+fn watch_items(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let Some(state) = app.try_state::<AppState>() else {
+                break;
+            };
+            let changed = state.store.lock().expect("store").reload_if_newer();
+            if !changed {
+                continue;
+            }
+            let next = view(&state);
+            drop(state);
+            let _ = app.emit("items-changed", next);
+        }
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -2524,6 +2542,7 @@ pub fn run() {
                 complete_cycle: Mutex::new(None),
             });
             tray::setup(app)?;
+            watch_items(app.handle().clone());
             if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {
                 eprintln!("failed to register global shortcuts: {error}");
                 open_settings(app.handle());
