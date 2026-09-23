@@ -4,6 +4,15 @@ version = "0.1.0"
 description = "Text clipboard picker"
 authors = ["you"]
 edition = "2021"
+default-run = "hataclip-gui"
+
+[[bin]]
+name = "hataclip-gui"
+path = "src/bin/hataclip-gui.rs"
+
+[[bin]]
+name = "hataclip"
+path = "src/main.rs"
 
 [lib]
 name = "hataclip_lib"

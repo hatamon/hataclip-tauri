@@ -2,20 +2,11 @@ use crate::pipe::{self, Op};
 use crate::settings::Settings;
 use crate::store::{Item, Store};
 use crate::text;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
-pub fn run(expr: &str, piped: bool) -> i32 {
-    let stdin = if piped {
-        let mut buf = String::new();
-        if io::stdin().read_to_string(&mut buf).is_err() {
-            return 1;
-        }
-        Some(buf)
-    } else {
-        None
-    };
-    match execute(expr, stdin.as_deref()) {
+pub fn run(expr: &str, stdin: Option<&str>) -> i32 {
+    match execute(expr, stdin) {
         Ok(CliResult::Stdout(text)) => {
             let mut out = io::stdout().lock();
             if out.write_all(text.as_bytes()).is_err() {

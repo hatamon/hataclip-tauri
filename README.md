@@ -33,7 +33,7 @@ docker compose down -v
 
 ## 成果物
 
-- Windows: `dist/windows/hataclip.exe` と、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
+- Windows: `dist/windows/hataclip-gui.exe`（トレイ）と `dist/windows/hataclip.exe`（パイプ）、同じフォルダの `WebView2Loader.dll` / `libgcc_s_seh-1.dll` / `libstdc++-6.dll` / `libwinpthread-1.dll`
 - Ubuntu: `dist/linux/hataclip`
 
 インストーラ（`.msi` など）は出さない。
@@ -43,7 +43,7 @@ docker compose down -v
 Windows は `dist/windows` ごとコピーしてから:
 
 ```powershell
-.\dist\windows\hataclip.exe
+.\dist\windows\hataclip-gui.exe
 ```
 
 Ubuntu は:
@@ -52,7 +52,7 @@ Ubuntu は:
 ./dist/linux/hataclip
 ```
 
-式を1つ渡すと、ウィンドウを開かずにそのパイプを実行して終わる。標準入力がパイプならそれが流れの最初。行き先が無ければ標準出力。`hataclip quote` は引用符付きで画面に出す。`hataclip "quote \"> \" | clip"` はクリップボードへ書く。`hataclip add` は標準入力を一覧へ1件足す。`hataclip "echo 3+4"` は `7`。壊れた段や空の入力は何も出さず終了コード 1。引数が無く、標準入力もパイプでなければ一覧を出す。
+式を1つ渡すと、ウィンドウを開かずにそのパイプを実行して終わる。標準入力がパイプならそれが流れの最初。行き先が無ければ標準出力。`hataclip quote` は引用符付きで画面に出す。`hataclip "quote \"> \" | clip"` はクリップボードへ書く。`hataclip add` は標準入力を一覧へ1件足す。`hataclip "echo 3+4"` は `7`。壊れた段や空の入力は何も出さず終了コード 1。引数が無く、標準入力もパイプでなければ一覧を出す。Windows は exe を分ける。トレイは `hataclip-gui.exe`（コンソールなし。ダブルクリックで常駐）。パイプは `hataclip.exe`（コンソール付き。毎回打つ名前は短くする）。例: `dir | .\dist\windows\hataclip.exe "quote | clip"`、`.\dist\windows\hataclip.exe "echo 3+4"` は `7`。式が無い、または2つ以上なら終了コード 1。Linux は `hataclip` 1本でトレイもパイプも行う。
 
 実行時は `libwebkit2gtk-4.1-0` と AppIndicator（`libayatana-appindicator3-1`）が要る。
 

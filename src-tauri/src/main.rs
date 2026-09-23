@@ -1,23 +1,44 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 fn main() {
+    #[cfg(windows)]
+    std::process::exit(windows_cli());
+
+    #[cfg(not(windows))]
     match decide(std::env::args().skip(1), stdin_is_redirected()) {
         Launch::Gui => hataclip_lib::run(),
         Launch::Cli { expr, redirected } => {
-            std::process::exit(hataclip_lib::run_cli(&expr, redirected))
+            let stdin = if redirected {
+                Some(read_piped_stdin())
+            } else {
+                None
+            };
+            std::process::exit(hataclip_lib::run_cli(&expr, stdin.as_deref()))
         }
         Launch::Fail => std::process::exit(1),
     }
 }
 
-enum Launch {
-    Gui,
-    Cli { expr: String, redirected: bool },
-    Fail,
+/// Windows のパイプ用はコンソール付きの `hataclip.exe`。トレイは `hataclip-gui.exe`。
+#[cfg(windows)]
+fn windows_cli() -> i32 {
+    let mut args = std::env::args().skip(1);
+    let Some(expr) = args.next() else {
+        eprintln!("式を1つ渡す");
+        return 1;
+    };
+    if args.next().is_some() {
+        eprintln!("式は1つ");
+        return 1;
+    }
+    let stdin = if stdin_is_redirected() {
+        Some(read_piped_stdin())
+    } else {
+        None
+    };
+    hataclip_lib::run_cli(&expr, stdin.as_deref())
 }
 
 /// 引数が無ければトレイに常駐する。式が1つならそれを実行する。2つ以上は失敗。
+#[cfg(not(windows))]
 fn decide(args: impl IntoIterator<Item = String>, redirected: bool) -> Launch {
     let mut args = args.into_iter();
     let expr = args.next();
@@ -31,45 +52,28 @@ fn decide(args: impl IntoIterator<Item = String>, redirected: bool) -> Launch {
     }
 }
 
-/// 標準入力がパイプかファイルなら真。コンソールと、ハンドルの無い起動は偽。
-///
-/// リリースの Windows 版はコンソールを持たない。`is_terminal` はそこでも偽になるので、
-/// ダブルクリックや PowerShell からの起動までパイプ扱いにして即終了していた。
+#[cfg(not(windows))]
+enum Launch {
+    Gui,
+    Cli { expr: String, redirected: bool },
+    Fail,
+}
+
+/// 標準入力がパイプかファイルなら真。
 fn stdin_is_redirected() -> bool {
-    #[cfg(windows)]
-    {
-        windows_stdin_is_redirected()
-    }
-    #[cfg(not(windows))]
-    {
-        !std::io::IsTerminal::is_terminal(&std::io::stdin())
-    }
+    !std::io::IsTerminal::is_terminal(&std::io::stdin())
 }
 
-#[cfg(windows)]
-fn windows_stdin_is_redirected() -> bool {
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-    use windows_sys::Win32::Storage::FileSystem::GetFileType;
-    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
-
-    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return false;
+fn read_piped_stdin() -> String {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    if std::io::stdin().read_to_end(&mut buf).is_err() {
+        std::process::exit(1);
     }
-    stdin_kind_is_redirected(unsafe { GetFileType(handle) })
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
-/// `GetFileType` の戻り。`FILE_TYPE_REMOTE` は種類と OR されるので外す。
-#[cfg(any(windows, test))]
-fn stdin_kind_is_redirected(kind: u32) -> bool {
-    const FILE_TYPE_DISK: u32 = 0x0001;
-    const FILE_TYPE_PIPE: u32 = 0x0003;
-    const FILE_TYPE_REMOTE: u32 = 0x8000;
-    let kind = kind & !FILE_TYPE_REMOTE;
-    kind == FILE_TYPE_DISK || kind == FILE_TYPE_PIPE
-}
-
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 
@@ -105,20 +109,5 @@ mod tests {
     fn two_args_fail() {
         let args = ["echo 1".to_string(), "quote".to_string()];
         assert!(matches!(decide(args, false), Launch::Fail));
-    }
-
-    #[test]
-    fn only_pipe_and_file_count_as_redirected() {
-        const FILE_TYPE_UNKNOWN: u32 = 0x0000;
-        const FILE_TYPE_DISK: u32 = 0x0001;
-        const FILE_TYPE_CHAR: u32 = 0x0002;
-        const FILE_TYPE_PIPE: u32 = 0x0003;
-        const FILE_TYPE_REMOTE: u32 = 0x8000;
-        assert!(!stdin_kind_is_redirected(FILE_TYPE_UNKNOWN));
-        assert!(stdin_kind_is_redirected(FILE_TYPE_DISK));
-        assert!(!stdin_kind_is_redirected(FILE_TYPE_CHAR));
-        assert!(stdin_kind_is_redirected(FILE_TYPE_PIPE));
-        assert!(stdin_kind_is_redirected(FILE_TYPE_PIPE | FILE_TYPE_REMOTE));
-        assert!(!stdin_kind_is_redirected(FILE_TYPE_CHAR | FILE_TYPE_REMOTE));
     }
 }

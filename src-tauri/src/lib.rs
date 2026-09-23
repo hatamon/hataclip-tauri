@@ -2485,8 +2485,8 @@ fn clamp_point(window: &WebviewWindow, point: Point, width: u32, height: u32) ->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run_cli(expr: &str, piped: bool) -> i32 {
-    cli::run(expr, piped)
+pub fn run_cli(expr: &str, stdin: Option<&str>) -> i32 {
+    cli::run(expr, stdin)
 }
 
 pub fn run() {
