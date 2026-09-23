@@ -279,6 +279,43 @@ fn encode_quote(prefix: &str, suffix: &str) -> String {
     }
 }
 
+fn filter_arg(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("filter ")
+        .or_else(|| line.strip_prefix("filter\t"))?;
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "not" {
+        return None;
+    }
+    let (invert, raw) = if let Some(after) = rest
+        .strip_prefix("not ")
+        .or_else(|| rest.strip_prefix("not\t"))
+    {
+        let after = after.trim();
+        if after.is_empty() {
+            return None;
+        }
+        (true, after)
+    } else {
+        (false, rest)
+    };
+    let needle = if let Some(quoted) = unquote(raw) {
+        if quoted.is_empty() {
+            return None;
+        }
+        quoted
+    } else if raw.starts_with('"') || raw.starts_with('\'') {
+        return None;
+    } else {
+        raw.to_string()
+    };
+    if invert {
+        Some(format!("\u{1}{needle}"))
+    } else {
+        Some(needle)
+    }
+}
+
 fn split_separator(line: &str) -> Option<String> {
     let rest = line.strip_prefix("split ").or_else(|| line.strip_prefix("split\t"))?;
     let rest = rest.trim();
@@ -436,6 +473,9 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if let Some(sep) = split_separator(part) {
         return Some(op("split", &sep, false));
+    }
+    if let Some(arg) = filter_arg(part) {
+        return Some(op("filter", &arg, false));
     }
     if let Some(index) = col_arg(part) {
         return Some(op("col", &index, false));
@@ -661,6 +701,10 @@ fn eval_local(
                 };
                 text = Some(next?);
             }
+            "filter" => {
+                let current = take_or_dot(&mut text, dot)?;
+                text = Some(crate::text::filter_lines(&current, &op.arg)?);
+            }
             "split" | "col" | "get" => {
                 let current = take_or_dot(&mut text, dot)?;
                 let next = match op.kind.as_str() {
@@ -733,6 +777,18 @@ fn render_op(op: &Op) -> String {
         }
         "join" => format!("join {}", quote_render(&op.arg)),
         "split" => format!("split {}", quote_render(&op.arg)),
+        "filter" => {
+            let (invert, needle) = if let Some(needle) = op.arg.strip_prefix('\u{1}') {
+                (true, needle)
+            } else {
+                (false, op.arg.as_str())
+            };
+            if invert {
+                format!("filter not {}", quote_render(needle))
+            } else {
+                format!("filter {}", quote_render(needle))
+            }
+        }
         "col" => format!("col {}", op.arg),
         "get" => format!("get {}", op.arg),
         "diff" => format!("diff {}", op.arg),
@@ -1132,5 +1188,53 @@ mod tests {
         assert!(matches!(solo_pipe(":sh dir | quote\nfoo"), Solo::Skip));
         assert!(matches!(solo_pipe(":clip | upper"), Solo::Skip));
         assert!(matches!(solo_pipe(":. | upper"), Solo::Skip));
+    }
+
+    #[test]
+    fn filter_keeps_or_drops_lines_that_contain_the_needle() {
+        let PasteBody::Run(script) = classify(r#":sel | filter ".txt""#) else {
+            panic!("keep");
+        };
+        assert_eq!(script.ops[1].kind, "filter");
+        assert_eq!(script.ops[1].arg, ".txt");
+        assert_eq!(
+            eval_local(&script.ops, None, "a.txt\nb.rs\nc.TXT", "", "").as_deref(),
+            Some("a.txt")
+        );
+        let PasteBody::Run(dropped) = classify(r#"filter not ".txt""#) else {
+            panic!("drop");
+        };
+        assert_eq!(dropped.ops[0].arg, "\u{1}.txt");
+        assert_eq!(
+            eval_local(&dropped.ops, Some("a.txt\nb.rs".into()), "", "", "").as_deref(),
+            Some("b.rs")
+        );
+        assert!(eval_local(&script.ops, None, "b.rs", "", "").is_none());
+        assert!(matches!(classify("filter"), PasteBody::Text));
+        assert!(matches!(classify("filter not"), PasteBody::Text));
+        assert!(matches!(classify(r#"sel | filter """#), PasteBody::Bad));
+        let PasteBody::Run(word) = classify(r#"filter "not""#) else {
+            panic!("word");
+        };
+        assert_eq!(word.ops[0].arg, "not");
+        let PasteBody::Run(inverted) = classify(r#"filter not "not""#) else {
+            panic!("inverted");
+        };
+        assert_eq!(inverted.ops[0].arg, "\u{1}not");
+        assert_eq!(
+            render_ops(&dropped.ops),
+            r#"filter not ".txt""#
+        );
+        let PasteBody::Run(again) = classify(&render_ops(&dropped.ops)) else {
+            panic!("again");
+        };
+        assert_eq!(again.ops[0].arg, dropped.ops[0].arg);
+        assert!(matches!(solo_pipe(r#":filter ".txt""#), Solo::Skip));
+        match solo_pipe(r#":echo 1 | filter "1""#) {
+            Solo::Run(script) => {
+                assert_eq!(eval_local(&script.ops, None, "", "", "").as_deref(), Some("1"));
+            }
+            _ => panic!("solo"),
+        }
     }
 }

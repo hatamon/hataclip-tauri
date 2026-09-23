@@ -1460,6 +1460,27 @@ pub fn line_diff(left: &str, right: &str) -> Option<String> {
     }
 }
 
+/// 針を含む行だけ。引数が `\u{1}` で始まるときは含まない行。0行ならなし。
+pub fn filter_lines(text: &str, arg: &str) -> Option<String> {
+    let (invert, needle) = if let Some(needle) = arg.strip_prefix('\u{1}') {
+        (true, needle)
+    } else {
+        (false, arg)
+    };
+    if needle.is_empty() {
+        return None;
+    }
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains(needle) != invert)
+        .collect();
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows.join("\n"))
+    }
+}
+
 /// 左にあって右に無い行。0行ならなし。
 pub fn only_lines(left: &str, right: &str) -> Option<String> {
     let right_set: std::collections::HashSet<&str> = right.lines().collect();
@@ -2352,6 +2373,11 @@ mod tests {
         assert_eq!(json_at(r#"{"a":1}"#, "/missing"), None);
         assert_eq!(line_diff("a\nb", "b\nc").as_deref(), Some("- a\n+ c"));
         assert_eq!(line_diff("a\nb", "a\nb"), None);
+        assert_eq!(filter_lines("a.txt\nb.rs\nc.TXT", ".txt").as_deref(), Some("a.txt"));
+        assert_eq!(filter_lines("a.txt\n\nb.rs", ".txt").as_deref(), Some("a.txt"));
+        assert_eq!(filter_lines("a.txt\nb.rs", "\u{1}.txt").as_deref(), Some("b.rs"));
+        assert_eq!(filter_lines("b.rs", ".txt"), None);
+        assert_eq!(filter_lines("a.txt", ""), None);
         assert_eq!(only_lines("b\nc", "a\nb").as_deref(), Some("c"));
         assert_eq!(only_lines("a", "a"), None);
         let put = json_put(r#"{"name":"x","n":1}"#, "/n", "2").unwrap();

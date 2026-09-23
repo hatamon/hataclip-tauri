@@ -175,6 +175,10 @@ fn walk(
                 };
                 text = Some(next.ok_or(())?);
             }
+            "filter" => {
+                let current = take_text(&mut text, piped)?;
+                text = Some(text::filter_lines(&current, &op.arg).ok_or(())?);
+            }
             "split" | "col" | "get" => {
                 let current = take_text(&mut text, piped)?;
                 let next = match op.kind.as_str() {

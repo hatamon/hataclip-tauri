@@ -29,6 +29,7 @@ describe("matchingColonCommands", () => {
       "n",
       "settings",
       "tags",
+      "from",
       "clip",
       "sel",
       "camel",
@@ -39,6 +40,14 @@ describe("matchingColonCommands", () => {
       "lower",
       "json",
       "xml",
+      "split",
+      "col",
+      "get",
+      "diff",
+      "only",
+      "filter",
+      "put",
+      "each",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);
@@ -249,6 +258,22 @@ describe("parseColonPipe", () => {
   it("rejects an empty stage", () => {
     expect(parseColonPipe("sh dir | | clip")).toEqual({ kind: "bad" });
     expect(parseColonPipe("| clip")).toEqual({ kind: "bad" });
+    expect(parseColonPipe('sel | filter ".txt"')).toMatchObject({
+      kind: "ok",
+      ops: [
+        { kind: "sel", arg: "", selectionStdin: false },
+        { kind: "filter", arg: ".txt", selectionStdin: false },
+      ],
+    });
+    expect(parseColonPipe('filter not ".txt"')).toMatchObject({
+      ops: [{ kind: "filter", arg: "\u0001.txt" }],
+    });
+    expect(parseColonPipe('filter "not"')).toMatchObject({
+      ops: [{ kind: "filter", arg: "not" }],
+    });
+    expect(parseColonPipe("filter")).toEqual({ kind: "none" });
+    expect(parseColonPipe("filter not")).toEqual({ kind: "none" });
+    expect(parseColonPipe('sel | filter ""')).toEqual({ kind: "bad" });
   });
 });
 

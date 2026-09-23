@@ -39,6 +39,7 @@ export const COLON_COMMANDS = [
   "get",
   "diff",
   "only",
+  "filter",
   "put",
   "each",
 ];
@@ -103,7 +104,7 @@ function completedColonCommand(command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join" || command === "filter") {
     return `${command} `;
   }
   return command;
@@ -280,7 +281,8 @@ export type PipeOp = {
     | "json"
     | "xml"
     | "echo"
-    | "sel";
+    | "sel"
+    | "filter";
   arg: string;
   selectionStdin: boolean;
 };
@@ -347,6 +349,38 @@ function varSinkName(part: string): string | null {
     return null;
   }
   return name;
+}
+
+function filterArg(part: string): string | null {
+  if (!part.startsWith("filter ") && !part.startsWith("filter\t")) {
+    return null;
+  }
+  const rest = part.slice(7).trim();
+  if (rest.length === 0 || rest === "not") {
+    return null;
+  }
+  let invert = false;
+  let raw = rest;
+  if (rest.startsWith("not ") || rest.startsWith("not\t")) {
+    invert = true;
+    raw = rest.slice(4).trim();
+    if (raw.length === 0) {
+      return null;
+    }
+  }
+  const quoted = unquoteColonArg(raw);
+  let needle: string;
+  if (quoted !== null) {
+    if (quoted.length === 0) {
+      return null;
+    }
+    needle = quoted;
+  } else if (raw.startsWith('"') || raw.startsWith("'")) {
+    return null;
+  } else {
+    needle = raw;
+  }
+  return invert ? `\u0001${needle}` : needle;
 }
 
 function splitSeparator(part: string): string | null {
@@ -515,6 +549,10 @@ function stageOf(part: string): PipeOp | null {
   const split = splitSeparator(part);
   if (split !== null) {
     return { kind: "split", arg: split, selectionStdin: false };
+  }
+  const filter = filterArg(part);
+  if (filter !== null) {
+    return { kind: "filter", arg: filter, selectionStdin: false };
   }
   const column = colArg(part);
   if (column !== null) {

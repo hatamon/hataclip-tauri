@@ -928,6 +928,16 @@ fn walk_pipe(
                     *current = next.ok_or("同じ")?;
                 }
             }
+            "filter" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                if let Some(current) = text.as_mut() {
+                    *current = text::filter_lines(current, &op.arg).ok_or("当たらない")?;
+                }
+            }
             "split" | "col" | "get" => {
                 if text.is_none() {
                     used_selection = true;
