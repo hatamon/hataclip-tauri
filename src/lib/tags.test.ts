@@ -20,5 +20,10 @@ describe("secret and alias", () => {
     expect(isLocked({ tags: ["secret"] })).toBe(false);
     expect(matchesAlias({ tags: ["alias:foo"] }, "foo")).toBe(true);
     expect(matchesAlias({ tags: ["alias:foo"] }, "bar")).toBe(false);
+    expect(matchesAlias({ tags: ["alias:x", "alias:y"] }, "x")).toBe(true);
+    expect(matchesAlias({ tags: ["alias:x", "alias:y"] }, "y")).toBe(true);
+    expect(matchesAlias({ tags: ["alias:x", "alias:y"] }, "x y")).toBe(true);
+    expect(matchesAlias({ tags: ["alias:x", "alias:y"] }, "y x")).toBe(true);
+    expect(matchesAlias({ tags: ["alias:x", "alias:y"] }, "x z")).toBe(false);
   });
 });

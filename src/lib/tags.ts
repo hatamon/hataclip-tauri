@@ -58,5 +58,6 @@ export function isLocked(item: { tags: string[] }): boolean {
 }
 
 export function matchesAlias(item: { tags: string[] }, text: string): boolean {
-  return text.length > 0 && item.tags.includes(`alias:${text}`);
+  const words = text.split(" ").filter((word) => word.length > 0);
+  return words.length > 0 && words.every((word) => item.tags.includes(`alias:${word}`));
 }

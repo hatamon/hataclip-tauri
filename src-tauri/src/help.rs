@@ -15,7 +15,7 @@ const TOPICS: &[(&str, &str)] = &[
 #pin相当 gp で付ける。先頭に固定。+ / - で順\n\
 #secret  一覧を ••••。貼り付けは普通\n\
 #tmp     次回起動で消す。#lock があれば残す\n\
-#alias:foo  /foo でも当たる。{{@foo}} でその本文\n\
+#alias:foo  /foo でも当たる。#alias:x と #alias:y なら x y でも当たる。順は問わない。{{@foo}} でその本文\n\
 #app:chrome  前面のアプリ名が chrome のときだけ出す。#app:code と複数ならどれか。ブラウザはページが違っても当たる\n\
 #not:chrome  そのアプリのときは出さない。#app: と両方なら、アプリに当たって #not に当たらないときだけ\n\
 #ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す。#lock があれば残す\n\
@@ -40,7 +40,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "search",
-        "/ で検索。Tab は一覧へ（絞りと検索欄は残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。",
+        "/ で検索。Tab は一覧へ（絞りと検索欄は残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。#alias:x と #alias:y なら x y でも当たる。順は問わない。",
     ),
     (
         "edit",
@@ -313,6 +313,8 @@ mod tests {
         assert!(render(None).contains("g. 再貼"));
         assert!(render(Some("search")).contains("Esc / Ctrl+[ で絞りを外す"));
         assert!(render(Some("search")).contains("Tab は一覧へ"));
+        assert!(render(Some("search")).contains("x y でも当たる"));
+        assert!(render(Some("tag")).contains("x y でも当たる"));
         assert!(render(Some("pin")).contains("gp でピン留め"));
         assert!(render(Some("nope")).starts_with("ない"));
     }
