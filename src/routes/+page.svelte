@@ -6,7 +6,6 @@
   import {
     applyColonCompletion,
     bangFilterScript,
-    historySubstitute,
     joinSeparator,
     matchingColonCommands,
     parseColonPipe,
@@ -59,7 +58,6 @@
     | { kind: "move"; delta: number }
     | { kind: "merge" }
     | { kind: "clone" }
-    | { kind: "sub"; old: string; new: string }
     | { kind: "filter"; script: string }
     | { kind: "sort" }
     | { kind: "swap" }
@@ -789,9 +787,6 @@
       case "clone":
         await cloneSelection();
         return;
-      case "sub":
-        await substituteSelection(lastChange.old, lastChange.new);
-        return;
       case "filter":
         await filterSelection(lastChange.script);
         return;
@@ -871,18 +866,6 @@
     items = await invoke<Item[]>("clone_items", { ids });
     selectById(id);
     lastChange = { kind: "clone" };
-  }
-
-  async function substituteSelection(old: string, next: string) {
-    if (old.length === 0 || selectedIds.length === 0) {
-      return;
-    }
-    const id = selectedItems[0].id;
-    const ids = selectedIds;
-    clearSelection();
-    items = await invoke<Item[]>("substitute_items", { ids, old, new: next });
-    selectById(id);
-    lastChange = { kind: "sub", old, new: next };
   }
 
   async function filterSelection(script: string) {
@@ -1275,11 +1258,6 @@
         return;
       }
       items = await invoke<Item[]>("set_formula", { id: item.id, formula: rest });
-      return;
-    }
-    const swapped = historySubstitute(line);
-    if (swapped) {
-      void substituteSelection(swapped.old, swapped.next);
       return;
     }
     const pipe = parseColonPipe(historyLine);

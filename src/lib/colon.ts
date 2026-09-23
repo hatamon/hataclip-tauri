@@ -44,20 +44,6 @@ export const COLON_COMMANDS = [
   "each",
 ];
 
-/** 一覧で打つ `:s/old/new` だけ本文を書き換える。`|` があればパイプ。 */
-export function historySubstitute(line: string): { old: string; next: string } | null {
-  const trimmed = line.trim().replace(/^:/, "");
-  if (splitUnquotedPipe(trimmed).length !== 1 || !trimmed.startsWith("s/")) {
-    return null;
-  }
-  const rest = trimmed.slice(2);
-  const cut = rest.indexOf("/");
-  if (cut <= 0) {
-    return null;
-  }
-  return { old: rest.slice(0, cut), next: rest.slice(cut + 1) };
-}
-
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
 export function stripClipSink(line: string): { cmd: string; clip: boolean } {
   return { cmd: line.trim().replace(/^:/, ""), clip: false };

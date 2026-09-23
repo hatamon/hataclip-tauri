@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyColonCompletion, bangFilterScript, historySubstitute, joinSeparator, matchingColonCommands, parseColonPipe, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
+import { applyColonCompletion, bangFilterScript, joinSeparator, matchingColonCommands, parseColonPipe, quotePrefix, unquoteColonArg, stripClipSink } from "./colon";
 
 describe("matchingColonCommands", () => {
   it("filters by prefix and skips help topics", () => {
@@ -231,6 +231,8 @@ describe("parseColonPipe", () => {
     });
     expect(parseColonPipe("s/old/new")).toMatchObject({
       kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: true,
       ops: [{ kind: "sub", arg: "old\u0001new" }],
     });
     expect(parseColonPipe("s//new")).toEqual({ kind: "none" });
@@ -238,10 +240,6 @@ describe("parseColonPipe", () => {
       kind: "ok",
       ops: [{ kind: "sel" }, { kind: "sub", arg: "old\u0001new/tail" }],
     });
-    expect(historySubstitute("s/old/new")).toEqual({ old: "old", next: "new" });
-    expect(historySubstitute(":s/old/new")).toEqual({ old: "old", next: "new" });
-    expect(historySubstitute("s/old/new | upper")).toBeNull();
-    expect(historySubstitute("s//new")).toBeNull();
     expect(parseColonPipe("sel | upper")).toEqual({
       kind: "ok",
       sink: { kind: "paste" },
