@@ -11,7 +11,7 @@ pub use windows::{
     app_and_title, capture_foreground, context_key, read_credential, restore_foreground, Foreground,
 };
 #[cfg(windows)]
-pub use input::{simulate_copy, simulate_paste, simulate_type, simulate_type_atoms};
+pub use input::{simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms};
 
 #[cfg(not(windows))]
 mod unsupported;

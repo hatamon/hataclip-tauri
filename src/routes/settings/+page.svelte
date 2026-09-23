@@ -3,11 +3,12 @@
   import { onMount } from "svelte";
   import { fromEvent, toLabel, type Shortcuts } from "$lib/shortcut";
 
-  type Slot = "register" | "show" | "expand";
+  type Slot = "register" | "show" | "expand" | "complete";
 
   let register = $state("");
   let show = $state("");
   let expand = $state("");
+  let complete = $state("");
   let quickPaste = $state(true);
   let recording = $state<Slot | null>(null);
   let message = $state("");
@@ -20,6 +21,7 @@
       register = shortcuts.register;
       show = shortcuts.show;
       expand = shortcuts.expand;
+      complete = shortcuts.complete;
       quickPaste = shortcuts.quickPaste;
     })();
     return () => stopRecording();
@@ -51,8 +53,10 @@
         register = value;
       } else if (slot === "show") {
         show = value;
-      } else {
+      } else if (slot === "expand") {
         expand = value;
+      } else {
+        complete = value;
       }
       stopRecording();
     };
@@ -76,7 +80,7 @@
     message = "";
     error = "";
     try {
-      await invoke("set_shortcuts", { register, show, quickPaste, expand });
+      await invoke("set_shortcuts", { register, show, quickPaste, expand, complete });
       message = "保存した";
     } catch (reason) {
       error = String(reason);
@@ -109,6 +113,13 @@
   </div>
 
   <div class="row">
+    <span class="name">補完</span>
+    <button type="button" class:recording={recording === "complete"} onclick={() => void startRecording("complete")}>
+      {label("complete", complete)}
+    </button>
+  </div>
+
+  <div class="row">
     <span class="name">展開</span>
     <button type="button" class:recording={recording === "expand"} onclick={() => void startRecording("expand")}>
       {label("expand", expand)}
@@ -121,7 +132,7 @@
     <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
   </label>
 
-  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。展開は前面で `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。</p>
+  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。展開は前面で `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+Shift+H）。補完は選択語で履歴を貼る（初期値 Ctrl+9）。登録・表示・展開と同じキーは登録しない。</p>
 
   <div class="actions">
     <button type="button" class="save" onclick={save}>保存</button>

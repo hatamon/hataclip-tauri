@@ -30,6 +30,14 @@ use tauri::{
     WebviewWindow, WebviewWindowBuilder,
 };
 
+#[derive(Clone)]
+struct CompleteCycle {
+    query: String,
+    index: usize,
+    at: std::time::Instant,
+    ids: Vec<String>,
+}
+
 pub(crate) struct AppState {
     store: Mutex<Store>,
     settings: Mutex<Settings>,
@@ -40,6 +48,7 @@ pub(crate) struct AppState {
     picker_open: Mutex<bool>,
     /// 直前の Ctrl+4。2秒以内の2回目で式を推測する。
     infer_prev: Mutex<Option<(String, std::time::Instant)>>,
+    complete_cycle: Mutex<Option<CompleteCycle>>,
     /// 一覧を開いたときの前面の選択と、その直前のクリップボード。空なら並べ替えない。
     open_sel: Mutex<String>,
     open_clip: Mutex<String>,
@@ -362,6 +371,7 @@ fn set_shortcuts(
     show: String,
     quick_paste: bool,
     expand: String,
+    complete: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -370,6 +380,7 @@ fn set_shortcuts(
         show,
         quick_paste,
         expand,
+        complete,
     };
     let previous = state.settings.lock().expect("settings").shortcuts().clone();
     if next == previous {
@@ -1263,6 +1274,92 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     };
     remember_last_sh(&text, state);
     play_resolved(app, state, text::take_type_ops(&out), false, false);
+}
+
+/// 前面の選択語で履歴を補完して貼る。テンプレートは展開しない。一覧は出さない。
+pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) {
+    if *state.picker_open.lock().expect("picker_open") {
+        return;
+    }
+    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    let now = std::time::Instant::now();
+    let pending = {
+        let slot = state.complete_cycle.lock().expect("complete");
+        slot.clone().filter(|cycle| {
+            now.duration_since(cycle.at) < std::time::Duration::from_secs(2)
+        })
+    };
+    if let Some(cycle) = pending {
+        if !advance_complete(app, state, &cycle) {
+            *state.complete_cycle.lock().expect("complete") = None;
+        }
+        return;
+    }
+    let Some(query) = capture_front_text(state).filter(|text| !text.trim().is_empty()) else {
+        return;
+    };
+    let ids = completion_ids(state, &query);
+    if ids.is_empty() {
+        return;
+    }
+    let Some(body) = item_body(state, &ids[0]) else {
+        return;
+    };
+    paste_text(app, state, &body, false);
+    *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
+        query,
+        index: 0,
+        at: now,
+        ids,
+    });
+}
+
+fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCycle) -> bool {
+    #[cfg(windows)]
+    {
+        if !platform::simulate_chord("ctrl+z") {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let Some(back) = capture_front_text(state) else {
+            return false;
+        };
+        if back != cycle.query {
+            return false;
+        }
+    }
+    let next = (cycle.index + 1) % cycle.ids.len();
+    let Some(body) = item_body(state, &cycle.ids[next]) else {
+        return false;
+    };
+    paste_text(app, state, &body, false);
+    *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
+        query: cycle.query.clone(),
+        index: next,
+        at: std::time::Instant::now(),
+        ids: cycle.ids.clone(),
+    });
+    true
+}
+
+fn completion_ids(state: &AppState, query: &str) -> Vec<String> {
+    let context = current_context(state);
+    let store = state.store.lock().expect("store");
+    let rows: Vec<(String, String)> = store::ordered(store.list(), context.as_deref())
+        .into_iter()
+        .filter(|item| !item.tags.iter().any(|tag| tag == "secret"))
+        .map(|item| (item.id, item.text))
+        .collect();
+    text::rank_matches(&rows, query)
+}
+
+fn item_body(state: &AppState, id: &str) -> Option<String> {
+    state
+        .store
+        .lock()
+        .expect("store")
+        .get(id)
+        .map(|item| item.text.clone())
 }
 
 fn remember_last_sh(text: &str, state: &AppState) {
@@ -2334,6 +2431,7 @@ pub fn run() {
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
                 infer_prev: Mutex::new(None),
+                complete_cycle: Mutex::new(None),
                 open_sel: Mutex::new(String::new()),
                 open_clip: Mutex::new(String::new()),
             });

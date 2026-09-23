@@ -1,5 +1,8 @@
 use crate::settings::Shortcuts;
-use crate::{actions, paste_from_selection, register_from_clipboard, show_picker, AppState};
+use crate::{
+    actions, complete_from_selection, paste_from_selection, register_from_clipboard, show_picker,
+    AppState,
+};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -48,6 +51,22 @@ pub fn apply(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
                 }
                 let state = app.state::<AppState>();
                 paste_from_selection(app, &state);
+            });
+        }
+    }
+
+    if !shortcuts.complete.is_empty()
+        && shortcuts.complete != shortcuts.register
+        && shortcuts.complete != shortcuts.show
+        && shortcuts.complete != shortcuts.expand
+    {
+        if let Ok(complete) = actions::parse(&shortcuts.complete) {
+            let _ = global.on_shortcut(complete, |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                let state = app.state::<AppState>();
+                complete_from_selection(app, &state);
             });
         }
     }

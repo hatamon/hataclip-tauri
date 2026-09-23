@@ -18,6 +18,8 @@ pub struct Shortcuts {
     pub quick_paste: bool,
     #[serde(default = "default_expand")]
     pub expand: String,
+    #[serde(default = "default_complete")]
+    pub complete: String,
 }
 
 fn bool_true() -> bool {
@@ -25,9 +27,14 @@ fn bool_true() -> bool {
 }
 
 pub const DEFAULT_EXPAND: &str = "Control+Shift+KeyH";
+pub const DEFAULT_COMPLETE: &str = "Control+Digit9";
 
 fn default_expand() -> String {
     DEFAULT_EXPAND.to_string()
+}
+
+fn default_complete() -> String {
+    DEFAULT_COMPLETE.to_string()
 }
 
 impl Default for Shortcuts {
@@ -37,6 +44,7 @@ impl Default for Shortcuts {
             show: DEFAULT_SHOW.to_string(),
             quick_paste: true,
             expand: default_expand(),
+            complete: default_complete(),
         }
     }
 }
@@ -366,6 +374,7 @@ fn from_file(file: SettingsFile) -> Loaded {
         show: usable(file.shortcuts.show, DEFAULT_SHOW),
         quick_paste: file.shortcuts.quick_paste,
         expand: usable_expand(file.shortcuts.expand),
+        complete: usable_complete(file.shortcuts.complete),
     };
     let vars = sanitize_vars(file.vars);
     Loaded {
@@ -502,6 +511,14 @@ fn usable_expand(value: String) -> String {
         String::new()
     } else {
         usable(value, DEFAULT_EXPAND)
+    }
+}
+
+fn usable_complete(value: String) -> String {
+    if value.is_empty() {
+        String::new()
+    } else {
+        usable(value, DEFAULT_COMPLETE)
     }
 }
 
@@ -657,6 +674,7 @@ mod tests {
             show: "Alt+KeyV".to_string(),
             quick_paste: false,
             expand: "Control+Shift+KeyH".to_string(),
+            complete: "Control+Digit9".to_string(),
         });
         settings.set_window(WindowGeom {
             x: 10,

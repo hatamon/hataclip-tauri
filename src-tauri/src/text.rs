@@ -1329,6 +1329,43 @@ fn literal_chars(pattern: &str) -> String {
     out
 }
 
+/// `/` と同じ順。点数が高い順。同じ点数は渡した順。
+pub fn rank_matches(rows: &[(String, String)], query: &str) -> Vec<String> {
+    let mut scored = Vec::new();
+    for (index, (id, text)) in rows.iter().enumerate() {
+        if let Some(score) = fuzzy_score(query, text) {
+            scored.push((score, index, id.clone()));
+        }
+    }
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    scored.into_iter().map(|(_, _, id)| id).collect()
+}
+
+pub fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let needle: Vec<char> = query.to_lowercase().chars().collect();
+    let haystack: Vec<char> = text.to_lowercase().chars().collect();
+    let mut at = 0;
+    let mut score = 0i32;
+    let mut consecutive = 0i32;
+    for ch in haystack {
+        if at < needle.len() && ch == needle[at] {
+            consecutive += 1;
+            score += 1 + consecutive;
+            at += 1;
+        } else {
+            consecutive = 0;
+        }
+    }
+    if at == needle.len() {
+        Some(score)
+    } else {
+        None
+    }
+}
+
 fn ident_words(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut words = Vec::new();
@@ -2269,6 +2306,20 @@ mod tests {
         assert!(infer_pair("fooX", "fooY").is_none());
         assert!(infer_pair("abc", "xyz").is_none());
         assert!(infer_pair("same", "same").is_none());
+    }
+
+    #[test]
+    fn completion_keeps_list_order_when_scores_tie() {
+        let rows = vec![
+            ("mail".into(), "hata007@corp.jp".into()),
+            ("admin".into(), "hata007-admin".into()),
+            ("secret".into(), "other".into()),
+        ];
+        assert_eq!(
+            rank_matches(&rows, "hata007"),
+            vec!["mail".to_string(), "admin".to_string()]
+        );
+        assert!(rank_matches(&rows, "zzz").is_empty());
     }
 
     #[test]
