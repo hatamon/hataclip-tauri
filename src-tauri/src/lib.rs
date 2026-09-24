@@ -1538,21 +1538,11 @@ fn completion_ids(state: &AppState, query: &str) -> Vec<String> {
         .into_iter()
         .filter(|item| !completion_blocked(&item.tags, &item.text))
         .collect();
-    if let Some(tags) = text::tag_query(query) {
-        if tags.is_empty() {
-            return Vec::new();
-        }
-        return rows
-            .into_iter()
-            .filter(|item| text::has_all_tags(&item.tags, &tags))
-            .map(|item| item.id)
-            .collect();
-    }
-    let pairs: Vec<(String, String)> = rows
+    let rows: Vec<(String, String, Vec<String>)> = rows
         .into_iter()
-        .map(|item| (item.id, item.text))
+        .map(|item| (item.id, item.text, item.tags))
         .collect();
-    text::rank_matches(&pairs, query)
+    text::search_ids(&rows, query)
 }
 
 fn remember_last_sh(text: &str, state: &AppState) {

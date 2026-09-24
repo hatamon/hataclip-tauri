@@ -1340,27 +1340,101 @@ fn literal_chars(pattern: &str) -> String {
     out
 }
 
-/// `#` で始まる選択はタグ。`None` は本文の検索。空なら何もしない。
-pub fn tag_query(query: &str) -> Option<Vec<String>> {
-    let query = query.trim();
-    if !query.starts_with('#') {
-        return None;
-    }
+/// 一覧の `/` と同じ分解。`src/lib/query.ts` の `parseQuery` に合わせる。
+pub struct ParsedSearch {
+    pub tags: Vec<String>,
+    pub text: String,
+}
+
+pub fn parse_search(raw: &str) -> ParsedSearch {
     let mut tags = Vec::new();
-    for word in query.split_whitespace() {
-        let Some(name) = word.strip_prefix('#') else {
-            return Some(Vec::new());
-        };
-        if name.is_empty() || name == "secret" {
-            return Some(Vec::new());
+    let mut text = String::new();
+    let chars: Vec<char> = raw.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '#' {
+            let start = index + 1;
+            let mut end = start;
+            while end < chars.len() && !chars[end].is_whitespace() {
+                end += 1;
+            }
+            if end > start {
+                tags.push(chars[start..end].iter().collect());
+                text.push(' ');
+                index = end;
+                continue;
+            }
         }
-        tags.push(name.to_string());
+        text.push(chars[index]);
+        index += 1;
     }
-    Some(tags)
+    ParsedSearch {
+        tags,
+        text: text.split_whitespace().collect::<Vec<_>>().join(" "),
+    }
+}
+
+/// 一覧の `/` と同じ順。`#` だけと `#secret` は空。
+pub fn search_ids(rows: &[(String, String, Vec<String>)], query: &str) -> Vec<String> {
+    let query = query.trim();
+    if query == "#" {
+        return Vec::new();
+    }
+    let parsed = parse_search(query);
+    if parsed.tags.iter().any(|tag| tag == "secret") {
+        return Vec::new();
+    }
+    let rows: Vec<(String, String, Vec<String>)> = rows
+        .iter()
+        .filter(|(_, _, tags)| parsed.tags.is_empty() || has_all_tags(tags, &parsed.tags))
+        .cloned()
+        .collect();
+    if parsed.text.is_empty() {
+        return rows.into_iter().map(|(id, _, _)| id).collect();
+    }
+    rank_matches_with_alias(&rows, &parsed.text)
 }
 
 pub fn has_all_tags(have: &[String], need: &[String]) -> bool {
     !need.is_empty() && need.iter().all(|tag| have.iter().any(|item| item == tag))
+}
+
+/// 空白で分けた語がすべて `#alias:` なら当たる。順は問わない。
+pub fn matches_alias(tags: &[String], text: &str) -> bool {
+    let mut any = false;
+    for word in text.split(' ') {
+        if word.is_empty() {
+            continue;
+        }
+        any = true;
+        let hit = tags.iter().any(|tag| {
+            tag.strip_prefix("alias:")
+                .is_some_and(|name| name == word)
+        });
+        if !hit {
+            return false;
+        }
+    }
+    any
+}
+
+/// 本文のあいまい検索のあと、エイリアスだけ当たった行を一覧の順で足す。
+pub fn rank_matches_with_alias(rows: &[(String, String, Vec<String>)], query: &str) -> Vec<String> {
+    let query = query.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text_rows: Vec<(String, String)> = rows
+        .iter()
+        .map(|(id, text, _)| (id.clone(), text.clone()))
+        .collect();
+    let mut ids = rank_matches(&text_rows, &query);
+    for (id, _, tags) in rows {
+        if ids.iter().any(|have| have == id) {
+            continue;
+        }
+        if matches_alias(tags, &query) {
+            ids.push(id.clone());
+        }
+    }
+    ids
 }
 
 /// `/` と同じ順。点数が高い順。同じ点数は渡した順。
@@ -2378,24 +2452,84 @@ mod tests {
     }
 
     #[test]
-    fn hash_query_is_tags_and_plain_query_is_text() {
-        assert_eq!(tag_query("#work").as_deref(), Some(["work".to_string()].as_slice()));
+    fn search_matches_the_list_query() {
+        let parsed = parse_search("#work hello #dev world");
+        assert_eq!(parsed.tags, vec!["work", "dev"]);
+        assert_eq!(parsed.text, "hello world");
+        assert_eq!(parse_search("#inbox").text, "");
+        assert_eq!(parse_search("#inbox").tags, vec!["inbox"]);
+        assert!(parse_search("東京").tags.is_empty());
+        assert_eq!(parse_search("東京").text, "東京");
+        let rows = vec![
+            ("mail".into(), "alpha beta".into(), vec!["work".into()]),
+            (
+                "both".into(),
+                "other".into(),
+                vec!["alias:x".into(), "alias:y".into(), "work".into()],
+            ),
+            ("home".into(), "alpha".into(), vec!["home".into()]),
+        ];
         assert_eq!(
-            tag_query("  #work   #home  ").as_deref(),
-            Some(["work".to_string(), "home".to_string()].as_slice())
+            search_ids(&rows, "#work"),
+            vec!["mail".to_string(), "both".to_string()]
         );
-        assert_eq!(tag_query("#wor").as_deref(), Some(["wor".to_string()].as_slice()));
-        assert!(tag_query("work").is_none());
-        assert_eq!(tag_query("#"), Some(Vec::new()));
-        assert_eq!(tag_query("#secret"), Some(Vec::new()));
-        assert_eq!(tag_query("#work #secret"), Some(Vec::new()));
-        assert_eq!(tag_query("#work hello"), Some(Vec::new()));
+        assert_eq!(search_ids(&rows, "hello #work"), Vec::<String>::new());
+        assert_eq!(
+            search_ids(&rows, "#work alpha"),
+            vec!["mail".to_string()]
+        );
+        assert_eq!(search_ids(&rows, "x y"), vec!["both".to_string()]);
+        assert_eq!(search_ids(&rows, "#work x y"), vec!["both".to_string()]);
+        assert!(search_ids(&rows, "#").is_empty());
+        assert!(search_ids(&rows, "#secret").is_empty());
+        assert!(search_ids(&rows, "#work #secret").is_empty());
         assert!(has_all_tags(
             &["work".into(), "home".into()],
             &["home".into(), "work".into()]
         ));
         assert!(!has_all_tags(&["work".into()], &["work".into(), "home".into()]));
-        assert!(!has_all_tags(&["#work".into()], &["work".into()]));
+    }
+
+    #[test]
+    fn alias_words_hit_when_the_body_does_not() {
+        let rows = vec![
+            (
+                "body".into(),
+                "x y in body".into(),
+                Vec::<String>::new(),
+            ),
+            (
+                "both".into(),
+                "other".into(),
+                vec!["alias:x".into(), "alias:y".into()],
+            ),
+            ("one".into(), "nope".into(), vec!["alias:x".into()]),
+        ];
+        assert_eq!(
+            rank_matches_with_alias(&rows, "x y"),
+            vec!["body".to_string(), "both".to_string()]
+        );
+        assert_eq!(
+            rank_matches_with_alias(&rows, "y x"),
+            vec!["both".to_string()]
+        );
+        assert_eq!(
+            rank_matches_with_alias(&rows, "x  y"),
+            vec!["body".to_string(), "both".to_string()]
+        );
+        assert_eq!(
+            rank_matches_with_alias(&rows, "x"),
+            vec!["body".to_string(), "both".to_string(), "one".to_string()]
+        );
+        assert!(rank_matches_with_alias(&rows, "x z").is_empty());
+        assert!(!matches_alias(
+            &["alias:x".into(), "alias:y".into()],
+            "x z"
+        ));
+        assert!(matches_alias(
+            &["alias:x".into(), "alias:y".into()],
+            "y x"
+        ));
     }
 
     #[test]
