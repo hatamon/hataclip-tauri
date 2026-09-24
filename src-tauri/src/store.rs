@@ -74,11 +74,8 @@ pub struct Store {
 
 impl Store {
     pub fn load(path: PathBuf) -> Self {
-        let mut items = read_items(&path);
+        let items = read_items(&path);
         let before = items.len();
-        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp") || item.locked());
-        let now = now_secs();
-        items.retain(|item| item.locked() || !crate::text::expired(&item.tags, item.created_at, now));
         let mut store = Self {
             path,
             items,
@@ -106,11 +103,8 @@ impl Store {
         if newer <= self.disk_ns.get() {
             return false;
         }
-        let mut items = read_items(&self.path);
+        let items = read_items(&self.path);
         let before = items.len();
-        items.retain(|item| !item.tags.iter().any(|tag| tag == "tmp") || item.locked());
-        let now = now_secs();
-        items.retain(|item| item.locked() || !crate::text::expired(&item.tags, item.created_at, now));
         self.items = items;
         self.undo.clear();
         self.redo.clear();
@@ -1308,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    fn load_drops_tmp_tagged_rows() {
+    fn load_keeps_tmp_tagged_rows() {
         let path = temp_path("tmp");
         fs::write(
             &path,
@@ -1316,10 +1310,10 @@ mod tests {
         )
         .unwrap();
         let store = Store::load(path.clone());
-        assert_eq!(store.list().len(), 1);
-        assert_eq!(store.list()[0].id, "1");
+        assert_eq!(store.list().len(), 2);
+        assert_eq!(store.list()[1].id, "2");
         let reloaded = Store::load(path.clone());
-        assert_eq!(reloaded.list().len(), 1);
+        assert_eq!(reloaded.list().len(), 2);
         let _ = fs::remove_file(path);
     }
 
@@ -1641,7 +1635,7 @@ mod tests {
     }
 
     #[test]
-    fn load_drops_expired_ttl() {
+    fn load_keeps_expired_ttl() {
         let path = temp_path("ttl");
         let old = now_secs().saturating_sub(4000);
         fs::write(
@@ -1653,8 +1647,7 @@ mod tests {
         )
         .unwrap();
         let store = Store::load(path.clone());
-        assert_eq!(store.list().len(), 1);
-        assert_eq!(store.list()[0].id, "2");
+        assert_eq!(store.list().len(), 2);
         let _ = fs::remove_file(path);
     }
 

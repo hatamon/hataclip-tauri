@@ -5,7 +5,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "paste",
-        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:join 区切りつなぎ（未指定は , 。1行ならその本文。V ならその範囲。タブは :join \"\\t\"。:comma と :tab は何もしない）。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。行末も :quote \"> \" \"<\" で hello が > hello<。\"\" はその端を付けない。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick list:}} {{pick tag:env}} {{pick search:}} {{app}} {{front}} {{focus}} {{when app: chrome}} {{env:}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。#tsv タブ区切り。#log:path ファイルへ追記。#once 貼ったら消す。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set copy ctrl+shift+c。:set paste shift+insert。Ctrl+8 は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。選択が2行以上で1行目が : のパイプなら、その式を2行目以降に実行して選択全体を置き換える。1行目は残さない。例: :s/old/new の次が abc def old ghi と oldabc ddd なら abc def new ghi と newabc ddd。:quote | upper の次が xxx と yyy なら > XXX と > YYY。: で始まらない、または段として読めない1行目は今までの展開。1行で sh か echo が自分で結果を作るパイプも置き換える。:sh dir | quote は dir の各行の頭に > 。:echo 2+3 | quote \">\" \"<\" は >5<。シェルの | は :sh \"xx | yy\" | quote のように括る。括らない | は段なので、段が無ければ何もしない（:sh dir | sort は何もしない）。:quote や :sel | upper だけの1行は何もしない。複数行で1行目が :echo だけなら何もしない。入力が要るのに2行目が無い、段が不正、選択が空、sh が失敗、展開結果が空、クリップボードに置けないなら何もしない。選択は残す。履歴は変えない。. と sel は2行目以降。流れがあるので1行目の :sh はそれを stdin に受け取る。| clip | show | add | set | open は今のパイプと同じ。Ubuntu はクリップボードを読み、結果はクリップボードに置く。Ctrl+9 は前面の選択語で履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。{{n}} は貼れたときだけ進む。履歴の本文は変えない。展開が空なら何もしない。{{ask:}} か {{pick:}} がある行、#run #confirm #grab の行、本文がパイプの行は何もしない。当たりは一覧の / と同じ。#work はタグ work の行を一覧の順。#work hello はタグと本文。#work #home は両方。本文に無くても #alias:x と #alias:y なら x y で当たる。順は問わない。# だけと #secret は何もしない。#run #confirm #grab、{{ask:}} {{pick:}}、本文がパイプの行は出さない。複数ならその順の最初。2秒以内の連打は、次が展開して空でなければ Ctrl+Z のあと次の候補。次が無い、空、対象外なら Ctrl+Z しない。Undo が戻らなければ何もしない。空や当たり無しも何もしない。Ctrl+A は送らない。Ubuntu は展開した文字をクリップボードへ置く。本文がパイプの行は Enter / Ctrl+Enter / 1〜9 / Ctrl+1〜9 / Ctrl+Shift+1〜9 でそのパイプを実行する。例: #slot:1 の本文が :sel | snake。メモ帳で getUserName を選んで Ctrl+Shift+1 すると一覧は出ずに get_user_name に置き換わる。:sel | quote で行頭に > を付けて | clip ならクリップボードへ置き、前面には貼らない。段の名前が不正、または sel が空なら何もしない。{{ }} の中だけの | はパイプにしない。",
+        "Enter 貼り付けて閉じる。次に一覧を出すとその行。Ctrl+Enter 残す。1〜9 その行。Ctrl+1〜9 残す。:format 整形。:raw 本文のまま。:join 区切りつなぎ（未指定は , 。1行ならその本文。V ならその範囲。タブは :join \"\\t\"。:comma と :tab は何もしない）。:quote 行頭（未指定は > 。:quote \"* \" で箇条書き）。行末も :quote \"> \" \"<\" で hello が > hello<。\"\" はその端を付けない。:type 1 文字ずつ。:open は URL/パスを開く。g. 直前の貼り付け。Ctrl+C コピー。{{sel}} {{ask:}} {{pick list:}} {{pick tag:env}} {{pick search:}} {{app}} {{front}} {{focus}} {{when app: chrome}} {{env:}} {{var:a}} {{tag:work}} {{type:<Tab>}}。#confirm は貼る前に展開後を出す。#run があればそれで足りる。Ctrl+Shift+1〜9 は #slot:n があればそれ。無ければ並びの番号。前面アプリのコピー／貼り付けキーは settings.json の target_keys。:set copy ctrl+shift+c。:set paste shift+insert。Ctrl+8 は前面の {{date}} / :sh dir / :echo 2+3 を置き換える（一覧は出さない）。選択が2行以上で1行目が : のパイプなら、その式を2行目以降に実行して選択全体を置き換える。1行目は残さない。例: :s/old/new の次が abc def old ghi と oldabc ddd なら abc def new ghi と newabc ddd。:quote | upper の次が xxx と yyy なら > XXX と > YYY。: で始まらない、または段として読めない1行目は今までの展開。1行で sh か echo が自分で結果を作るパイプも置き換える。:sh dir | quote は dir の各行の頭に > 。:echo 2+3 | quote \">\" \"<\" は >5<。シェルの | は :sh \"xx | yy\" | quote のように括る。括らない | は段なので、段が無ければ何もしない（:sh dir | sort は何もしない）。:quote や :sel | upper だけの1行は何もしない。複数行で1行目が :echo だけなら何もしない。入力が要るのに2行目が無い、段が不正、選択が空、sh が失敗、展開結果が空、クリップボードに置けないなら何もしない。選択は残す。履歴は変えない。. と sel は2行目以降。流れがあるので1行目の :sh はそれを stdin に受け取る。| clip | show | add | set | open は今のパイプと同じ。Ubuntu はクリップボードを読み、結果はクリップボードに置く。Ctrl+9 は前面の選択語で履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。{{n}} は貼れたときだけ進む。履歴の本文は変えない。展開が空なら何もしない。{{ask:}} か {{pick:}} がある行、#run #confirm #grab の行、本文がパイプの行は何もしない。当たりは一覧の / と同じ。#work はタグ work の行を一覧の順。#work hello はタグと本文。#work #home は両方。本文に無くても #alias:x と #alias:y なら x y で当たる。順は問わない。# だけと #secret は何もしない。#run #confirm #grab、{{ask:}} {{pick:}}、本文がパイプの行は出さない。複数ならその順の最初。2秒以内の連打は、次が展開して空でなければ Ctrl+Z のあと次の候補。次が無い、空、対象外なら Ctrl+Z しない。Undo が戻らなければ何もしない。空や当たり無しも何もしない。Ctrl+A は送らない。Ubuntu は展開した文字をクリップボードへ置く。本文がパイプの行は Enter / Ctrl+Enter / 1〜9 / Ctrl+1〜9 / Ctrl+Shift+1〜9 でそのパイプを実行する。例: #slot:1 の本文が :sel | snake。メモ帳で getUserName を選んで Ctrl+Shift+1 すると一覧は出ずに get_user_name に置き換わる。:sel | quote で行頭に > を付けて | clip ならクリップボードへ置き、前面には貼らない。段の名前が不正、または sel が空なら何もしない。{{ }} の中だけの | はパイプにしない。",
     ),
     (
         "tag",
@@ -14,20 +14,15 @@ const TOPICS: &[(&str, &str)] = &[
 \n\
 #pin相当 gp で付ける。先頭に固定。+ / - で順\n\
 #secret  一覧を ••••。貼り付けは普通\n\
-#tmp     次回起動で消す。#lock があれば残す\n\
 #alias:foo  /foo でも当たる。#alias:x と #alias:y なら x y でも当たる。順は問わない。\n\
 #app:chrome  前面のアプリ名が chrome のときだけ出す。#app:code と複数ならどれか。ブラウザはページが違っても当たる\n\
 #not:chrome  そのアプリのときは出さない。#app: と両方なら、アプリに当たって #not に当たらないときだけ\n\
-#ttl:1h  登録からその時間が過ぎていたら起動時に消す。m / h / d だけ。パースできなければ残す。#lock があれば残す\n\
 #run     貼るときコマンドを実行。自動では付けない。詳しくは :help sh\n\
 #confirm 貼る前に展開後を出して Enter。#run があればそれで足りる\n\
 #file    本文のパスのファイル内容を貼る。#run が先。ドロップすると #path と一緒に付く\n\
-#once    貼って成功したら消す。#lock があれば残す\n\
 #lock    dd / :clear / J で消えない。外すのは T\n\
 #slot:3  Ctrl+Shift+3 でその行。複数なら一覧の先。無ければ今までの 3 番目\n\
 #grab    1行目が型、2行目が出力。穴は <名前>。前面の選択が型に当たれば2行目を埋めて貼る。当たらなければ何もしない。値は :set に残さない。Ubuntu はクリップボードを照合する\n\
-#tsv     展開後をタブ区切り。JSON 配列か 1 行 1 値。壊れそうなら貼らない。#run が先\n\
-#log:path  前面へ貼らずファイル末尾へ追記。パスに空白は使えない。#run があるときはその標準出力を追記\n\
 #url #path  登録時の自動タグ。動きは目印だけ",
     ),
     (
@@ -206,7 +201,7 @@ mod tests {
         assert!(overview.contains("map"));
         assert!(render(Some("tag")).contains("#run"));
         assert!(render(Some("tag")).contains(":help sh"));
-        assert!(render(Some("tag")).contains("#log:path"));
+        assert!(render(Some("tag")).contains("#lock"));
         assert!(render(Some("tag")).contains("#app:chrome"));
         assert!(render(Some("tag")).contains("#slot:3"));
         assert!(render(Some("tag")).contains("#confirm"));

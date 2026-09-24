@@ -1022,13 +1022,8 @@ fn json_cell(value: &serde_json::Value) -> String {
     }
 }
 
-pub fn log_path(tags: &[String]) -> Option<String> {
-    tags.iter().find_map(|tag| {
-        tag.strip_prefix("log:")
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .map(ToString::to_string)
-    })
+pub fn log_path(_tags: &[String]) -> Option<String> {
+    None
 }
 
 pub fn ttl_secs(tag: &str) -> Option<u64> {

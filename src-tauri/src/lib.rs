@@ -1959,23 +1959,7 @@ fn has_sel(state: &AppState, ids: &[String]) -> bool {
     })
 }
 
-fn drop_once(state: &AppState, ids: &[String]) {
-    let mut store = state.store.lock().expect("store");
-    let once: Vec<String> = ids
-        .iter()
-        .filter(|id| {
-            store
-                .get(id)
-                .map_or(false, |item| {
-                    item.tags.iter().any(|tag| tag == "once") && !item.locked()
-                })
-        })
-        .cloned()
-        .collect();
-    if !once.is_empty() {
-        store.remove_ids(&once);
-    }
-}
+fn drop_once(_state: &AppState, _ids: &[String]) {}
 
 #[cfg(windows)]
 fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
@@ -2184,12 +2168,8 @@ fn play_ops(
     false
 }
 
-fn apply_tsv(item: &Item, text: String) -> Option<String> {
-    if item.tags.iter().any(|tag| tag == "tsv") {
-        text::to_tsv(&text)
-    } else {
-        Some(text)
-    }
+fn apply_tsv(_item: &Item, text: String) -> Option<String> {
+    Some(text)
 }
 
 fn append_log(path: &str, text: &str) -> std::io::Result<()> {
