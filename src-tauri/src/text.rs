@@ -586,7 +586,7 @@ fn token_value(
     seen: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
     if inner == "nop" || arg_after(inner, "nop").is_some() {
-        return Some(String::new());
+        return Some(format!("{{{{{inner}}}}}"));
     }
     let parts = fallback_parts(inner);
     if parts.len() > 1 {
@@ -634,32 +634,6 @@ fn token_value(
     if inner == "focus" {
         return Some(ctx.focus.clone());
     }
-    if let Some(name) = arg_after(inner, "cred") {
-        let name = name.trim();
-        if !is_ident(name) {
-            ctx.cred_fail.set(true);
-            return Some(String::new());
-        }
-        if !ctx.read_cred {
-            return None;
-        }
-        #[cfg(windows)]
-        {
-            return match crate::platform::read_credential(name) {
-                Some(secret) => Some(secret),
-                None => {
-                    ctx.cred_fail.set(true);
-                    Some(String::new())
-                }
-            };
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = name;
-            ctx.cred_fail.set(true);
-            return Some(String::new());
-        }
-    }
     if let Some(spec) = arg_after(inner, "pick") {
         if pick_kind(spec).is_none() {
             return Some(String::new());
@@ -670,18 +644,6 @@ fn token_value(
                 .cloned()
                 .unwrap_or_default(),
         );
-    }
-    if let Some(name) = inner.strip_prefix('@') {
-        let name = expand_seen(name.trim(), ctx, seen);
-        let name = name.trim();
-        if name.is_empty() {
-            return Some(String::new());
-        }
-        if !seen.insert(name.to_string()) {
-            return Some(String::new());
-        }
-        let body = ctx.aliases.get(name).cloned().unwrap_or_default();
-        return Some(expand_seen(&body, ctx, seen));
     }
     if let Some(name) = arg_after(inner, "env") {
         let name = expand_seen(name, ctx, seen);
@@ -894,15 +856,6 @@ fn collect_vars(
                     && !names.iter().any(|existing| existing == name)
             {
                     names.push(name.to_string());
-                }
-            }
-            if let Some(alias) = part.strip_prefix('@') {
-                let alias = alias.trim();
-                if !alias.is_empty() && !alias.contains('{') && seen_alias.insert(alias.to_string())
-                {
-                    if let Some(body) = aliases.get(alias) {
-                        collect_vars(&apply_when(body, env), env, aliases, seen_alias, names);
-                    }
                 }
             }
             if part.contains("{{") && walk_tokens(&part, |_| true) {
@@ -1950,8 +1903,11 @@ mod tests {
             "2026/09/20 10:54 提出"
         );
         assert_eq!(expand_template("そのまま", &ctx), "そのまま");
-        assert_eq!(expand_template("hello {{nop: {{date}}}} world", &ctx), "hello  world");
-        assert_eq!(expand_template("{{nop: a|b}}", &ctx), "");
+        assert_eq!(
+            expand_template("hello {{nop: {{date}}}} world", &ctx),
+            "hello {{nop: {{date}}}} world"
+        );
+        assert_eq!(expand_template("{{nop: a|b}}", &ctx), "{{nop: a|b}}");
         assert_eq!(expand_template("{{nope}}", &ctx), "{{nope}}");
     }
 
@@ -2073,7 +2029,7 @@ mod tests {
         let empty_vars = std::collections::HashMap::new();
         assert_eq!(
             referenced_vars("{{var:b}} {{@foo}}", &bare("code", &empty_vars), &aliases),
-            vec!["b".to_string(), "a".to_string()]
+            vec!["b".to_string()]
         );
         assert!(referenced_vars(
             "{{when app: excel}}{{var:a}}{{when}}",
@@ -2153,11 +2109,13 @@ mod tests {
         assert_eq!(expand_template("{{cred:github}}", &ctx), "{{cred:github}}");
         let mut reading = sample_ctx();
         reading.read_cred = true;
-        assert_eq!(expand_template("{{cred:nope name}}", &reading), "");
-        assert!(reading.cred_fail.get());
-        reading.cred_fail.set(false);
-        let _ = expand_template("{{cred:hataclip_missing_cred}}", &reading);
-        assert!(reading.cred_fail.get());
+        assert_eq!(expand_template("{{cred:nope name}}", &reading), "{{cred:nope name}}");
+        assert!(!reading.cred_fail.get());
+        assert_eq!(
+            expand_template("{{cred:hataclip_missing_cred}}", &reading),
+            "{{cred:hataclip_missing_cred}}"
+        );
+        assert!(!reading.cred_fail.get());
         let mut blank = sample_ctx();
         blank.app.clear();
         blank.focus.clear();
@@ -2259,13 +2217,9 @@ mod tests {
     #[test]
     fn expands_alias_nested_and_stops_cycles() {
         let ctx = sample_ctx();
-        assert_eq!(expand_template("{{@foo}}", &ctx), "X2026/09/20Y");
-        assert_eq!(expand_template("{{@bar}}", &ctx), "BBX2026/09/20Y");
-        assert_eq!(expand_template("{{@foo}} {{@foo}}", &ctx), "X2026/09/20Y ");
-        assert_eq!(expand_template("{{@loop}}", &ctx), "");
-        assert_eq!(expand_template("{{@missing}}", &ctx), "");
-        assert_eq!(expand_template("{{@}}", &ctx), "");
-        assert_eq!(expand_template("{{@ foo }}", &ctx), "X2026/09/20Y");
+        assert_eq!(expand_template("{{@foo}}", &ctx), "{{@foo}}");
+        assert_eq!(expand_template("{{@bar}}", &ctx), "{{@bar}}");
+        assert_eq!(expand_template("{{@missing}}", &ctx), "{{@missing}}");
     }
 
     #[test]

@@ -2797,8 +2797,9 @@ mod tests {
         let ctx = completion_ctx();
         let item = Item::new("報告 {{date}} {{nop: 仕事}}".into(), Vec::new());
         let ops = completion_ops(&item, &ctx).unwrap();
-        assert_eq!(text::flatten_ops(&ops), "報告 2026/09/20 ");
-        assert!(completion_ops(&Item::new("{{nop: x}}".into(), Vec::new()), &ctx).is_none());
+        assert_eq!(text::flatten_ops(&ops), "報告 2026/09/20 {{nop: 仕事}}");
+        let nop = completion_ops(&Item::new("{{nop: x}}".into(), Vec::new()), &ctx).unwrap();
+        assert_eq!(text::flatten_ops(&nop), "{{nop: x}}");
         assert!(completion_ops(&Item::new("{{ask:名前}}".into(), Vec::new()), &ctx).is_none());
         assert!(completion_ops(
             &Item::new("{{pick list: a, b}}".into(), Vec::new()),

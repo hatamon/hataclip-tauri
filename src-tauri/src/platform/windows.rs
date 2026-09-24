@@ -3,7 +3,6 @@ use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
-use windows_sys::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -51,42 +50,6 @@ pub fn context_key(fg: &Foreground) -> Option<String> {
         }
     }
     Some(process)
-}
-
-/// 資格情報マネージャーの汎用パスワード。無ければなし。
-pub fn read_credential(name: &str) -> Option<String> {
-    let target: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-    let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
-    let ok = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) };
-    if ok == 0 || cred.is_null() {
-        return None;
-    }
-    let text = unsafe {
-        let size = (*cred).CredentialBlobSize as usize;
-        let blob = (*cred).CredentialBlob;
-        let bytes = if blob.is_null() || size == 0 {
-            &[][..]
-        } else {
-            std::slice::from_raw_parts(blob, size)
-        };
-        let text = decode_cred_blob(bytes);
-        CredFree(cred.cast());
-        text
-    };
-    Some(text)
-}
-
-fn decode_cred_blob(bytes: &[u8]) -> String {
-    if bytes.len() >= 2 && bytes.len() % 2 == 0 {
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
-        if let Ok(text) = String::from_utf16(&units) {
-            return text.trim_end_matches('\u{0}').to_string();
-        }
-    }
-    String::from_utf8_lossy(bytes).trim_end_matches('\u{0}').to_string()
 }
 
 /// UI Automation のコントロール種別名。取れなければ空。

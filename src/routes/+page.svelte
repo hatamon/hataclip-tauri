@@ -329,7 +329,7 @@
       previewText = "••••";
       return;
     }
-    previewText = maskCred(item.text);
+    previewText = item.text;
     const id = item.id;
     const raw = item.text;
     const timer = setTimeout(() => {
@@ -339,7 +339,7 @@
         forceSh: true,
       }).then((text) => {
         if (preview && filtered[selected]?.id === id) {
-          previewText = maskCred(text ?? raw);
+          previewText = text ?? raw;
         }
       });
     }, 200);
@@ -350,11 +350,7 @@
     if (isSecret(item)) {
       return "••••";
     }
-    return maskCred(item.text);
-  }
-
-  function maskCred(text: string): string {
-    return text.replace(/\{\{cred(?::|\s)[^}]*\}\}/g, "••••");
+    return item.text;
   }
 
   function currentItem(): Item | undefined {
