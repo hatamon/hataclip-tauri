@@ -27,6 +27,7 @@ describe("matchingColonCommands", () => {
       "raw",
       "join",
       "open",
+      "log",
       "echo",
       "s",
       "@",

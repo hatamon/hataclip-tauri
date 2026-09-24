@@ -11,6 +11,7 @@ export const COLON_COMMANDS = [
   "raw",
   "join",
   "open",
+  "log",
   "echo",
   "s",
   "@",
@@ -95,7 +96,7 @@ function completedColonCommand(command: string): string {
   if (command === "!!") {
     return "!!sh ";
   }
-  if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo") {
+  if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo" || command === "log") {
     return `${command} `;
   }
   if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join" || command === "filter") {

@@ -1390,6 +1390,18 @@
       }
       return;
     }
+    if (line === "log" || line.startsWith("log ")) {
+      const path = line === "log" ? "" : line.slice(4).trim();
+      if (selectedIds.length === 0) {
+        return;
+      }
+      try {
+        await invoke("log_selection", { ids: selectedIds, path });
+      } catch {
+        // 書けなければ何もしない
+      }
+      return;
+    }
     if (line === "open") {
       gotoFile();
       return;

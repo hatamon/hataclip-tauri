@@ -2149,6 +2149,42 @@ fn apply_tsv(_item: &Item, text: String) -> Option<String> {
     Some(text)
 }
 
+/// `:log` の出力先。引数が空なら変数 `defaultLogFileName`。無ければ何もしない。
+fn log_destination(explicit: &str, vars: &HashMap<String, String>) -> Option<String> {
+    let explicit = explicit.trim();
+    if !explicit.is_empty() {
+        return Some(explicit.to_string());
+    }
+    vars.get("defaultLogFileName")
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+}
+
+#[tauri::command]
+fn log_selection(
+    ids: Vec<String>,
+    path: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let Some(path) = log_destination(&path, &var_map(&state)) else {
+        return Ok(());
+    };
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let parts = pipe_bodies(&app, &state, &ids, false).unwrap_or_default();
+    if parts.len() != ids.len() {
+        return Ok(());
+    }
+    let text = parts.join("\n");
+    if text.is_empty() {
+        return Ok(());
+    }
+    let _ = append_log(&path, &text);
+    Ok(())
+}
+
 fn append_log(path: &str, text: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(path);
     if let Some(parent) = path.parent() {
@@ -2640,7 +2676,8 @@ pub fn run() {
             set_keymaps,
             open_settings_file,
             apply_set,
-            apply_n
+            apply_n,
+            log_selection
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -2740,6 +2777,17 @@ mod tests {
         assert!(completion_ops(&Item::new("ok".into(), vec!["confirm".into()]), &ctx).is_none());
         assert!(completion_ops(&Item::new("ok".into(), vec!["grab".into()]), &ctx).is_none());
         assert!(completion_ops(&Item::new("ok".into(), vec!["secret".into()]), &ctx).is_none());
+    }
+
+    #[test]
+    fn log_uses_the_argument_or_the_default_variable() {
+        let mut vars = HashMap::new();
+        assert!(log_destination("", &vars).is_none());
+        vars.insert("defaultLogFileName".into(), "  notes.log  ".into());
+        assert_eq!(log_destination("", &vars).as_deref(), Some("notes.log"));
+        assert_eq!(log_destination(" other.log ", &vars).as_deref(), Some("other.log"));
+        vars.insert("defaultLogFileName".into(), "   ".into());
+        assert!(log_destination("", &vars).is_none());
     }
 
     #[test]
