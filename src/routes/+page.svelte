@@ -424,10 +424,6 @@
     }
     const ids = selectedIds;
     const rows = selectedItems;
-    if (rows.length > 0 && rows.every((row) => row.tags.includes("infer"))) {
-      items = await invoke<Item[]>("set_tag", { ids, tag: "infer", add: false });
-      return;
-    }
     if (
       !format &&
       !raw &&
@@ -653,10 +649,6 @@
   }
 
   async function hidePicker() {
-    const drafts = items.filter((item) => item.tags.includes("infer")).map((item) => item.id);
-    if (drafts.length > 0) {
-      await invoke("delete_items", { ids: drafts });
-    }
     await invoke("hide_picker");
   }
 
@@ -1029,13 +1021,6 @@
     }
     mode = "normal";
     query = "";
-    const draft = next.find((item) => item.tags.includes("infer"));
-    if (draft) {
-      const index = next.findIndex((item) => item.id === draft.id);
-      if (index >= 0) {
-        selected = index;
-      }
-    }
     pending = "";
     editingId = null;
     draftNewId = null;
@@ -1774,20 +1759,6 @@
 
     if (isEscape(event)) {
       event.preventDefault();
-      const drafts = items.filter((item) => item.tags.includes("infer"));
-      if (
-        drafts.length > 0 &&
-        pending.length === 0 &&
-        whichPrefix.length === 0 &&
-        query.length === 0 &&
-        tagCycle < 0 &&
-        anchor === null
-      ) {
-        void invoke<Item[]>("delete_items", { ids: drafts.map((item) => item.id) }).then((next) => {
-          items = next;
-        });
-        return;
-      }
       if (pending.length > 0 || whichPrefix.length > 0) {
         pending = "";
         whichPrefix = "";

@@ -46,8 +46,6 @@ pub(crate) struct AppState {
     paste_serial: Mutex<u32>,
     last_sh: Mutex<Option<String>>,
     picker_open: Mutex<bool>,
-    /// 直前の Ctrl+4。2秒以内の2回目で式を推測する。
-    infer_prev: Mutex<Option<(String, std::time::Instant)>>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
 }
 
@@ -2431,32 +2429,6 @@ pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) 
     let Some(text) = capture_register_text(state) else {
         return;
     };
-    let previous = {
-        let mut slot = state.infer_prev.lock().expect("infer_prev");
-        slot.take()
-    };
-    if let Some((input, at)) = previous {
-        if at.elapsed() < std::time::Duration::from_secs(2) {
-            if let Some(inferred) = text::infer_pair(&input, &text) {
-                let mut tags = text::auto_tags(&inferred.text);
-                if inferred.grab && !tags.iter().any(|tag| tag == "grab") {
-                    tags.push("grab".into());
-                }
-                if !tags.iter().any(|tag| tag == "infer") {
-                    tags.push("infer".into());
-                }
-                state
-                    .store
-                    .lock()
-                    .expect("store")
-                    .insert_marked(inferred.text, tags);
-                let _ = app.emit("items-changed", view(state));
-                show_picker(app, state);
-                return;
-            }
-        }
-    }
-    *state.infer_prev.lock().expect("infer_prev") = Some((text.clone(), std::time::Instant::now()));
     let tags = text::auto_tags(&text);
     state
         .store
@@ -2624,7 +2596,6 @@ pub fn run() {
                 paste_serial: Mutex::new(n_start),
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
-                infer_prev: Mutex::new(None),
                 complete_cycle: Mutex::new(None),
             });
             tray::setup(app)?;
