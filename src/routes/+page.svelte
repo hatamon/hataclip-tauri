@@ -98,6 +98,7 @@
   let colonDot = $state("");
   let colonClip = $state("");
   let colonPreview = $state("");
+  let colonPreviewFor = $state("");
   let colonDraft = $state("");
   let helpText = $state("");
   let helpEl = $state<HTMLPreElement | undefined>(undefined);
@@ -280,23 +281,14 @@
 
   $effect(() => {
     const line = colonInput;
-    const active = mode === "colon";
-    if (!active) {
+    if (mode !== "colon") {
       colonPreview = "";
+      colonPreviewFor = "";
       return;
     }
-    const timer = setTimeout(() => {
-      void invoke<string | null>("preview_colon", {
-        expr: line,
-        dot: colonDot,
-        clip: colonClip,
-      }).then((text) => {
-        if (mode === "colon" && colonInput === line) {
-          colonPreview = text ?? "";
-        }
-      });
-    }, 50);
-    return () => clearTimeout(timer);
+    if (line !== colonPreviewFor) {
+      colonPreview = "";
+    }
   });
 
   $effect(() => {
@@ -1475,6 +1467,22 @@
       event.stopPropagation();
       mode = "normal";
       colonInput = "";
+      return;
+    }
+    if (event.key === "Enter" && event.ctrlKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      const line = colonInput;
+      colonPreviewFor = line;
+      void invoke<string | null>("preview_colon", {
+        expr: line,
+        dot: colonDot,
+        clip: colonClip,
+      }).then((text) => {
+        if (mode === "colon" && colonInput === line) {
+          colonPreview = text ?? "";
+        }
+      });
       return;
     }
     if (event.key === "Enter") {
