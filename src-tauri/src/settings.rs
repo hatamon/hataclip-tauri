@@ -26,7 +26,7 @@ fn bool_true() -> bool {
     true
 }
 
-pub const DEFAULT_EXPAND: &str = "Control+Shift+KeyH";
+pub const DEFAULT_EXPAND: &str = "Control+Digit8";
 pub const DEFAULT_COMPLETE: &str = "Control+Digit9";
 
 fn default_expand() -> String {

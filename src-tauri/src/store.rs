@@ -59,7 +59,7 @@ struct StoreFile {
     items: Vec<Item>,
 }
 
-const MAX_UNDO: usize = 50;
+const MAX_UNDO: usize = 1;
 
 pub struct Store {
     path: PathBuf,
