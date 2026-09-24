@@ -33,7 +33,7 @@
   } from "$lib/map";
   import { pickByDigit, uniquePickSpecs, type PickSpec } from "$lib/pick";
   import { contextApp } from "$lib/when";
-  import { fuzzyFilter } from "$lib/fuzzy";
+  import { fuzzyFilter, searchHay } from "$lib/fuzzy";
   import { parseQuery } from "$lib/query";
   import {
     applyTagCompletion,
@@ -143,6 +143,14 @@
   let mapLeader = $state(DEFAULT_LEADER);
   let mapsEnabled = true;
 
+  const hayById = $derived.by(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      map.set(item.id, searchHay(item.text));
+    }
+    return map;
+  });
+
   const filtered = $derived.by(() => {
     const parsed = parseQuery(query);
     let list = items.filter((item) => parsed.tags.every((tag) => item.tags.includes(tag)));
@@ -150,7 +158,7 @@
       list = list.filter((item) => item.contexts.includes(contextKey!));
     }
     if (parsed.text.length > 0) {
-      const fuzzy = fuzzyFilter(parsed.text, list);
+      const fuzzy = fuzzyFilter(parsed.text, list, (item) => hayById.get(item.id) ?? searchHay(item.text));
       const seen = new Set(fuzzy.map((item) => item.id));
       for (const item of list) {
         if (!seen.has(item.id) && matchesAlias(item, parsed.text)) {
@@ -161,6 +169,78 @@
     }
     return list;
   });
+
+  let listScroll = $state(0);
+  let listBox = $state(400);
+  let rowHeights = $state<Record<string, number>>({});
+
+  function rowPx(id: string): number {
+    return rowHeights[id] ?? 22;
+  }
+
+  const rowWindow = $derived.by(() => {
+    const rows = filtered;
+    const count = rows.length;
+    if (count === 0) {
+      return { start: 0, end: 0, padTop: 0, padBottom: 0 };
+    }
+    let y = 0;
+    let start = 0;
+    for (let i = 0; i < count; i += 1) {
+      const next = y + rowPx(rows[i].id);
+      if (next > listScroll) {
+        start = i;
+        break;
+      }
+      y = next;
+      start = i;
+    }
+    start = Math.max(0, start - 8);
+    let end = start;
+    let seen = 0;
+    const limit = listBox + 240;
+    for (let i = start; i < count; i += 1) {
+      seen += rowPx(rows[i].id);
+      end = i;
+      if (seen >= limit) {
+        break;
+      }
+    }
+    end = Math.min(count - 1, Math.max(end, selected) + 8);
+    start = Math.min(start, Math.max(0, selected - 8));
+    let padTop = 0;
+    for (let i = 0; i < start; i += 1) {
+      padTop += rowPx(rows[i].id);
+    }
+    let padBottom = 0;
+    for (let i = end + 1; i < count; i += 1) {
+      padBottom += rowPx(rows[i].id);
+    }
+    return { start, end, padTop, padBottom };
+  });
+
+  const visibleRows = $derived(filtered.slice(rowWindow.start, rowWindow.end + 1));
+
+  function measureRow(node: HTMLElement, id: string) {
+    const remember = () => {
+      const height = node.offsetHeight;
+      if (height > 0 && rowHeights[id] !== height) {
+        rowHeights[id] = height;
+      }
+    };
+    remember();
+    const observer = new ResizeObserver(remember);
+    observer.observe(node);
+    return {
+      update(next: string) {
+        id = next;
+        remember();
+      },
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
 
   const range = $derived.by<[number, number]>(() => {
     if (anchor === null) {
@@ -298,7 +378,7 @@
     const colon = mode === "colon";
     const index = keepVisibleIndex(selected, anchor, colon);
     void (colon ? colonPreview.length + colonSuggestions.length : 0);
-    const row = listEl?.children[index];
+    const row = listEl?.querySelector(`[data-index="${index}"]`);
     if (!(row instanceof HTMLElement)) {
       return;
     }
@@ -342,7 +422,8 @@
     if (isSecret(item)) {
       return "••••";
     }
-    return item.text;
+    const text = item.text.length > 400 ? `${item.text.slice(0, 400)}…` : item.text;
+    return text;
   }
 
   function currentItem(): Item | undefined {
@@ -2363,9 +2444,22 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
         {/each}
       </ul>
     {/if}
-    <ul class="list" bind:this={listEl}>
-      {#each filtered as item, index (item.id)}
+    <ul
+      class="list"
+      bind:this={listEl}
+      onscroll={() => {
+        listScroll = listEl?.scrollTop ?? 0;
+        listBox = listEl?.clientHeight ?? listBox;
+      }}
+    >
+      {#if rowWindow.padTop > 0}
+        <li class="spacer" style:height="{rowWindow.padTop}px"></li>
+      {/if}
+      {#each visibleRows as item, offset (item.id)}
+        {@const index = rowWindow.start + offset}
         <li
+          data-index={index}
+          use:measureRow={item.id}
           class:active={index === selected}
           class:ranged={anchor !== null && index >= range[0] && index <= range[1]}
         >
@@ -2397,6 +2491,9 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
       {:else}
         <li class="empty">empty</li>
       {/each}
+      {#if rowWindow.padBottom > 0}
+        <li class="spacer" style:height="{rowWindow.padBottom}px"></li>
+      {/if}
     </ul>
   {/if}
 </div>
@@ -2471,6 +2568,11 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
     list-style: none;
     overflow: auto;
     flex: 1;
+  }
+
+  .spacer {
+    list-style: none;
+    pointer-events: none;
   }
 
   .list > li:not(:last-child):not(.empty) {

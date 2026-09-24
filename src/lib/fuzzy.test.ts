@@ -10,6 +10,12 @@ describe("fuzzyScore", () => {
   it("empty query matches everything", () => {
     expect(fuzzyScore("", "anything")).toBe(0);
   });
+
+  it("ignores text after the first 4096 characters", () => {
+    const text = `${"a".repeat(4096)}z`;
+    expect(fuzzyScore("z", text)).toBeNull();
+    expect(fuzzyScore("a", text)).not.toBeNull();
+  });
 });
 
 describe("fuzzyFilter", () => {

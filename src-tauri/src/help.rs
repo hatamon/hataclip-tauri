@@ -35,7 +35,7 @@ const TOPICS: &[(&str, &str)] = &[
     ),
     (
         "search",
-        "/ で検索。Tab は一覧へ（絞りと検索欄は残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。#alias:x と #alias:y なら x y でも当たる。順は問わない。",
+        "/ で検索。照合は本文の先頭 4KB まで。それより後ろの語は当たらない。Tab は一覧へ（絞りと検索欄は残る）。Esc / Ctrl+[ で絞りを外す。# の候補がある Tab はタグ補完。#tag でタグ。a でいまの貼り付け先だけ。f と 1 文字で先頭文字へ飛ぶ。; 次、, 前。Ctrl+N / Ctrl+P で移動。#alias:foo は foo でも当たる。#alias:x と #alias:y なら x y でも当たる。順は問わない。",
     ),
     (
         "edit",

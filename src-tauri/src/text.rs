@@ -1397,12 +1397,24 @@ pub fn rank_matches(rows: &[(String, String)], query: &str) -> Vec<String> {
     scored.into_iter().map(|(_, _, id)| id).collect()
 }
 
+fn search_prefix(text: &str) -> &str {
+    const LIMIT: usize = 4096;
+    if text.len() <= LIMIT {
+        return text;
+    }
+    let mut end = LIMIT;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 pub fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
     if query.is_empty() {
         return Some(0);
     }
     let needle: Vec<char> = query.to_lowercase().chars().collect();
-    let haystack: Vec<char> = text.to_lowercase().chars().collect();
+    let haystack: Vec<char> = search_prefix(text).to_lowercase().chars().collect();
     let mut at = 0;
     let mut score = 0i32;
     let mut consecutive = 0i32;
@@ -2437,6 +2449,13 @@ mod tests {
             &["home".into(), "work".into()]
         ));
         assert!(!has_all_tags(&["work".into()], &["work".into(), "home".into()]));
+    }
+
+    #[test]
+    fn search_ignores_text_past_4096_chars() {
+        let text = format!("{}z", "a".repeat(4096));
+        assert!(fuzzy_score("z", &text).is_none());
+        assert!(fuzzy_score("a", &text).is_some());
     }
 
     #[test]
