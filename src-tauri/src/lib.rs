@@ -2185,20 +2185,63 @@ fn log_selection(
     Ok(())
 }
 
+/// 既存ファイルの最初の改行。見つからなければ CRLF（新規ファイルも同じ）。
+fn existing_log_newline(path: &std::path::Path) -> &'static str {
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return "\r\n",
+    };
+    let mut buf = [0u8; 8192];
+    let mut prev_cr = false;
+    loop {
+        let n = match std::io::Read::read(&mut file, &mut buf) {
+            Ok(0) => return "\r\n",
+            Ok(n) => n,
+            Err(_) => return "\r\n",
+        };
+        for &byte in &buf[..n] {
+            if byte == b'\n' {
+                return if prev_cr { "\r\n" } else { "\n" };
+            }
+            prev_cr = byte == b'\r';
+        }
+    }
+}
+
+/// 本文の改行を `nl` に揃え、末尾にも同じ改行を付ける。
+fn log_bytes(text: &str, nl: &str) -> Vec<u8> {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                out.push_str(nl);
+            }
+            '\n' => out.push_str(nl),
+            other => out.push(other),
+        }
+    }
+    if !out.ends_with(nl) {
+        out.push_str(nl);
+    }
+    out.into_bytes()
+}
+
 fn append_log(path: &str, text: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    let bytes = log_bytes(text, existing_log_newline(path));
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
     use std::io::Write;
-    file.write_all(text.as_bytes())?;
-    if !text.ends_with('\n') {
-        file.write_all(b"\n")?;
-    }
+    file.write_all(&bytes)?;
     Ok(())
 }
 
@@ -2788,6 +2831,31 @@ mod tests {
         assert_eq!(log_destination(" other.log ", &vars).as_deref(), Some("other.log"));
         vars.insert("defaultLogFileName".into(), "   ".into());
         assert!(log_destination("", &vars).is_none());
+    }
+
+    #[test]
+    fn log_matches_existing_newlines_and_starts_crlf() {
+        let dir = std::env::temp_dir().join(format!("hataclip-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let crlf = dir.join("crlf.log");
+        std::fs::write(&crlf, "old\r\n").unwrap();
+        append_log(crlf.to_str().unwrap(), "a\nb").unwrap();
+        assert_eq!(std::fs::read(&crlf).unwrap(), b"old\r\na\r\nb\r\n");
+        let lf = dir.join("lf.log");
+        std::fs::write(&lf, "old\n").unwrap();
+        append_log(lf.to_str().unwrap(), "a\r\nb").unwrap();
+        assert_eq!(std::fs::read(&lf).unwrap(), b"old\na\nb\n");
+        let fresh = dir.join("new.log");
+        append_log(fresh.to_str().unwrap(), "a\nb").unwrap();
+        assert_eq!(std::fs::read(&fresh).unwrap(), b"a\r\nb\r\n");
+        let long = dir.join("long.log");
+        let mut body = vec![b'x'; 9000];
+        body.extend_from_slice(b"\r\n");
+        std::fs::write(&long, &body).unwrap();
+        append_log(long.to_str().unwrap(), "z").unwrap();
+        let got = std::fs::read(&long).unwrap();
+        assert!(got.ends_with(b"\r\nz\r\n"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
