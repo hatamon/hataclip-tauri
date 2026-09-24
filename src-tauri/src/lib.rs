@@ -1333,8 +1333,12 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
         return;
     };
+    let ops = text::take_type_ops(&out);
+    if !text::has_keys(&ops) && text::flatten_ops(&ops).is_empty() {
+        return;
+    }
     remember_last_sh(&text, state);
-    play_resolved(app, state, text::take_type_ops(&out), false, false);
+    play_resolved(app, state, ops, false, false);
 }
 
 /// 1行目が `:` のパイプなら、2行目以降を流れにして実行する。扱ったら真。
@@ -1429,6 +1433,14 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
 }
 
 fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCycle) -> bool {
+    let Some(index) = completion_index(
+        state,
+        &cycle.ids,
+        cycle.index.wrapping_add(1),
+        &cycle.query,
+    ) else {
+        return false;
+    };
     #[cfg(windows)]
     {
         if !platform::simulate_chord("ctrl+z") {
@@ -1442,13 +1454,7 @@ fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCy
             return false;
         }
     }
-    let Some(index) = paste_completion_from(
-        app,
-        state,
-        &cycle.ids,
-        cycle.index.wrapping_add(1),
-        &cycle.query,
-    ) else {
+    let Some(index) = paste_completion_from(app, state, &cycle.ids, index, &cycle.query) else {
         return false;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
@@ -1529,6 +1535,34 @@ fn completion_ops(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>>
         return None;
     }
     Some(ops)
+}
+
+/// 展開して空でない次の候補。無ければ `Ctrl+Z` しない。
+fn completion_index(state: &AppState, ids: &[String], start: usize, sel: &str) -> Option<usize> {
+    if ids.is_empty() {
+        return None;
+    }
+    let start = start % ids.len();
+    for offset in 0..ids.len() {
+        let index = (start + offset) % ids.len();
+        let item = {
+            state
+                .store
+                .lock()
+                .expect("store")
+                .get(&ids[index])
+                .cloned()
+        };
+        let Some(item) = item else {
+            continue;
+        };
+        let mut ctx = expand_context(state, sel.to_string(), HashMap::new());
+        ctx.read_cred = true;
+        if completion_ops(&item, &ctx).is_some() {
+            return Some(index);
+        }
+    }
+    None
 }
 
 fn completion_ids(state: &AppState, query: &str) -> Vec<String> {
@@ -2066,12 +2100,15 @@ fn play_resolved(
     if !text::has_keys(&ops) {
         let text = text::flatten_ops(&ops);
         if typed {
+            if text.is_empty() {
+                return false;
+            }
             return type_text(app, state, &text, keep_open);
         }
-        paste_text(app, state, &text, keep_open);
-        return true;
+        paste_text(app, state, &text, keep_open)
+    } else {
+        play_ops(app, state, &ops, keep_open, typed)
     }
-    play_ops(app, state, &ops, keep_open, typed)
 }
 
 #[cfg(windows)]
@@ -2291,21 +2328,23 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
 }
 
 #[cfg(windows)]
-fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) {
+fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
     let previous = clipboard::peek_text();
-    let _ = clipboard::write_clipboard_text(text);
+    if !clipboard::write_clipboard_text(text) {
+        return false;
+    }
     let spec = paste_spec(state);
     let wait = *state.picker_open.lock().expect("picker_open");
     if !yield_target(app, state, keep_open) {
         if keep_open {
             reveal_picker(app, state);
         }
-        return;
+        return false;
     }
     if wait {
         std::thread::sleep(Duration::from_millis(70));
     }
-    let _ = platform::simulate_paste(&spec);
+    let ok = platform::simulate_paste(&spec);
     if let Some(previous) = previous {
         std::thread::sleep(Duration::from_millis(200));
         let _ = clipboard::write_clipboard_text(&previous);
@@ -2313,12 +2352,14 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     if keep_open {
         reveal_picker(app, state);
     }
+    ok
 }
 
 #[cfg(not(windows))]
-fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: bool) {
-    let _ = clipboard::write_clipboard_text(text);
+fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: bool) -> bool {
+    let ok = clipboard::write_clipboard_text(text);
     let _ = yield_target(app, state, false);
+    ok
 }
 
 #[cfg(windows)]
