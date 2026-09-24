@@ -41,7 +41,6 @@ pub struct Expand {
     pub cred_fail: std::cell::Cell<bool>,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
-    pub aliases: std::collections::HashMap<String, String>,
     pub vars: std::collections::HashMap<String, String>,
     pub tags: std::collections::HashMap<String, String>,
 }
@@ -828,25 +827,14 @@ pub fn has_sel_token(text: &str) -> bool {
     walk_tokens(text, token_has_sel)
 }
 
-/// 本文と差し込んだエイリアスから、書いてある `{{var:名前}}`。
-pub fn referenced_vars(
-    text: &str,
-    env: &WhenEnv<'_>,
-    aliases: &std::collections::HashMap<String, String>,
-) -> Vec<String> {
+/// 本文に書いてある `{{var:名前}}`。出現順。同じ名前は 1 回。
+pub fn referenced_vars(text: &str, env: &WhenEnv<'_>) -> Vec<String> {
     let mut names = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    collect_vars(&apply_when(text, env), env, aliases, &mut seen, &mut names);
+    collect_vars(&apply_when(text, env), env, &mut names);
     names
 }
 
-fn collect_vars(
-    text: &str,
-    env: &WhenEnv<'_>,
-    aliases: &std::collections::HashMap<String, String>,
-    seen_alias: &mut std::collections::HashSet<String>,
-    names: &mut Vec<String>,
-) {
+fn collect_vars(text: &str, env: &WhenEnv<'_>, names: &mut Vec<String>) {
     walk_tokens(text, |inner| {
         for part in fallback_parts(inner) {
             if let Some(name) = arg_after(&part, "var") {
@@ -854,12 +842,12 @@ fn collect_vars(
                 if !name.is_empty()
                     && !name.contains('{')
                     && !names.iter().any(|existing| existing == name)
-            {
+                {
                     names.push(name.to_string());
                 }
             }
             if part.contains("{{") && walk_tokens(&part, |_| true) {
-                collect_vars(&part, env, aliases, seen_alias, names);
+                collect_vars(&part, env, names);
             }
         }
         false
@@ -962,92 +950,8 @@ pub fn split_quote_arg(arg: &str) -> (&str, &str) {
     arg.split_once('\u{1}').unwrap_or((arg, ""))
 }
 
-pub fn to_tsv(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.starts_with('[') {
-        let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-        let arr = value.as_array()?;
-        if arr.is_empty() {
-            return None;
-        }
-        if arr.iter().all(|entry| entry.is_string()) {
-            return Some(
-                arr.iter()
-                    .map(|entry| entry.as_str().unwrap_or(""))
-                    .collect::<Vec<_>>()
-                    .join("\t"),
-            );
-        }
-        if arr.iter().all(|entry| entry.is_object()) {
-            let first = arr[0].as_object()?;
-            let keys: Vec<String> = first.keys().cloned().collect();
-            if keys.is_empty() {
-                return None;
-            }
-            let same = arr.iter().all(|entry| {
-                entry.as_object().map_or(false, |object| {
-                    object.len() == keys.len() && keys.iter().all(|key| object.contains_key(key))
-                })
-            });
-            if !same {
-                return None;
-            }
-            let rows: Vec<String> = arr
-                .iter()
-                .map(|entry| {
-                    let object = entry.as_object().unwrap();
-                    keys.iter()
-                        .map(|key| json_cell(&object[key]))
-                        .collect::<Vec<_>>()
-                        .join("\t")
-                })
-                .collect();
-            return Some(rows.join("\n"));
-        }
-        return None;
-    }
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines.join("\t"))
-    }
-}
-
-fn json_cell(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(text) => text.clone(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
-    }
-}
-
 pub fn log_path(_tags: &[String]) -> Option<String> {
     None
-}
-
-pub fn ttl_secs(tag: &str) -> Option<u64> {
-    let rest = tag.strip_prefix("ttl:")?;
-    if rest.len() < 2 {
-        return None;
-    }
-    let (digits, unit) = rest.split_at(rest.len() - 1);
-    let amount: u64 = digits.parse().ok()?;
-    match unit {
-        "m" => Some(amount.saturating_mul(60)),
-        "h" => Some(amount.saturating_mul(3600)),
-        "d" => Some(amount.saturating_mul(86400)),
-        _ => None,
-    }
-}
-
-pub fn expired(tags: &[String], created_at: u64, now: u64) -> bool {
-    if created_at == 0 {
-        return false;
-    }
-    tags.iter().any(|tag| {
-        ttl_secs(tag).map_or(false, |secs| now.saturating_sub(created_at) >= secs)
-    })
 }
 
 fn walk_tokens(text: &str, mut visit: impl FnMut(&str) -> bool) -> bool {
@@ -1154,137 +1058,6 @@ fn capitalize(word: &str) -> String {
     };
     let mut out = first.to_uppercase().to_string();
     out.extend(chars);
-    out
-}
-
-pub struct Inferred {
-    pub text: String,
-    pub grab: bool,
-}
-
-/// 2回の `Ctrl+4` から式を1つ推測する。当たらなければなし。
-pub fn infer_pair(input: &str, output: &str) -> Option<Inferred> {
-    if input.is_empty() || output.is_empty() || input == output {
-        return None;
-    }
-    for style in ["camel", "pascal", "snake", "kebab", "upper", "lower"] {
-        if recase(input, style) == output {
-            return Some(Inferred {
-                text: format!(":sel | {style}"),
-                grab: false,
-            });
-        }
-    }
-    if input.contains('\n') || output.contains('\n') {
-        return None;
-    }
-    let input_parts = alnum_parts(input);
-    let output_parts = alnum_parts(output);
-    let output_tokens: std::collections::HashSet<&str> = output_parts
-        .iter()
-        .filter(|(token, _)| *token)
-        .map(|(_, text)| text.as_str())
-        .collect();
-    let mut holes = std::collections::HashMap::new();
-    let mut next = 0usize;
-    for (token, text) in &input_parts {
-        if *token && output_tokens.contains(text.as_str()) && !holes.contains_key(text) {
-            holes.insert(text.clone(), hole_name(next));
-            next += 1;
-        }
-    }
-    if holes.is_empty() {
-        return None;
-    }
-    let pattern = apply_holes(&input_parts, &holes);
-    let template = apply_holes(&output_parts, &holes);
-    if !shares_literal(&pattern, &template) {
-        return None;
-    }
-    Some(Inferred {
-        text: format!("{pattern}\n{template}"),
-        grab: true,
-    })
-}
-
-fn alnum_parts(text: &str) -> Vec<(bool, String)> {
-    let mut parts = Vec::new();
-    let mut buf = String::new();
-    let mut token = false;
-    for ch in text.chars() {
-        let is_token = ch.is_ascii_alphanumeric();
-        if buf.is_empty() {
-            token = is_token;
-            buf.push(ch);
-            continue;
-        }
-        if is_token == token {
-            buf.push(ch);
-            continue;
-        }
-        parts.push((token, std::mem::take(&mut buf)));
-        token = is_token;
-        buf.push(ch);
-    }
-    if !buf.is_empty() {
-        parts.push((token, buf));
-    }
-    parts
-}
-
-fn apply_holes(parts: &[(bool, String)], holes: &std::collections::HashMap<String, String>) -> String {
-    let mut out = String::new();
-    for (token, text) in parts {
-        if *token {
-            if let Some(name) = holes.get(text) {
-                out.push('<');
-                out.push_str(name);
-                out.push('>');
-                continue;
-            }
-        }
-        out.push_str(text);
-    }
-    out
-}
-
-fn hole_name(index: usize) -> String {
-    let mut n = index;
-    let mut name = String::new();
-    loop {
-        name.insert(0, (b'a' + (n % 26) as u8) as char);
-        if n < 26 {
-            break;
-        }
-        n = n / 26 - 1;
-    }
-    name
-}
-
-fn shares_literal(pattern: &str, template: &str) -> bool {
-    let left: std::collections::HashSet<char> = literal_chars(pattern).chars().collect();
-    literal_chars(template).chars().any(|ch| left.contains(&ch))
-}
-
-fn literal_chars(pattern: &str) -> String {
-    let chars: Vec<char> = pattern.chars().collect();
-    let mut out = String::new();
-    let mut index = 0;
-    while index < chars.len() {
-        if chars[index] == '<' {
-            let start = index + 1;
-            let mut end = start;
-            while end < chars.len() && chars[end] != '>' {
-                end += 1;
-            }
-            if end < chars.len() && is_ident(&chars[start..end].iter().collect::<String>()) {
-                index = end + 1;
-                continue;
-            }
-        }
-        out.push(chars[index]);
-        index += 1;
-    }
     out
 }
 
@@ -1882,11 +1655,6 @@ mod tests {
                 ("名前".into(), "hatamon".into()),
                 ("pick:list: prod, stg".into(), "stg".into()),
             ]),
-            aliases: std::collections::HashMap::from([
-                ("foo".into(), "X{{date}}Y".into()),
-                ("bar".into(), "BB{{@foo}}".into()),
-                ("loop".into(), "{{@loop}}".into()),
-            ]),
             vars: std::collections::HashMap::from([
                 ("a".into(), "{{date}}".into()),
                 ("b".into(), "a".into()),
@@ -2032,20 +1800,18 @@ mod tests {
             expand_template("{{sel|hello {{date}}}}", &empty_sel),
             "hello 2026/09/20"
         );
-        let aliases = std::collections::HashMap::from([("foo".into(), "{{var:a}}".into())]);
         let empty_vars = std::collections::HashMap::new();
         assert_eq!(
-            referenced_vars("{{var:b}} {{@foo}}", &bare("code", &empty_vars), &aliases),
+            referenced_vars("{{var:b}} {{@foo}}", &bare("code", &empty_vars)),
             vec!["b".to_string()]
         );
         assert!(referenced_vars(
             "{{when app: excel}}{{var:a}}{{when}}",
             &bare("code", &empty_vars),
-            &aliases
         )
         .is_empty());
         assert_eq!(
-            referenced_vars("{{var:a|なし}}", &bare("code", &empty_vars), &std::collections::HashMap::new()),
+            referenced_vars("{{var:a|なし}}", &bare("code", &empty_vars)),
             vec!["a".to_string()]
         );
         assert_eq!(ask_names("{{ask:a}} {{ask:b}} {{ask:a}}"), vec!["a", "b"]);
@@ -2322,29 +2088,6 @@ mod tests {
     }
 
     #[test]
-    fn tsv_from_json_and_lines() {
-        assert_eq!(to_tsv("[\"a\",\"b\"]").as_deref(), Some("a\tb"));
-        assert_eq!(
-            to_tsv("[{\"x\":1,\"y\":\"z\"}]").as_deref(),
-            Some("1\tz")
-        );
-        assert_eq!(to_tsv("one\ntwo").as_deref(), Some("one\ttwo"));
-        assert_eq!(to_tsv("[]"), None);
-        assert_eq!(to_tsv("[1,2]"), None);
-    }
-
-    #[test]
-    fn ttl_parses_units_and_expiry() {
-        assert_eq!(ttl_secs("ttl:30m"), Some(1800));
-        assert_eq!(ttl_secs("ttl:1h"), Some(3600));
-        assert_eq!(ttl_secs("ttl:1d"), Some(86400));
-        assert_eq!(ttl_secs("ttl:nope"), None);
-        assert!(expired(&["ttl:1h".into()], 10, 10 + 3600));
-        assert!(!expired(&["ttl:1h".into()], 10, 10 + 3599));
-        assert!(!expired(&["ttl:1h".into()], 0, 10_000));
-    }
-
-    #[test]
     fn formatting_drops_quote_markers_and_blank_runs() {
         assert_eq!(
             format_for_paste("> hello\n> > world\n\n\n> bye\n"),
@@ -2378,24 +2121,6 @@ mod tests {
         assert_eq!(recase("Foo_Bar\nbaz", "camel"), "fooBar\nbaz");
         assert_eq!(recase("AbC", "upper"), "ABC");
         assert_eq!(recase("AbC", "lower"), "abc");
-    }
-
-    #[test]
-    fn infers_a_case_stage_or_a_grab() {
-        let snake = infer_pair("getUserName", "get_user_name").unwrap();
-        assert!(!snake.grab);
-        assert_eq!(snake.text, ":sel | snake");
-        let input = "https://github.com/hatamon/hataclip/pull/12";
-        let output = "gh pr checkout 12 --repo hatamon/hataclip";
-        let grab = infer_pair(input, output).unwrap();
-        assert!(grab.grab);
-        assert_eq!(
-            grab_fill(&grab.text, input).as_deref(),
-            Some(output)
-        );
-        assert!(infer_pair("fooX", "fooY").is_none());
-        assert!(infer_pair("abc", "xyz").is_none());
-        assert!(infer_pair("same", "same").is_none());
     }
 
     #[test]

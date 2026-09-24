@@ -1776,24 +1776,6 @@ fn run_paste(
     ok
 }
 
-/// いまの一覧の並びで、先に出てきた `#alias:name` の本文。
-fn alias_map(state: &AppState) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for item in view(state) {
-        for tag in &item.tags {
-            if let Some(name) = tag.strip_prefix("alias:") {
-                let name = name.trim();
-                if name.is_empty() {
-                    continue;
-                }
-                map.entry(name.to_string())
-                    .or_insert_with(|| item.text.clone());
-            }
-        }
-    }
-    map
-}
-
 /// いまの一覧の並びで、同じタグの本文を改行つなぎ。
 fn tag_map(state: &AppState) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
@@ -1835,7 +1817,6 @@ fn bump_n(state: &AppState) {
 
 fn bump_step_vars(state: &AppState, ids: &[String]) {
     let app = foreground_app(state);
-    let aliases = alias_map(state);
     let vars = var_map(state);
     let focus = platform::focused_control();
     let names = {
@@ -1852,7 +1833,6 @@ fn bump_step_vars(state: &AppState, ids: &[String]) {
                     focus: &focus,
                     vars: &vars,
                 },
-                &aliases,
             ) {
                 if !names.iter().any(|existing| existing == &name) {
                     names.push(name);
@@ -1911,7 +1891,6 @@ fn expand_context(
         cred_fail: std::cell::Cell::new(false),
         now,
         answers,
-        aliases: alias_map(state),
         vars: var_map(state),
         tags: tag_map(state),
     }
@@ -2737,7 +2716,6 @@ mod tests {
             cred_fail: std::cell::Cell::new(false),
             now: Local::now(),
             answers: HashMap::new(),
-            aliases: HashMap::new(),
             vars: HashMap::new(),
             tags: HashMap::new(),
         }

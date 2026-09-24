@@ -89,7 +89,6 @@ mod tests {
             cred_fail: std::cell::Cell::new(false),
             now: chrono::Local::now(),
             answers: HashMap::new(),
-            aliases: HashMap::new(),
             vars: HashMap::from([("a".into(), "{{date}}".into())]),
             tags: HashMap::new(),
         }
