@@ -1860,9 +1860,6 @@ fn capture_front_text(state: &AppState) -> Option<String> {
         let _ = platform::simulate_copy(&spec);
         std::thread::sleep(Duration::from_millis(200));
         let captured = clipboard::peek_text();
-        if let Some(previous) = previous.as_ref() {
-            let _ = clipboard::write_clipboard_text(previous);
-        }
         match captured {
             Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => Some(text),
             _ => None,
@@ -2208,9 +2205,6 @@ fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
     let _ = platform::simulate_copy(&copy_spec(state));
     std::thread::sleep(Duration::from_millis(200));
     let captured = clipboard::peek_text();
-    if let Some(previous) = previous.as_ref() {
-        let _ = clipboard::write_clipboard_text(previous);
-    }
     match captured {
         Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
         _ => String::new(),
@@ -2222,7 +2216,7 @@ fn capture_selection(_app: &tauri::AppHandle, _state: &AppState) -> String {
     String::new()
 }
 
-/// パイプの `sel`。前面へ Ctrl+C を送り、200ms 後を読んで、すぐクリップボードを戻す。
+/// パイプの `sel`。前面へ Ctrl+C を送り、200ms 後を読む。クリップボードは戻さない。
 fn capture_pipe_selection(app: &tauri::AppHandle, state: &AppState) -> Result<String, String> {
     #[cfg(windows)]
     {
@@ -2239,9 +2233,6 @@ fn capture_pipe_selection(app: &tauri::AppHandle, state: &AppState) -> Result<St
         let _ = platform::simulate_copy(&copy_spec(state));
         std::thread::sleep(Duration::from_millis(200));
         let captured = clipboard::peek_text();
-        if let Some(previous) = previous.as_ref() {
-            let _ = clipboard::write_clipboard_text(previous);
-        }
         let text = match captured {
             Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
             _ => String::new(),
@@ -2326,7 +2317,6 @@ fn play_ops(
     keep_open: bool,
     typed: bool,
 ) -> bool {
-    let previous = clipboard::peek_text();
     let spec = paste_spec(state);
     let wait = *state.picker_open.lock().expect("picker_open");
     if !yield_target(app, state, keep_open) {
@@ -2336,14 +2326,6 @@ fn play_ops(
         std::thread::sleep(Duration::from_millis(70));
     }
     let mut did_paste = false;
-    let restore = |did_paste: bool| {
-        if did_paste {
-            if let Some(previous) = previous.as_ref() {
-                std::thread::sleep(Duration::from_millis(200));
-                let _ = clipboard::write_clipboard_text(previous);
-            }
-        }
-    };
     for (index, op) in ops.iter().enumerate() {
         if index > 0 {
             std::thread::sleep(Duration::from_millis(70));
@@ -2365,15 +2347,12 @@ fn play_ops(
             }
         };
         if !ok {
-            if did_paste {
-                if let Some(previous) = previous.as_ref() {
-                    let _ = clipboard::write_clipboard_text(previous);
-                }
-            }
             return mark_paste(state, false);
         }
     }
-    restore(did_paste);
+    if did_paste {
+        std::thread::sleep(Duration::from_millis(200));
+    }
     if keep_open {
         reveal_picker(app, state);
     }
@@ -2609,7 +2588,6 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
 
 #[cfg(windows)]
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
-    let previous = clipboard::peek_text();
     if !clipboard::write_clipboard_text(text) {
         note_error(state, "クリップボードに書けない");
         return false;
@@ -2626,10 +2604,7 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
         std::thread::sleep(Duration::from_millis(70));
     }
     let ok = platform::simulate_paste(&spec);
-    if let Some(previous) = previous {
-        std::thread::sleep(Duration::from_millis(200));
-        let _ = clipboard::write_clipboard_text(&previous);
-    }
+    std::thread::sleep(Duration::from_millis(200));
     if keep_open {
         reveal_picker(app, state);
     }
@@ -2748,7 +2723,6 @@ pub(crate) fn register_from_clipboard(app: &tauri::AppHandle, state: &AppState) 
 
 #[cfg(windows)]
 fn capture_register_text(state: &AppState) -> Option<String> {
-    let previous = clipboard::peek_text();
     let spec = {
         let app_name = platform::capture_foreground()
             .map(|fg| platform::app_and_title(&fg).0)
@@ -2757,11 +2731,7 @@ fn capture_register_text(state: &AppState) -> Option<String> {
     };
     let _ = platform::simulate_copy(&spec);
     std::thread::sleep(Duration::from_millis(70));
-    let captured = clipboard::peek_text();
-    if let Some(previous) = previous {
-        let _ = clipboard::write_clipboard_text(&previous);
-    }
-    captured.filter(|text| !text.trim().is_empty())
+    clipboard::peek_text().filter(|text| !text.trim().is_empty())
 }
 
 #[cfg(not(windows))]

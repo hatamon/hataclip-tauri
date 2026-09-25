@@ -39,7 +39,7 @@ pub fn focused_control() -> String {
     }
 }
 
-/// Linux は前面へ送れないのでクリップボードに残す。Windows は注入して戻す。
+/// Linux は前面へ送れないのでクリップボードに残す。Windows は注入する。クリップボードは戻さない。
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn keeps_clipboard_on_paste() -> bool {
     cfg!(not(windows))
