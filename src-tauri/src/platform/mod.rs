@@ -8,7 +8,8 @@ mod windows;
 mod input;
 #[cfg(windows)]
 pub use windows::{
-    app_and_title, capture_foreground, context_key, restore_foreground, Foreground,
+    app_and_title, capture_foreground, context_key, restore_foreground, wait_enter_released,
+    Foreground,
 };
 #[cfg(windows)]
 pub use input::{simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms};

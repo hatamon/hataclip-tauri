@@ -2358,6 +2358,7 @@ fn play_ops(
     if wait {
         std::thread::sleep(Duration::from_millis(70));
     }
+    platform::wait_enter_released();
     let mut did_paste = false;
     for (index, op) in ops.iter().enumerate() {
         if index > 0 {
@@ -2613,10 +2614,10 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
     } else {
         state.foreground.lock().expect("foreground").take()
     };
-    match foreground {
-        Some(foreground) => platform::restore_foreground(&foreground),
-        None => true,
+    if let Some(foreground) = foreground.as_ref() {
+        let _ = platform::restore_foreground(foreground);
     }
+    true
 }
 
 #[cfg(windows)]
@@ -2636,6 +2637,7 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     if wait {
         std::thread::sleep(Duration::from_millis(70));
     }
+    platform::wait_enter_released();
     let ok = platform::simulate_paste(&spec);
     std::thread::sleep(Duration::from_millis(200));
     if keep_open {

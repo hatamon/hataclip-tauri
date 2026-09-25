@@ -4,10 +4,11 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_SHIFT,
+    GetAsyncKeyState, VK_CONTROL, VK_RETURN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetForegroundWindow,
@@ -37,7 +38,25 @@ pub fn capture_foreground() -> Option<Foreground> {
 }
 
 pub fn restore_foreground(fg: &Foreground) -> bool {
-    unsafe { SetForegroundWindow(fg.hwnd as HWND) != 0 }
+    unsafe {
+        let hwnd = fg.hwnd as HWND;
+        if GetForegroundWindow() == hwnd {
+            return true;
+        }
+        let current = GetCurrentThreadId();
+        let active = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
+        let target = GetWindowThreadProcessId(hwnd, std::ptr::null_mut());
+        let attach_active = active != 0 && active != current && AttachThreadInput(current, active, 1) != 0;
+        let attach_target = target != 0 && target != current && target != active && AttachThreadInput(current, target, 1) != 0;
+        let ok = SetForegroundWindow(hwnd) != 0 || GetForegroundWindow() == hwnd;
+        if attach_target {
+            let _ = AttachThreadInput(current, target, 0);
+        }
+        if attach_active {
+            let _ = AttachThreadInput(current, active, 0);
+        }
+        ok
+    }
 }
 
 /// 貼り付け先を表す目印。ブラウザは開いているページまで見る。
@@ -117,4 +136,16 @@ pub(crate) fn modifiers_held() -> (bool, bool) {
         let shift = GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000 != 0;
         (ctrl, shift)
     }
+}
+
+/// 一覧の Enter が押されたまま貼り付けキーを送ると、前面は Ctrl+V として受け取らない。
+pub fn wait_enter_released() {
+    let started = std::time::Instant::now();
+    while key_down(VK_RETURN) && started.elapsed() < std::time::Duration::from_millis(400) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn key_down(vk: u16) -> bool {
+    unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
 }
