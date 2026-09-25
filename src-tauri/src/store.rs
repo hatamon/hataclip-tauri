@@ -298,42 +298,6 @@ impl Store {
         true
     }
 
-    pub fn set_tag(&mut self, ids: &[String], tag: &str, add: bool) -> bool {
-        self.absorb();
-        let tag = tag.trim();
-        if tag.is_empty() {
-            return false;
-        }
-        let mut changed = false;
-        for item in self.items.iter() {
-            if !ids.iter().any(|id| id == &item.id) {
-                continue;
-            }
-            let has = item.tags.iter().any(|entry| entry == tag);
-            if (add && !has) || (!add && has) {
-                changed = true;
-                break;
-            }
-        }
-        if !changed {
-            return false;
-        }
-        self.push_undo();
-        for item in self.items.iter_mut() {
-            if !ids.iter().any(|id| id == &item.id) {
-                continue;
-            }
-            let has = item.tags.iter().any(|entry| entry == tag);
-            if add && !has {
-                item.tags.push(tag.to_string());
-            } else if !add && has {
-                item.tags.retain(|entry| entry != tag);
-            }
-        }
-        self.save();
-        true
-    }
-
     /// 空白で分けた語を、取り消し1回で付け外しする。空の語は捨てる。
     pub fn set_tags(&mut self, ids: &[String], tags: &[String], add: bool) -> bool {
         self.absorb();
@@ -1307,14 +1271,14 @@ mod tests {
         store.insert(item("b", "two"));
         store.insert(item("a", "one"));
         let ids = vec!["a".to_string(), "b".to_string()];
-        assert!(store.set_tag(&ids, "work", true));
-        assert!(!store.set_tag(&ids, "work", true));
+        assert!(store.set_tags(&ids, &["work".into()], true));
+        assert!(!store.set_tags(&ids, &["work".into()], true));
         assert_eq!(store.get("a").unwrap().tags, vec!["work"]);
-        assert!(store.set_tag(&["a".to_string()], "work", false));
+        assert!(store.set_tags(&["a".to_string()], &["work".into()], false));
         assert!(store.get("a").unwrap().tags.is_empty());
         assert_eq!(store.get("b").unwrap().tags, vec!["work"]);
-        assert!(!store.set_tag(&ids, "  ", true));
-        assert!(store.set_tag(&["a".to_string()], "work", true));
+        assert!(!store.set_tags(&ids, &["  ".into()], true));
+        assert!(store.set_tags(&["a".to_string()], &["work".into()], true));
         assert!(store.set_app_tag(&["a".to_string()], "chrome"));
         assert_eq!(store.get("a").unwrap().tags, vec!["work", "app:chrome"]);
         assert!(store.set_app_tag(&["a".to_string()], "Code"));
@@ -1333,7 +1297,7 @@ mod tests {
             true
         ));
         assert_eq!(store.get("a").unwrap().tags, vec!["a", "b", "c"]);
-        assert!(store.set_tag(&ids, "a b c", true));
+        assert!(store.set_tags(&ids, &["a b c".into()], true));
         assert_eq!(store.get("a").unwrap().tags, vec!["a", "b", "c", "a b c"]);
         assert!(store.set_tags(&ids, &["a".into(), "c".into(), "missing".into()], false));
         assert_eq!(store.get("a").unwrap().tags, vec!["b", "a b c"]);
