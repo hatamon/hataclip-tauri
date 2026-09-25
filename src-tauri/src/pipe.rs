@@ -481,6 +481,9 @@ fn stage_of(part: &str) -> Option<Op> {
     if part == "add" {
         return Some(op("add", "", false));
     }
+    if part == "show" {
+        return Some(op("show", "", false));
+    }
     if part == "sel" {
         return Some(op("sel", "", false));
     }
@@ -665,7 +668,7 @@ fn eval_local(
                     text = Some(clip.to_string());
                 }
             }
-            "add" => {
+            "add" | "show" => {
                 if text.is_none() {
                     return None;
                 }
@@ -766,7 +769,7 @@ fn render_op(op: &Op) -> String {
     match op.kind.as_str() {
         "dot" => ".".to_string(),
         "clip" | "sel" | "raw" | "each" | "format" | "json" | "xml" | "camel" | "pascal"
-        | "snake" | "kebab" | "upper" | "lower" => op.kind.clone(),
+        | "snake" | "kebab" | "upper" | "lower" | "add" | "show" => op.kind.clone(),
         "echo" => format!("echo {}", op.arg),
         "sh" => {
             let script = quote_render(&op.arg);
@@ -1054,6 +1057,11 @@ mod tests {
             colon_preview("kebab | add | quote", "userName", "").as_deref(),
             Some("> user-name")
         );
+        let PasteBody::Run(shown) = classify("show | add") else {
+            panic!("show");
+        };
+        assert_eq!(shown.sink, "add");
+        assert_eq!(shown.ops[0].kind, "show");
     }
 
     #[test]

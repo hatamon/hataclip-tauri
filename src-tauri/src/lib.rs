@@ -955,6 +955,14 @@ fn walk_pipe(
                     added.push((current.to_string(), render_formula(&ops[..index])));
                 }
             }
+            "show" => {
+                let Some(current) = text.as_deref() else {
+                    return Err("段がない".into());
+                };
+                if !current.is_empty() {
+                    let _ = app.emit("pipe-shown", current.to_string());
+                }
+            }
             "clip" => match text.as_deref() {
                 Some(current) => {
                     if !current.is_empty() && !clipboard::write_clipboard_text(current) {

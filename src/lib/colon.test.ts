@@ -250,6 +250,11 @@ describe("parseColonPipe", () => {
       usesSelection: false,
       ops: [{ kind: "clip", arg: "", selectionStdin: false }],
     });
+    expect(parseColonPipe("show | add")).toMatchObject({
+      kind: "ok",
+      sink: { kind: "add" },
+      ops: [{ kind: "show", arg: "", selectionStdin: false }],
+    });
     expect(parseColonPipe("s/old/new")).toMatchObject({
       kind: "ok",
       sink: { kind: "paste" },

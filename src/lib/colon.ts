@@ -278,7 +278,8 @@ export type PipeOp = {
     | "xml"
     | "echo"
     | "sel"
-    | "filter";
+    | "filter"
+    | "show";
   arg: string;
   selectionStdin: boolean;
 };
@@ -511,6 +512,9 @@ function stageOf(part: string): PipeOp | null {
   }
   if (part === "clip") {
     return { kind: "clip", arg: "", selectionStdin: false };
+  }
+  if (part === "show") {
+    return { kind: "show", arg: "", selectionStdin: false };
   }
   if (part === "sel") {
     return { kind: "sel", arg: "", selectionStdin: false };

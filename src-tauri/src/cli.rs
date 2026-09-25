@@ -188,6 +188,14 @@ fn walk(
                     added.push((current.to_string(), pipe::render_ops(&ops[..index])));
                 }
             }
+            "show" => {
+                let Some(current) = text.as_deref() else {
+                    return Err("失敗".to_string());
+                };
+                if !current.is_empty() && crate::page::present(current).is_err() {
+                    return Err("失敗".to_string());
+                }
+            }
             "clip" => match text.as_deref() {
                 Some(current) => {
                     if !current.is_empty() && !crate::clipboard::write_clipboard_text(current) {
@@ -328,6 +336,7 @@ mod tests {
         assert_eq!(transform("add", Some("hello")).as_deref(), Ok("hello"));
         assert_eq!(transform("clip", Some("hello")).as_deref(), Ok("hello"));
         assert_eq!(transform("show", Some("hello")).as_deref(), Ok("hello"));
+        assert_eq!(transform("show | add", Some("hello")).as_deref(), Ok("hello"));
         assert!(transform("add", None).is_err());
         let script = resolve("kebab | add | quote", true).expect("pipe");
         let mut added = Vec::new();
