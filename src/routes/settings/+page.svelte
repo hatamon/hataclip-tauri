@@ -113,13 +113,6 @@
   </div>
 
   <div class="row">
-    <span class="name">補完</span>
-    <button type="button" class:recording={recording === "complete"} onclick={() => void startRecording("complete")}>
-      {label("complete", complete)}
-    </button>
-  </div>
-
-  <div class="row">
     <span class="name">展開</span>
     <button type="button" class:recording={recording === "expand"} onclick={() => void startRecording("expand")}>
       {label("expand", expand)}
@@ -132,7 +125,7 @@
     <span class="hint">Ctrl+Shift+1〜9 で一覧を出さずに貼る</span>
   </label>
 
-  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。展開は前面で `{'{{date}}'}` / `:sh dir` を選んで押すと置き換える（初期値 Ctrl+8）。補完は選択語で履歴を展開して貼る。検索は一覧の `/` と同じ（初期値 Ctrl+9）。登録・表示・展開と同じキーは登録しない。</p>
+  <p class="hint">押したい組み合わせを押す。修飾キーが要る。`Esc` で取り消し。展開は1つ（初期値 Ctrl+8）。空白を除いた先頭が `/` なら補完、それ以外は `{'{{date}}'}` / `:sh dir` を置き換える。登録・表示と同じキーは登録しない。</p>
 
   <div class="actions">
     <button type="button" class="save" onclick={save}>保存</button>
