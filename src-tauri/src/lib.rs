@@ -50,6 +50,8 @@ pub(crate) struct AppState {
     paste_serial: Mutex<u32>,
     last_sh: Mutex<Option<String>>,
     picker_open: Mutex<bool>,
+    /// Ctrl+Enter の貼り付け中。この間の blur では一覧を閉じない。
+    hold_picker: Mutex<bool>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
     last_error: Mutex<Option<String>>,
     pending_expand: Mutex<Option<String>>,
@@ -371,6 +373,9 @@ fn edit_external(
 
 #[tauri::command]
 fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    if *state.hold_picker.lock().expect("hold_picker") {
+        return;
+    }
     reset_n(&state);
     hide_window(&app, &state);
 }
@@ -2019,11 +2024,19 @@ fn run_paste(
         if let Some(key) = current_context(state) {
             state.store.lock().expect("store").record_context(ids, &key);
         }
+        if keep_open {
+            let _hold = HoldPicker::arm(state);
+            let _ = yield_target(app, state, true);
+            let _ = app.emit("items-changed", view(state));
+            reveal_picker(app, state);
+            bump_n(state);
+            if ctx.is_some() {
+                bump_step_vars(state, ids);
+            }
+            return true;
+        }
         hide_window(app, state);
         let _ = app.emit("items-changed", view(state));
-        if keep_open {
-            reveal_picker(app, state);
-        }
         bump_n(state);
         if ctx.is_some() {
             bump_step_vars(state, ids);
@@ -2352,7 +2365,11 @@ fn play_ops(
 ) -> bool {
     let spec = paste_spec(state);
     let wait = *state.picker_open.lock().expect("picker_open");
+    let _hold = keep_open.then(|| HoldPicker::arm(state));
     if !yield_target(app, state, keep_open) {
+        if keep_open {
+            reveal_picker(app, state);
+        }
         return mark_paste(state, false);
     }
     if wait {
@@ -2380,6 +2397,9 @@ fn play_ops(
             }
         };
         if !ok {
+            if keep_open {
+                reveal_picker(app, state);
+            }
             return mark_paste(state, false);
         }
     }
@@ -2607,7 +2627,13 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
     if !*state.picker_open.lock().expect("picker_open") {
         return true;
     }
-    hide_window(app, state);
+    if keep_open {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_focusable(false);
+        }
+    } else {
+        hide_window(app, state);
+    }
     let foreground = if keep_open {
         *state.foreground.lock().expect("foreground")
     } else {
@@ -2627,6 +2653,7 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     }
     let spec = paste_spec(state);
     let wait = *state.picker_open.lock().expect("picker_open");
+    let _hold = keep_open.then(|| HoldPicker::arm(state));
     if !yield_target(app, state, keep_open) {
         if keep_open {
             reveal_picker(app, state);
@@ -2659,7 +2686,11 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: 
 #[cfg(windows)]
 fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
     let wait = *state.picker_open.lock().expect("picker_open");
+    let _hold = keep_open.then(|| HoldPicker::arm(state));
     if !yield_target(app, state, keep_open) {
+        if keep_open {
+            reveal_picker(app, state);
+        }
         return mark_paste(state, false);
     }
     let ok = if wait {
@@ -2668,7 +2699,7 @@ fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bo
     } else {
         platform::simulate_type(text)
     };
-    if ok && keep_open {
+    if keep_open {
         reveal_picker(app, state);
     }
     mark_paste(state, ok)
@@ -2679,8 +2710,44 @@ fn type_text(_app: &tauri::AppHandle, state: &AppState, _text: &str, _keep_open:
     mark_paste(state, false)
 }
 
+struct HoldPicker<'a>(&'a AppState);
+
+impl<'a> HoldPicker<'a> {
+    fn arm(state: &'a AppState) -> Self {
+        *state.hold_picker.lock().expect("hold_picker") = true;
+        Self(state)
+    }
+}
+
+impl Drop for HoldPicker<'_> {
+    fn drop(&mut self) {
+        *self.0.hold_picker.lock().expect("hold_picker") = false;
+    }
+}
+
+fn picker_is_foreground(app: &tauri::AppHandle, captured: &platform::Foreground) -> bool {
+    #[cfg(windows)]
+    {
+        app.get_webview_window("main")
+            .and_then(|window| window.hwnd().ok())
+            .is_some_and(|hwnd| platform::same_hwnd(captured, hwnd.0 as isize))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, captured);
+        false
+    }
+}
+
 fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
-    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    if let Some(captured) = platform::capture_foreground() {
+        if !picker_is_foreground(app, &captured) {
+            *state.foreground.lock().expect("foreground") = Some(captured);
+        }
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_focusable(true);
+    }
     show_window(app);
 }
 
@@ -2920,6 +2987,7 @@ pub fn run() {
                 paste_serial: Mutex::new(n_start),
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
+                hold_picker: Mutex::new(false),
                 complete_cycle: Mutex::new(None),
                 last_error: Mutex::new(None),
                 pending_expand: Mutex::new(None),

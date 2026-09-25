@@ -40,6 +40,10 @@ pub fn restore_foreground(fg: &Foreground) -> bool {
     unsafe { SetForegroundWindow(fg.hwnd as HWND) != 0 }
 }
 
+pub fn same_hwnd(fg: &Foreground, hwnd: isize) -> bool {
+    fg.hwnd == hwnd
+}
+
 /// 貼り付け先を表す目印。ブラウザは開いているページまで見る。
 pub fn context_key(fg: &Foreground) -> Option<String> {
     let hwnd = fg.hwnd as HWND;

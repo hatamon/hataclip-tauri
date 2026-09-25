@@ -177,9 +177,9 @@ V なら改行つなぎ。詳しくは :help visual :help pipe :help stay",
         summary: "貼り付けて一覧を残す",
         body: "\
 打つ: Ctrl+Enter
-変わるのは前面。一覧は閉じない。{{n}} はこのとき進む。
-例: hello で Ctrl+Enter すると前面は hello のまま、一覧も残る。
-貼れないときは何もしない。
+変わるのは前面。一覧は閉じない。消えて出直すこともない。選択も残る。{{n}} はこのとき進む。
+例: asdf で Ctrl+Enter すると前面は asdf、一覧は開いたまま。もう一度 Ctrl+Enter で同じ行を貼る。
+貼れないときは何もしない。Enter は閉じて貼る。: の Ctrl+Enter は結果を出すだけ。編集の Ctrl+Enter は保存。
 詳しくは :help enter :help n",
     },
     Page {

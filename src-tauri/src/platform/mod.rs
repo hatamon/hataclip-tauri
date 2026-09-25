@@ -8,7 +8,7 @@ mod windows;
 mod input;
 #[cfg(windows)]
 pub use windows::{
-    app_and_title, capture_foreground, context_key, restore_foreground, Foreground,
+    app_and_title, capture_foreground, context_key, restore_foreground, same_hwnd, Foreground,
 };
 #[cfg(windows)]
 pub use input::{simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms};
@@ -17,7 +17,7 @@ pub use input::{simulate_chord, simulate_copy, simulate_paste, simulate_type, si
 mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
-    app_and_title, capture_foreground, context_key, restore_foreground, Foreground, open_dir,
+    app_and_title, capture_foreground, context_key, restore_foreground, same_hwnd, Foreground, open_dir,
     open_file, open_url,
 };
 

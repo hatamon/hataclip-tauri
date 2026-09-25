@@ -2355,7 +2355,12 @@
         void invoke("cancel_selection_expand");
         return;
       }
-      void invoke("hide_picker");
+      window.setTimeout(() => {
+        if (document.hasFocus()) {
+          return;
+        }
+        void invoke("hide_picker");
+      }, 0);
     };
     window.addEventListener("blur", onBlur);
 

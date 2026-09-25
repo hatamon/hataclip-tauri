@@ -12,6 +12,10 @@ pub fn restore_foreground(_fg: &Foreground) -> bool {
     false
 }
 
+pub fn same_hwnd(_fg: &Foreground, _hwnd: isize) -> bool {
+    false
+}
+
 pub fn context_key(_fg: &Foreground) -> Option<String> {
     None
 }
