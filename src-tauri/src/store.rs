@@ -415,20 +415,25 @@ impl Store {
         if ids.is_empty() || delta == 0 {
             return false;
         }
-        if !ids
+        let pins = ids
             .iter()
-            .all(|id| self.get(id).map_or(false, |item| item.pinned))
-        {
+            .all(|id| self.get(id).map_or(false, |item| item.pinned));
+        let rest = ids
+            .iter()
+            .all(|id| self.get(id).map_or(false, |item| !item.pinned));
+        if !pins && !rest {
             return false;
         }
         let mut order: Vec<usize> = self
             .items
             .iter()
             .enumerate()
-            .filter(|(_, item)| item.pinned)
+            .filter(|(_, item)| item.pinned == pins)
             .map(|(index, _)| index)
             .collect();
-        order.sort_by(|&a, &b| self.items[a].pin_rank.cmp(&self.items[b].pin_rank));
+        if pins {
+            order.sort_by(|&a, &b| self.items[a].pin_rank.cmp(&self.items[b].pin_rank));
+        }
         let selected: Vec<usize> = order
             .iter()
             .enumerate()
@@ -461,8 +466,22 @@ impl Store {
                 order.insert(first + 1 + offset, index);
             }
         }
-        for (rank, &index) in order.iter().enumerate() {
-            self.items[index].pin_rank = rank as i32;
+        if pins {
+            for (rank, &index) in order.iter().enumerate() {
+                self.items[index].pin_rank = rank as i32;
+            }
+        } else {
+            let slots: Vec<usize> = self
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| !item.pinned)
+                .map(|(index, _)| index)
+                .collect();
+            let moved: Vec<Item> = order.iter().map(|&index| self.items[index].clone()).collect();
+            for (slot, item) in slots.into_iter().zip(moved) {
+                self.items[slot] = item;
+            }
         }
         self.save();
         true
@@ -1443,6 +1462,28 @@ mod tests {
         assert_eq!(ordered_ids(store.list(), None), vec!["b", "a"]);
         assert!(!store.move_pins(&["c".into()], 1));
         assert!(!store.move_pins(&["b".into()], -1));
+    }
+
+    #[test]
+    fn move_unpinned_rows_stays_under_pins() {
+        let mut store = fresh("rows");
+        store.insert(item("c", "three"));
+        store.insert(item("b", "two"));
+        store.insert(Item {
+            pinned: true,
+            pin_rank: 0,
+            ..item("p", "pin")
+        });
+        store.insert(Item {
+            tags: vec!["lock".into()],
+            ..item("a", "one")
+        });
+        assert_eq!(ordered_ids(store.list(), None), vec!["p", "a", "b", "c"]);
+        assert!(!store.move_pins(&["a".into()], -1));
+        assert!(store.move_pins(&["a".into()], 1));
+        assert_eq!(ordered_ids(store.list(), None), vec!["p", "b", "a", "c"]);
+        assert!(!store.move_pins(&["p".into(), "b".into()], 1));
+        assert!(!store.move_pins(&["c".into()], 1));
     }
 
     #[test]

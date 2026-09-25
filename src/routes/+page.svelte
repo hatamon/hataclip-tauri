@@ -903,7 +903,7 @@
   }
 
   async function movePins(delta: number) {
-    if (selectedIds.length === 0 || !selectedItems.every((item) => item.pinned)) {
+    if (selectedIds.length === 0) {
       return;
     }
     const id = selectedItems[0].id;
