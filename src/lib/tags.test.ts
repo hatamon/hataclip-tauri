@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isLocked, isSecret, matchesAlias, tagsByCount } from "./tags";
+import { isLocked, isSecret, matchesAlias, tagWords, tagsByCount } from "./tags";
+
+describe("tagWords", () => {
+  it("splits on whitespace and drops empties", () => {
+    expect(tagWords("  a b  c a ")).toEqual(["a", "b", "c"]);
+    expect(tagWords("   ")).toEqual([]);
+  });
+});
 
 describe("tagsByCount", () => {
   it("orders by frequency then name", () => {

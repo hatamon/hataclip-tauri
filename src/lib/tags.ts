@@ -34,6 +34,18 @@ export function matchingTags(prefix: string, tags: string[]): string[] {
   return tags.filter((tag) => tag.startsWith(prefix)).slice(0, 8);
 }
 
+/** 空白で1語ずつ。空は捨て、同じ語は先の1つだけ。 */
+export function tagWords(raw: string): string[] {
+  const words: string[] = [];
+  for (const word of raw.trim().split(/\s+/)) {
+    if (word.length === 0 || words.includes(word)) {
+      continue;
+    }
+    words.push(word);
+  }
+  return words;
+}
+
 export function tagsByCount(items: { tags: string[] }[]): string[] {
   const counts = new Map<string, number>();
   for (const item of items) {

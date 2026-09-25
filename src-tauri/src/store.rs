@@ -334,6 +334,48 @@ impl Store {
         true
     }
 
+    /// 空白で分けた語を、取り消し1回で付け外しする。空の語は捨てる。
+    pub fn set_tags(&mut self, ids: &[String], tags: &[String], add: bool) -> bool {
+        self.absorb();
+        let mut words = Vec::new();
+        for tag in tags {
+            let tag = tag.trim();
+            if tag.is_empty() || words.iter().any(|word| word == tag) {
+                continue;
+            }
+            words.push(tag.to_string());
+        }
+        if words.is_empty() {
+            return false;
+        }
+        let touches = |item: &Item, tag: &str| {
+            let has = item.tags.iter().any(|entry| entry == tag);
+            (add && !has) || (!add && has)
+        };
+        let changed = self.items.iter().any(|item| {
+            ids.iter().any(|id| id == &item.id) && words.iter().any(|tag| touches(item, tag))
+        });
+        if !changed {
+            return false;
+        }
+        self.push_undo();
+        for item in self.items.iter_mut() {
+            if !ids.iter().any(|id| id == &item.id) {
+                continue;
+            }
+            for tag in &words {
+                let has = item.tags.iter().any(|entry| entry == tag);
+                if add && !has {
+                    item.tags.push(tag.clone());
+                } else if !add && has {
+                    item.tags.retain(|entry| entry != tag);
+                }
+            }
+        }
+        self.save();
+        true
+    }
+
     pub fn set_app_tag(&mut self, ids: &[String], app: &str) -> bool {
         self.absorb();
         let app = app.trim().to_lowercase();
@@ -1278,6 +1320,25 @@ mod tests {
         assert!(store.set_app_tag(&["a".to_string()], "Code"));
         assert_eq!(store.get("a").unwrap().tags, vec!["work", "app:code"]);
         assert!(!store.set_app_tag(&["a".to_string()], "code"));
+    }
+
+    #[test]
+    fn set_tags_applies_each_word_in_one_undo() {
+        let mut store = fresh("tag-words");
+        store.insert(item("a", "one"));
+        let ids = vec!["a".to_string()];
+        assert!(store.set_tags(
+            &ids,
+            &["a".into(), "b".into(), " ".into(), "a".into(), "c".into()],
+            true
+        ));
+        assert_eq!(store.get("a").unwrap().tags, vec!["a", "b", "c"]);
+        assert!(store.set_tag(&ids, "a b c", true));
+        assert_eq!(store.get("a").unwrap().tags, vec!["a", "b", "c", "a b c"]);
+        assert!(store.set_tags(&ids, &["a".into(), "c".into(), "missing".into()], false));
+        assert_eq!(store.get("a").unwrap().tags, vec!["b", "a b c"]);
+        assert!(store.undo());
+        assert_eq!(store.get("a").unwrap().tags, vec!["a", "b", "c", "a b c"]);
     }
 
     #[test]

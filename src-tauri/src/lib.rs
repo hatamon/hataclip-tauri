@@ -121,11 +121,11 @@ fn update_item(
 #[tauri::command]
 fn set_tag(
     ids: Vec<String>,
-    tag: String,
+    tags: Vec<String>,
     add: bool,
     state: tauri::State<'_, AppState>,
 ) -> Vec<Item> {
-    state.store.lock().expect("store").set_tag(&ids, &tag, add);
+    state.store.lock().expect("store").set_tags(&ids, &tags, add);
     view_keeping(&state, &ids)
 }
 

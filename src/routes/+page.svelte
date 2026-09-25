@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { onMount } from "svelte";
-  import { uniqueAskNames } from "$lib/ask";
+  import { onMount, tick } from "svelte";
+  import { splitHelpLinks, pushHelpHistory } from "$lib/helpLinks";
   import {
     applyColonCompletion,
     bangFilterScript,
@@ -42,6 +42,7 @@
     isLocked,
     matchesAlias,
     matchingTags,
+    tagWords,
     tagsByCount,
     uniqueTags,
   } from "$lib/tags";
@@ -106,6 +107,9 @@
   let colonDraft = $state("");
   let helpText = $state("");
   let helpEl = $state<HTMLPreElement | undefined>(undefined);
+  let helpLinked = $state(false);
+  let helpHistory = $state<(string | null)[]>([]);
+  let helpCursor = $state(0);
   let helpTopics = $state<string[]>([]);
   let contextKey = $state<string | null>(null);
   let contextOnly = $state(false);
@@ -485,7 +489,7 @@
     clearSelection();
     if (result.status === "show") {
       helpText = result.text ?? "";
-      mode = "help";
+      showPlainHelp(helpText);
     }
     if (result.status === "done" || result.status === "show") {
       lastPaste = {
@@ -638,8 +642,7 @@
         pendingPaste = opts;
         pendingResolved = text;
         runConfirm = true;
-        helpText = `${text}\n\nEnter で貼る  Esc で中止`;
-        mode = "help";
+        showPlainHelp(`${text}\n\nEnter で貼る  Esc で中止`);
       } catch {
         // 失敗したら貼らない
       }
@@ -817,16 +820,16 @@
   }
 
   async function applyTag(tag: string, add: boolean) {
-    const value = tag.trim();
-    if (value.length === 0 || selectedIds.length === 0) {
+    const words = tagWords(tag);
+    if (words.length === 0 || selectedIds.length === 0) {
       return;
     }
     const ids = selectedIds;
     const id = selectedItems[0].id;
     clearSelection();
-    items = await invoke<Item[]>("set_tag", { ids, tag: value, add });
+    items = await invoke<Item[]>("set_tag", { ids, tags: words, add });
     selectById(id);
-    lastChange = { kind: "tag", tag: value, add };
+    lastChange = { kind: "tag", tag, add };
   }
 
   async function applyPin(pinned: boolean) {
@@ -1068,20 +1071,69 @@
       cancelEdit();
       return;
     }
-    const tags = tagDraft.trim().length > 0 ? [...editTags, tagDraft.trim()] : editTags;
+    const tags = [...editTags];
+    for (const word of tagWords(tagDraft)) {
+      if (!tags.includes(word)) {
+        tags.push(word);
+      }
+    }
     items = await invoke<Item[]>("update_item", { id: editingId, text: editText, tags });
     draftNewId = null;
     cancelEdit();
   }
 
   function addEditTag(tag: string) {
-    const value = tag.trim();
-    if (value.length === 0 || editTags.includes(value)) {
+    const words = tagWords(tag);
+    if (words.length === 0) {
       tagDraft = "";
       return;
     }
-    editTags = [...editTags, value];
+    const next = [...editTags];
+    for (const word of words) {
+      if (!next.includes(word)) {
+        next.push(word);
+      }
+    }
+    editTags = next;
     tagDraft = "";
+  }
+
+  function showPlainHelp(text: string) {
+    helpLinked = false;
+    helpText = text;
+    mode = "help";
+  }
+
+  async function showLinkedHelp(topic: string | null, fresh: boolean) {
+    if (fresh) {
+      helpHistory = [topic];
+      helpCursor = 0;
+    } else {
+      const next = pushHelpHistory(helpHistory, helpCursor, topic);
+      helpHistory = next.history;
+      helpCursor = next.cursor;
+    }
+    helpText = await invoke<string>("get_help", { topic: helpHistory[helpCursor] });
+    helpTopics = await invoke<string[]>("help_topics");
+    helpLinked = true;
+    mode = "help";
+    await tick();
+    if (helpEl) {
+      helpEl.scrollTop = 0;
+    }
+  }
+
+  async function moveHelp(delta: number) {
+    const cursor = helpCursor + delta;
+    if (!helpLinked || cursor < 0 || cursor >= helpHistory.length) {
+      return;
+    }
+    helpCursor = cursor;
+    helpText = await invoke<string>("get_help", { topic: helpHistory[cursor] });
+    await tick();
+    if (helpEl) {
+      helpEl.scrollTop = 0;
+    }
   }
 
   function startTagInput(add: boolean) {
@@ -1312,8 +1364,7 @@
           pipe.sink.kind === "set" ? pipe.sink.name : pipe.sink.kind === "log" ? pipe.sink.path : null,
       });
       if (pipe.sink.kind === "show") {
-        helpText = shown ?? "";
-        mode = "help";
+        showPlainHelp(shown ?? "");
       }
     } catch {
       // 失敗したら何もしない
@@ -1345,9 +1396,8 @@
       return;
     }
     if (line === "showerror") {
-      helpText = await invoke<string>("last_error");
+      showPlainHelp(await invoke<string>("last_error"));
       helpTopics = await invoke<string[]>("help_topics");
-      mode = "help";
       return;
     }
     const pipe = parseColonPipe(historyLine);
@@ -1360,10 +1410,8 @@
       return;
     }
     if (line === "help" || line.startsWith("help ")) {
-      const topic = line === "help" ? null : line.slice(5).trim();
-      helpText = await invoke<string>("get_help", { topic });
-      helpTopics = await invoke<string[]>("help_topics");
-      mode = "help";
+      const topic = line === "help" ? "" : line.slice(5).trim();
+      await showLinkedHelp(topic.length === 0 ? null : topic, true);
       return;
     }
     if (line.startsWith("export ")) {
@@ -1466,8 +1514,7 @@
       return;
     }
     if (line === "tags") {
-      helpText = await invoke<string>("list_tags");
-      mode = "help";
+      showPlainHelp(await invoke<string>("list_tags"));
       return;
     }
     if (line === "n" || line.startsWith("n ")) {
@@ -1475,8 +1522,7 @@
       try {
         const listed = await invoke<string | null>("apply_n", { rest });
         if (listed != null && listed.length > 0) {
-          helpText = listed;
-          mode = "help";
+          showPlainHelp(listed);
         }
       } catch {
         // 書き方が違うときは何もしない
@@ -1488,8 +1534,7 @@
       try {
         const listed = await invoke<string | null>("apply_set", { rest });
         if (listed != null && listed.length > 0) {
-          helpText = listed;
-          mode = "help";
+          showPlainHelp(listed);
         }
       } catch {
         // 書き方が違うときは何もしない
@@ -1549,8 +1594,7 @@
     if (line === "mapleader" || line.startsWith("mapleader ")) {
       const parsed = parseMapleaderArgs(line === "mapleader" ? "" : line.slice(10));
       if (parsed?.kind === "show") {
-        helpText = formatMaps(mapLeader, maps);
-        mode = "help";
+        showPlainHelp(formatMaps(mapLeader, maps));
         return;
       }
       if (parsed?.kind === "set") {
@@ -1570,8 +1614,7 @@
     if (line === "map" || line.startsWith("map ")) {
       const parsed = parseMapArgs(line === "map" ? "" : line.slice(4));
       if (parsed?.kind === "list") {
-        helpText = formatMaps(mapLeader, maps);
-        mode = "help";
+        showPlainHelp(formatMaps(mapLeader, maps));
         return;
       }
       if (parsed?.kind === "set") {
@@ -1880,6 +1923,9 @@
           shConfirm = false;
           void invoke("cancel_selection_expand");
         }
+        helpLinked = false;
+        helpHistory = [];
+        helpCursor = 0;
         mode = "normal";
         helpText = "";
         return;
@@ -1895,6 +1941,11 @@
       if (runConfirm && event.key === "Enter") {
         event.preventDefault();
         void confirmRunPaste();
+        return;
+      }
+      if (helpLinked && event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        void moveHelp(event.key === "ArrowLeft" ? -1 : 1);
         return;
       }
       if (event.key === "j" || event.key === "ArrowDown") {
@@ -2314,13 +2365,11 @@
       items = event.payload;
     });
     const unlistenPipe = listen<string>("pipe-shown", (event) => {
-      helpText = event.payload;
-      mode = "help";
+      showPlainHelp(event.payload);
     });
     const unlistenSh = listen<string>("sh-confirm", (event) => {
       shConfirm = true;
-      helpText = `${event.payload}\n\nEnter で実行  Esc で中止`;
-      mode = "help";
+      showPlainHelp(`${event.payload}\n\nEnter で実行  Esc で中止`);
     });
 
     void invoke<number>("font_px").then((px) => {
@@ -2395,7 +2444,7 @@
             }
             if (event.key === "Enter" && !event.ctrlKey) {
               event.preventDefault();
-              if (editSuggestions.length > 0 && tagDraft !== editSuggestions[0]) {
+              if (!/\s/.test(tagDraft) && editSuggestions.length > 0 && tagDraft !== editSuggestions[0]) {
                 addEditTag(editSuggestions[0]);
               } else {
                 addEditTag(tagDraft);
@@ -2421,7 +2470,13 @@
       <p class="hint">{editingFormula ? "式 · Ctrl+Enter save · Esc cancel" : "Ctrl+Enter save · Esc cancel"}</p>
     </div>
   {:else if mode === "help"}
-    <pre class="help" bind:this={helpEl}>{helpText}</pre>
+    {#if helpLinked}
+      <div class="help-nav">
+        <button type="button" disabled={helpCursor <= 0} onclick={() => moveHelp(-1)}>戻る</button>
+        <button type="button" disabled={helpCursor >= helpHistory.length - 1} onclick={() => moveHelp(1)}>進む</button>
+      </div>
+    {/if}
+    <pre class="help" bind:this={helpEl}>{#if helpLinked}{#each splitHelpLinks(helpText) as part, index (index)}{#if part.type === "link"}<button type="button" class="help-link" onclick={() => showLinkedHelp(part.topic, false)}>{part.label}</button>{:else}{part.text}{/if}{/each}{:else}{helpText}{/if}</pre>
   {:else}
     {#if mode === "colon"}
       <input
@@ -2812,5 +2867,33 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
   .help {
     flex: 1;
     max-height: none;
+    white-space: pre-wrap;
+  }
+
+  .help-nav {
+    display: flex;
+    gap: 8px;
+    padding: 4px 8px 0;
+  }
+
+  .help-nav button {
+    font: inherit;
+    color: #ddd;
+    background: #222;
+    border: 1px solid #444;
+  }
+
+  .help-nav button:disabled {
+    color: #666;
+  }
+
+  .help-link {
+    font: inherit;
+    color: #8cf;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
   }
 </style>
