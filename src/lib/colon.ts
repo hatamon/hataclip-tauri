@@ -279,7 +279,15 @@ export type PipeOp = {
     | "echo"
     | "sel"
     | "filter"
-    | "show";
+    | "show"
+    | "each"
+    | "split"
+    | "col"
+    | "get"
+    | "diff"
+    | "only"
+    | "put"
+    | "sub";
   arg: string;
   selectionStdin: boolean;
 };

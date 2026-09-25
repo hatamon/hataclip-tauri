@@ -71,7 +71,7 @@ describe("matchingColonCommands", () => {
 
   it("completes the stage after a pipe", () => {
     expect(matchingColonCommands("sh dir | qu")).toEqual(["quote"]);
-    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip", "camel"]);
+    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip", "camel", "col"]);
   });
 });
 

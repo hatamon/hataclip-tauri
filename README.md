@@ -265,3 +265,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 ## 実行時ランタイムが無いとき
 
 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) を入れる。Windows 10/11 には大体入っている。
+
+## 確認
+
+`npm test` は、画面の型チェック、フロントのテスト、Rust のテストの順に走らせる。どれか失敗したらそこで止まる。
