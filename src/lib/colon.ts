@@ -288,7 +288,8 @@ export type PipeSink =
   | { kind: "add" }
   | { kind: "set"; name: string }
   | { kind: "open" }
-  | { kind: "show" };
+  | { kind: "show" }
+  | { kind: "log"; path: string };
 
 export type ParsedPipe =
   | { kind: "none" }
@@ -481,6 +482,12 @@ function sinkOf(part: string): PipeSink | null {
   }
   if (part === "show") {
     return { kind: "show" };
+  }
+  if (part === "log") {
+    return { kind: "log", path: "" };
+  }
+  if (part.startsWith("log ") || part.startsWith("log\t")) {
+    return { kind: "log", path: part.slice(4).trim() };
   }
   const name = varSinkName(part);
   if (name) {

@@ -1286,7 +1286,8 @@
         ids,
         ops: pipe.ops,
         sink: pipe.sink.kind,
-        setName: pipe.sink.kind === "set" ? pipe.sink.name : null,
+        setName:
+          pipe.sink.kind === "set" ? pipe.sink.name : pipe.sink.kind === "log" ? pipe.sink.path : null,
       });
       if (pipe.sink.kind === "show") {
         helpText = shown ?? "";

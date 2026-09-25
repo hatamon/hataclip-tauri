@@ -106,6 +106,22 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
             }
             Ok(CliResult::Quiet)
         }
+        "log" => {
+            if text.is_empty() {
+                return Err(());
+            }
+            let vars = settings.vars();
+            let Some(path) = crate::log_destination(
+                script.set_name.as_deref().unwrap_or(""),
+                vars.get("defaultLogFileName").map(String::as_str),
+            ) else {
+                return Ok(CliResult::Quiet);
+            };
+            if crate::append_log(&path, &text).is_err() {
+                return Err(());
+            }
+            Ok(CliResult::Quiet)
+        }
         _ => Err(()),
     }
 }

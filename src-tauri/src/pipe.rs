@@ -419,7 +419,23 @@ fn sink_of(part: &str) -> Option<(String, Option<String>)> {
     if part == "clip" || part == "add" || part == "open" || part == "show" {
         return Some((part.to_string(), None));
     }
+    if let Some(path) = log_sink(part) {
+        return Some(("log".to_string(), path));
+    }
     var_sink_name(part).map(|name| ("set".to_string(), Some(name)))
+}
+
+/// `| log` か `| log path`。パスが無いときは `None`（変数を使う）。
+fn log_sink(part: &str) -> Option<Option<String>> {
+    if part == "log" {
+        return Some(None);
+    }
+    let rest = part.strip_prefix("log ").or_else(|| part.strip_prefix("log\t"))?;
+    let path = rest.trim();
+    if path.is_empty() {
+        return Some(None);
+    }
+    Some(Some(path.to_string()))
 }
 
 /// 段のない行き先。標準入力があるときだけ使う。`clip` だけの履歴行はクリップボードを読む段のまま。
@@ -863,6 +879,21 @@ pub(crate) fn headed_pipe(text: &str) -> Headed {
         return Headed::Skip;
     };
     let first = first.trim();
+    if let Some(path) = log_sink(first.strip_prefix(':').unwrap_or(first)) {
+        let flow = rest.trim_end_matches('\n').to_string();
+        if flow.is_empty() {
+            return Headed::Noop;
+        }
+        return Headed::Run {
+            script: Script {
+                ops: vec![op("raw", "", false)],
+                sink: "log".to_string(),
+                set_name: path,
+                uses_selection: false,
+            },
+            flow,
+        };
+    }
     if !first.starts_with(':') {
         return Headed::Skip;
     }
@@ -1138,6 +1169,27 @@ mod tests {
         assert!(matches!(headed_pipe(":quote\n"), Headed::Noop));
         assert!(matches!(headed_pipe(":sh dir"), Headed::Skip));
         assert!(matches!(headed_pipe("hello\nworld"), Headed::Skip));
+        match headed_pipe("log\nabc\ndef") {
+            Headed::Run { script, flow } => {
+                assert_eq!(script.sink, "log");
+                assert!(script.set_name.is_none());
+                assert_eq!(flow, "abc\ndef");
+            }
+            _ => panic!("log"),
+        }
+        match headed_pipe(":log notes.log\nabc") {
+            Headed::Run { script, flow } => {
+                assert_eq!(script.set_name.as_deref(), Some("notes.log"));
+                assert_eq!(flow, "abc");
+            }
+            _ => panic!("path"),
+        }
+        assert!(matches!(headed_pipe("log\n"), Headed::Noop));
+        let PasteBody::Run(logged) = classify("echo 3+4|log") else {
+            panic!("echo log");
+        };
+        assert_eq!(logged.sink, "log");
+        assert_eq!(logged.ops[0].kind, "echo");
         assert!(matches!(headed_pipe(":s/old/new"), Headed::Skip));
         assert!(matches!(headed_pipe(":s/old/new\n"), Headed::Noop));
         assert!(matches!(headed_pipe(":nope | zz\nx"), Headed::Noop));

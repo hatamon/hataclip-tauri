@@ -227,6 +227,15 @@ describe("parseColonPipe", () => {
         { kind: "json", arg: "", selectionStdin: false },
       ],
     });
+    expect(parseColonPipe("echo 3+4|log")).toEqual({
+      kind: "ok",
+      sink: { kind: "log", path: "" },
+      usesSelection: false,
+      ops: [{ kind: "echo", arg: "3+4", selectionStdin: false }],
+    });
+    expect(parseColonPipe("echo 3+4 | log notes.log")).toMatchObject({
+      sink: { kind: "log", path: "notes.log" },
+    });
     expect(parseColonPipe("echo 3+4|show")).toEqual({
       kind: "ok",
       sink: { kind: "show" },

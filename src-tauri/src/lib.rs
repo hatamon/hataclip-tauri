@@ -1114,6 +1114,20 @@ fn execute_pipe(
             Ok(None)
         }
         "show" => Ok(Some(text)),
+        "log" => {
+            if text.is_empty() {
+                return Ok(None);
+            }
+            let vars = var_map(state);
+            let Some(path) = log_destination(
+                set_name.unwrap_or(""),
+                vars.get("defaultLogFileName").map(String::as_str),
+            ) else {
+                return Ok(None);
+            };
+            let _ = append_log(&path, &text);
+            Ok(None)
+        }
         _ => Err("行き先が違う".into()),
     }
 }
@@ -2150,14 +2164,15 @@ fn apply_tsv(_item: &Item, text: String) -> Option<String> {
 }
 
 /// `:log` の出力先。引数が空なら変数 `defaultLogFileName`。無ければ何もしない。
-fn log_destination(explicit: &str, vars: &HashMap<String, String>) -> Option<String> {
+pub(crate) fn log_destination(explicit: &str, fallback: Option<&str>) -> Option<String> {
     let explicit = explicit.trim();
     if !explicit.is_empty() {
         return Some(explicit.to_string());
     }
-    vars.get("defaultLogFileName")
-        .map(|path| path.trim().to_string())
+    fallback
+        .map(str::trim)
         .filter(|path| !path.is_empty())
+        .map(str::to_string)
 }
 
 #[tauri::command]
@@ -2167,7 +2182,8 @@ fn log_selection(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let Some(path) = log_destination(&path, &var_map(&state)) else {
+    let vars = var_map(&state);
+    let Some(path) = log_destination(&path, vars.get("defaultLogFileName").map(String::as_str)) else {
         return Ok(());
     };
     if ids.is_empty() {
@@ -2230,7 +2246,7 @@ fn log_bytes(text: &str, nl: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-fn append_log(path: &str, text: &str) -> std::io::Result<()> {
+pub(crate) fn append_log(path: &str, text: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -2825,12 +2841,15 @@ mod tests {
     #[test]
     fn log_uses_the_argument_or_the_default_variable() {
         let mut vars = HashMap::new();
-        assert!(log_destination("", &vars).is_none());
+        assert!(log_destination("", None).is_none());
         vars.insert("defaultLogFileName".into(), "  notes.log  ".into());
-        assert_eq!(log_destination("", &vars).as_deref(), Some("notes.log"));
-        assert_eq!(log_destination(" other.log ", &vars).as_deref(), Some("other.log"));
+        assert_eq!(
+            log_destination("", vars.get("defaultLogFileName").map(String::as_str)).as_deref(),
+            Some("notes.log")
+        );
+        assert_eq!(log_destination(" other.log ", None).as_deref(), Some("other.log"));
         vars.insert("defaultLogFileName".into(), "   ".into());
-        assert!(log_destination("", &vars).is_none());
+        assert!(log_destination("", vars.get("defaultLogFileName").map(String::as_str)).is_none());
     }
 
     #[test]
