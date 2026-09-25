@@ -827,6 +827,14 @@ pub fn has_sel_token(text: &str) -> bool {
     walk_tokens(text, token_has_sel)
 }
 
+/// `{{focus}}` か `{{when focus:}}` がある。無い行では UI Automation を呼ばない。
+pub fn needs_focus(text: &str) -> bool {
+    walk_tokens(text, |inner| {
+        inner == "focus"
+            || arg_after(inner, "when").is_some_and(|arg| arg.trim().starts_with("focus:"))
+    })
+}
+
 /// 本文に書いてある `{{var:名前}}`。出現順。同じ名前は 1 回。
 pub fn referenced_vars(text: &str, env: &WhenEnv<'_>) -> Vec<String> {
     let mut names = Vec::new();
@@ -1877,6 +1885,11 @@ mod tests {
             "out"
         );
         assert_eq!(expand_template("{{focus}}", &ctx), "Edit");
+        assert!(needs_focus("{{focus}}"));
+        assert!(needs_focus("{{when focus: Edit}}a{{when}}b"));
+        assert!(!needs_focus("asdf"));
+        assert!(!needs_focus("{{when app: chrome}}a{{when}}b"));
+        assert!(!needs_focus("{{date}}"));
         assert_eq!(expand_template("{{cred:github}}", &ctx), "{{cred:github}}");
         assert_eq!(
             expand_template("{{cred:hataclip_missing_cred}}", &ctx),
