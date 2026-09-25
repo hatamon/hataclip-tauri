@@ -29,7 +29,6 @@ pub struct Expand {
     pub time: String,
     pub clip: String,
     pub sel: String,
-    pub n: u32,
     pub uuid: String,
     pub user: String,
     pub host: String,
@@ -681,13 +680,6 @@ fn token_value(
         }
         let body = ctx.tags.get(name).cloned().unwrap_or_default();
         return Some(expand_seen(&body, ctx, seen));
-    }
-    if inner == "n" {
-        return Some(ctx.n.to_string());
-    }
-    if let Some(width) = arg_after(inner, "n") {
-        let width: usize = width.parse().ok()?;
-        return Some(format!("{:0width$}", ctx.n, width = width.min(8)));
     }
     if let Some(formatted) = date_token(inner, ctx) {
         return Some(formatted);
@@ -1641,7 +1633,6 @@ mod tests {
             time: "10:54".into(),
             clip: "CLIP".into(),
             sel: "SEL".into(),
-            n: 3,
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),
@@ -1685,10 +1676,13 @@ mod tests {
     }
 
     #[test]
-    fn expands_clip_n_user_host_and_padded_n() {
+    fn expands_clip_user_and_host_and_leaves_n() {
         let ctx = sample_ctx();
-        assert_eq!(expand_template("{{clip}}-{{n}}-{{n:2}}", &ctx), "CLIP-3-03");
-        assert_eq!(expand_template("{{n 2}}", &ctx), "03");
+        assert_eq!(
+            expand_template("{{clip}}-{{n}}-{{n:2}}", &ctx),
+            "CLIP-{{n}}-{{n:2}}"
+        );
+        assert_eq!(expand_template("{{n 2}}", &ctx), "{{n 2}}");
         assert_eq!(expand_template("{{user}}@{{host}}", &ctx), "hatamon@pc");
     }
 

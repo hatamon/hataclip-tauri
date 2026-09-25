@@ -22,7 +22,6 @@ export const COLON_COMMANDS = [
   "unmap",
   "mapleader",
   "set",
-  "n",
   "settings",
   "tags",
   "from",
@@ -102,7 +101,7 @@ function completedColonCommand(command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo" || command === "log") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join" || command === "filter" || command === "crypt" || command === "decrypt") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "quote" || command === "join" || command === "filter" || command === "crypt" || command === "decrypt") {
     return `${command} `;
   }
   return command;

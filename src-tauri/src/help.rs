@@ -144,7 +144,7 @@ f の前なら動かない。
         summary: "展開した全文を見る",
         body: "\
 打つ: ge
-変わるのはこの画面。選んだ行を展開して全文を出す。履歴の本文は変えない。{{n}} は進まない。
+変わるのはこの画面。選んだ行を展開して全文を出す。履歴の本文は変えない。
 例: 本文 {{date}} の行で ge すると、今日の日付が見える。
 展開できなければ空に近い結果になる。貼り付けはしない。
 詳しくは :help template :help info",
@@ -174,13 +174,13 @@ V なら改行つなぎ。詳しくは :help visual :help pipe :help stay",
     Page {
         name: "stay",
         group: "paste",
-        summary: "貼り付けて一覧を残す",
+        summary: "一覧の Ctrl+Enter では貼らない",
         body: "\
 打つ: Ctrl+Enter
-変わるのは前面。一覧は閉じない。消えて出直すこともない。選択も残る。{{n}} はこのとき進む。
-例: asdf で Ctrl+Enter すると前面は asdf、一覧は開いたまま。もう一度 Ctrl+Enter で同じ行を貼る。
-貼れないときは何もしない。Enter は閉じて貼る。: の Ctrl+Enter は結果を出すだけ。編集の Ctrl+Enter は保存。
-詳しくは :help enter :help n",
+一覧では貼らない。前面も一覧も変わらない。
+例: 本文 asdf で Ctrl+Enter しても前面は asdf にならない。一覧は開いたまま。
+Enter は閉じて貼る。番号で残すのは :help ctrldigit。: の Ctrl+Enter は結果を出す。編集の Ctrl+Enter は保存。
+詳しくは :help enter :help ctrldigit",
     },
     Page {
         name: "digit",
@@ -202,7 +202,7 @@ V なら改行つなぎ。詳しくは :help visual :help pipe :help stay",
 変わるのは前面。一覧は閉じない。
 例: Ctrl+2 で 2 行目を貼り、一覧は残る。
 行が無ければ何もしない。
-詳しくは :help digit :help stay",
+詳しくは :help digit",
     },
     Page {
         name: "slots",
@@ -310,7 +310,7 @@ Ubuntu はキーを送らないので何もしない。貼る途中のキーは 
         summary: "選択語で履歴を補完して貼る",
         body: "\
 打つ: Ctrl+9。設定画面には出さない。settings.json の complete は残っていても、保存しても消さない。
-変わるのは前面。選択語で履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。{{n}} は貼れたときだけ進む。履歴の本文は変えない。先頭の / は要らない。
+変わるのは前面。選択語で履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。履歴の本文は変えない。先頭の / は要らない。
 例: 選択 work が本文 hello work の行に当たれば、その本文を展開して貼る。#work はタグ work の行を一覧の順。#work hello はタグと本文。#work #home は両方。本文に無くても #alias:x と #alias:y なら x y で当たる。順は問わない。
 展開が空なら何もしない。{{ask:}} か {{pick:}} がある行、#run #confirm #grab の行、本文がパイプの行は何もしない。# だけと #secret は何もしない。0件も何もしない。複数ならその順の最初。2秒以内の連打は、次が展開して空でなければ Ctrl+Z のあと次の候補。次が無い、空、対象外なら Ctrl+Z しない。Ctrl+A は送らない。Ubuntu は展開した文字をクリップボードへ置く。
 詳しくは :help ctrl8 :help slash :help alias",
@@ -897,8 +897,8 @@ yes が無いとまとまらない。
         summary: "変数を残す",
         body: "\
 打つ: :set a=hello または :set a= または | set a
-変わるのは変数。貼らない。:set だけで一覧。:set a= で消す。引用の中の \\\" は \"、\\t はタブ、\\n は改行。:set a=\"say \\\"hi\\\"\" の値は say \"hi\"。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。| set a はパイプの結果をその変数へ。名前が不正なら何もしない。paste、copy、home、cut は変数名にできない。
-例: :set a=\"{{date}}\" のあと、貼るときに :help var で展開する。:set では :sh を実行しない。
+変わるのは変数。貼らない。:set だけで一覧。増やす印が付いていれば a=1 +=1 のように出す。:set a= で消す。引用の中の \\\" は \"、\\t はタブ、\\n は改行。:set a=\"say \\\"hi\\\"\" の値は say \"hi\"。:set a+=1 は貼って成功したあと 1 増やす。無い変数は 1。数字以外には付かない。:set a=100 のあとも一覧は a=100 +=1。| set a はパイプの結果をその変数へ。名前が不正なら何もしない。paste、copy、home、cut は変数名にできない。
+例: :set a+=1 のあと :set は a=1 +=1。:set b=hello のあと :set は b=hello。:set a=\"{{date}}\" のあと、貼るときに :help var で展開する。:set では :sh を実行しない。
 詳しくは :help setcopy :help setpaste :help home :help cut :help var",
     },
     Page {
@@ -926,12 +926,13 @@ yes が無いとまとまらない。
     Page {
         name: "n",
         group: "colon",
-        summary: "連番の初期値を決める",
+        summary: "やめた",
         body: "\
-打つ: :n 100 または :n または :n 1
-変わるのは {{n}} の初期値。settings.json に残る。:n だけでいまの値。貼ったあと Ctrl+Enter で増える。閉じると初期値に戻る。ge やコピーでは進まない。
-例: :n 100 のあと {{n}} を Ctrl+Enter で貼ると 100、次は 101。
-詳しくは :help stay :help template",
+打つ: :n または :n 100
+何もしない。{{n}} と {{n:2}} は展開せずそのまま残る。
+例: 本文 {{n}} を Enter で貼ると、前面は {{n}}。:n 100 のあとも同じ。
+増やす数は :help set の :set a+=1。
+詳しくは :help set :help var",
     },
     Page {
         name: "s",
@@ -1328,8 +1329,8 @@ Esc は中止で貼らない。{{pick:}} より先に全部聞く。
         body: "\
 書く: {{var:a}} または {{var a}}
 :set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）。無い変数は空。
-例: :set a=hello のあと {{var:a}} は hello。:set a+=1 は貼って成功したあと 1 増やす。
-詳しくは :help set :help n",
+例: :set a=hello のあと {{var:a}} は hello。:set a+=1 は貼って成功したあと 1 増やす。:set の一覧は a=1 +=1。
+詳しくは :help set",
     },
     Page {
         name: "wait",
@@ -1610,7 +1611,10 @@ mod tests {
         assert!(render(Some("echo")).contains(":echo 2+3 | quote"));
         assert!(render(Some("set")).contains(":set a="));
         assert!(render(Some("set")).contains("say \"hi\""));
-        assert!(render(Some("n")).contains(":n 100"));
+        assert!(render(Some("n")).contains("何もしない"));
+        assert!(render(Some("n")).contains("{{n}}"));
+        assert!(render(Some("set")).contains("a=1 +=1"));
+        assert!(render(Some("stay")).contains("貼らない"));
         assert!(render(Some("show")).contains("Ctrl+C は送らない"));
         assert!(render(Some("show")).contains("選択行（V なら範囲の先頭）が見えるまでスクロール"));
         assert!(render(Some("clip")).contains("同じ文字を次へ渡す"));

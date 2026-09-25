@@ -1380,6 +1380,9 @@
     mode = "normal";
     colonInput = "";
     colonHistIndex = -1;
+    if (line === "n" || line.startsWith("n ")) {
+      return;
+    }
     const pipe = parseColonPipe(historyLine);
     const hidesKey =
       /^(crypt|decrypt)(\s|$)/.test(line) ||
@@ -1540,18 +1543,6 @@
     }
     if (line === "tags") {
       showPlainHelp(await invoke<string>("list_tags"));
-      return;
-    }
-    if (line === "n" || line.startsWith("n ")) {
-      const rest = line === "n" ? "" : line.slice(2);
-      try {
-        const listed = await invoke<string | null>("apply_n", { rest });
-        if (listed != null && listed.length > 0) {
-          showPlainHelp(listed);
-        }
-      } catch {
-        // 書き方が違うときは何もしない
-      }
       return;
     }
     if (line === "set" || line.startsWith("set ")) {
@@ -1829,7 +1820,10 @@
     if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      void pasteSelection(event.ctrlKey, event.shiftKey);
+      if (event.ctrlKey) {
+        return;
+      }
+      void pasteSelection(false, event.shiftKey);
       return;
     }
     if (handleWindowKeys(event)) {
@@ -2106,10 +2100,10 @@
     if (event.key === "Enter") {
       event.preventDefault();
       pending = "";
-      if (event.shiftKey) {
+      if (event.shiftKey || event.ctrlKey) {
         return;
       }
-      void pasteSelection(event.ctrlKey);
+      void pasteSelection(false);
       return;
     }
     if (isCtrl(event, "r")) {

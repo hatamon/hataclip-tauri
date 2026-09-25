@@ -119,8 +119,6 @@ struct SettingsFile {
     vars: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     steps: BTreeSet<String>,
-    #[serde(default = "default_n", skip_serializing_if = "is_default_n")]
-    n: u32,
     #[serde(default = "default_font", skip_serializing_if = "is_default_font")]
     font_px: u32,
 }
@@ -133,7 +131,6 @@ pub struct Settings {
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
     steps: BTreeSet<String>,
-    n: u32,
     font_px: u32,
 }
 
@@ -145,19 +142,6 @@ pub enum SetCommand {
     Cut(String),
     Var { name: String, value: String },
     Step(String),
-}
-
-pub enum NCommand {
-    Show,
-    Set(u32),
-}
-
-fn default_n() -> u32 {
-    1
-}
-
-fn is_default_n(n: &u32) -> bool {
-    *n == 1
 }
 
 fn default_font() -> u32 {
@@ -182,7 +166,6 @@ impl Settings {
             target_keys: loaded.target_keys,
             vars: loaded.vars,
             steps: loaded.steps,
-            n: loaded.n,
             font_px: loaded.font_px,
         }
     }
@@ -209,7 +192,6 @@ impl Settings {
         self.target_keys = loaded.target_keys;
         self.vars = loaded.vars;
         self.steps = loaded.steps;
-        self.n = loaded.n;
         self.font_px = loaded.font_px;
         true
     }
@@ -286,15 +268,6 @@ impl Settings {
         }
     }
 
-    pub fn n(&self) -> u32 {
-        self.n
-    }
-
-    pub fn set_n(&mut self, n: u32) {
-        self.n = n;
-        self.save();
-    }
-
     pub fn format_vars(&self) -> String {
         if self.vars.is_empty() {
             return "変数はない".to_string();
@@ -303,7 +276,7 @@ impl Settings {
             .iter()
             .map(|(name, value)| {
                 if self.steps.contains(name) {
-                    format!("{name}={value} +1")
+                    format!("{name}={value} +=1")
                 } else {
                     format!("{name}={value}")
                 }
@@ -414,7 +387,6 @@ impl Settings {
             &self.target_keys,
             &self.vars,
             &self.steps,
-            self.n,
             self.font_px,
         );
     }
@@ -427,7 +399,6 @@ struct Loaded {
     target_keys: BTreeMap<String, TargetKeys>,
     vars: BTreeMap<String, String>,
     steps: BTreeSet<String>,
-    n: u32,
     font_px: u32,
 }
 
@@ -439,7 +410,6 @@ fn empty_loaded() -> Loaded {
         target_keys: BTreeMap::new(),
         vars: BTreeMap::new(),
         steps: BTreeSet::new(),
-        n: default_n(),
         font_px: default_font(),
     }
 }
@@ -470,7 +440,6 @@ fn from_file(file: SettingsFile) -> Loaded {
         target_keys: sanitize_target_keys(file.target_keys),
         steps: sanitize_steps(&file.steps, &vars),
         vars,
-        n: file.n,
         font_px: file.font_px.clamp(FONT_MIN, FONT_MAX),
     }
 }
@@ -530,17 +499,6 @@ fn chord_spec(rest: &str, word: &str) -> Option<Option<String>> {
         return Some(None);
     }
     Some(Some(spec.to_string()))
-}
-
-pub fn parse_n(rest: &str) -> Option<NCommand> {
-    let rest = rest.trim();
-    if rest.is_empty() {
-        return Some(NCommand::Show);
-    }
-    if !rest.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    rest.parse().ok().map(NCommand::Set)
 }
 
 fn parse_set_value(raw: &str) -> Option<String> {
@@ -710,7 +668,6 @@ fn write_file(
     target_keys: &BTreeMap<String, TargetKeys>,
     vars: &BTreeMap<String, String>,
     steps: &BTreeSet<String>,
-    n: u32,
     font_px: u32,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -724,7 +681,6 @@ fn write_file(
         target_keys: target_keys.clone(),
         vars: vars.clone(),
         steps: steps.clone(),
-        n,
         font_px,
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
@@ -751,7 +707,6 @@ mod tests {
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
         assert_eq!(settings.window(), None);
         assert_eq!(settings.keymaps(), &KeyMaps::default());
-        assert_eq!(settings.n(), 1);
         assert_eq!(settings.font_px(), 13);
         assert_eq!(settings.bump_font(1), 14);
         assert_eq!(settings.bump_font(-100), FONT_MIN);
@@ -809,7 +764,6 @@ mod tests {
         assert_eq!(reloaded.shortcuts().register, "Alt+KeyC");
         assert_eq!(reloaded.shortcuts().show, "Alt+KeyV");
         assert_eq!(reloaded.shortcuts().expand, "Control+Shift+KeyH");
-        assert_eq!(reloaded.n(), 1);
         assert_eq!(
             reloaded.window(),
             Some(WindowGeom {
@@ -819,10 +773,6 @@ mod tests {
                 height: 300,
             })
         );
-        settings.set_n(100);
-        assert_eq!(Settings::load(path.clone()).n(), 100);
-        settings.set_n(1);
-        assert_eq!(Settings::load(path.clone()).n(), 1);
         let _ = fs::remove_file(path);
     }
 
@@ -934,11 +884,6 @@ mod tests {
         assert!(matches!(parse_set("a += 1"), Some(SetCommand::Step(name)) if name == "a"));
         assert!(parse_set("a+=2").is_none());
         assert!(parse_set("1a+=1").is_none());
-        assert!(matches!(parse_n(""), Some(NCommand::Show)));
-        assert!(matches!(parse_n("100"), Some(NCommand::Set(100))));
-        assert!(matches!(parse_n(" 0 "), Some(NCommand::Set(0))));
-        assert!(parse_n("1a").is_none());
-        assert!(parse_n("-1").is_none());
     }
 
     #[test]
@@ -977,13 +922,14 @@ mod tests {
         let mut settings = Settings::load(path.clone());
         assert!(settings.arm_step("a"));
         assert_eq!(settings.vars().get("a").map(String::as_str), Some("1"));
-        assert_eq!(settings.format_vars(), "a=1 +1");
+        assert_eq!(settings.format_vars(), "a=1 +=1");
         settings.bump_steps(&["a".into(), "missing".into()]);
         assert_eq!(
             Settings::load(path.clone()).vars().get("a").map(String::as_str),
             Some("2")
         );
         assert!(settings.set_var("a", "10".into()));
+        assert_eq!(settings.format_vars(), "a=10 +=1");
         settings.bump_steps(&["a".into()]);
         assert_eq!(settings.vars().get("a").map(String::as_str), Some("11"));
         assert!(settings.set_var("b", "{{date}}".into()));

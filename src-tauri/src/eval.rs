@@ -78,7 +78,6 @@ mod tests {
             time: "13:00".into(),
             clip: String::new(),
             sel: String::new(),
-            n: 1,
             uuid: "u".into(),
             user: "hatamon".into(),
             host: "pc".into(),

@@ -38,7 +38,6 @@ describe("matchingColonCommands", () => {
       "unmap",
       "mapleader",
       "set",
-      "n",
       "settings",
       "tags",
       "from",

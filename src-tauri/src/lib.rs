@@ -22,7 +22,7 @@ mod tray;
 use chrono::Local;
 use platform::Point;
 use serde::{Deserialize, Serialize};
-use settings::{KeyMaps, NCommand, SetCommand, Settings, Shortcuts, WindowGeom};
+use settings::{KeyMaps, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
 use std::sync::Mutex;
 #[cfg(windows)]
@@ -48,10 +48,9 @@ pub(crate) struct AppState {
     settings: Mutex<Settings>,
     foreground: Mutex<Option<platform::Foreground>>,
     last_position: Mutex<Option<Point>>,
-    paste_serial: Mutex<u32>,
     last_sh: Mutex<Option<String>>,
     picker_open: Mutex<bool>,
-    /// Ctrl+Enter の貼り付け中。この間の blur では一覧を閉じない。
+    /// 一覧を残して貼るあいだ。この間の blur では一覧を閉じない。
     hold_picker: Mutex<bool>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
     last_error: Mutex<Option<String>>,
@@ -377,7 +376,6 @@ fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     if *state.hold_picker.lock().expect("hold_picker") {
         return;
     }
-    reset_n(&state);
     hide_window(&app, &state);
 }
 
@@ -528,19 +526,6 @@ fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<S
     }
 }
 
-#[tauri::command]
-fn apply_n(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
-    match settings::parse_n(&rest) {
-        Some(NCommand::Show) => Ok(Some(format_n(&state))),
-        Some(NCommand::Set(n)) => {
-            state.settings.lock().expect("settings").set_n(n);
-            *state.paste_serial.lock().expect("paste_serial") = n;
-            Ok(None)
-        }
-        None => Err("書き方が違う".into()),
-    }
-}
-
 /// 複数行まとめて貼るときは separator でつなぐ。format は `:format` のときだけ真。
 #[tauri::command]
 fn paste_items(
@@ -617,11 +602,7 @@ fn paste_resolved_text(
     }
     let ok = paste_text(app, state, &text, keep_open);
     let _ = app.emit("items-changed", view(state));
-    bump_n(state);
     bump_step_vars(state, ids);
-    if !keep_open {
-        reset_n(state);
-    }
     ok
 }
 
@@ -1821,7 +1802,6 @@ fn deliver_completion(
     }
     let ok = play_resolved(app, state, ops, false, false);
     if ok {
-        bump_n(state);
         bump_step_vars(state, &[id.to_string()]);
     }
     Some(ok)
@@ -2040,7 +2020,6 @@ fn run_paste(
             let _ = yield_target(app, state, true);
             let _ = app.emit("items-changed", view(state));
             reveal_picker(app, state);
-            bump_n(state);
             if ctx.is_some() {
                 bump_step_vars(state, ids);
             }
@@ -2048,12 +2027,8 @@ fn run_paste(
         }
         hide_window(app, state);
         let _ = app.emit("items-changed", view(state));
-        bump_n(state);
         if ctx.is_some() {
             bump_step_vars(state, ids);
-        }
-        if !keep_open {
-            reset_n(state);
         }
         return true;
     }
@@ -2076,15 +2051,11 @@ fn run_paste(
     let ok = play_resolved(app, state, ops, keep_open, typed);
     if ok {
         let _ = app.emit("items-changed", view(state));
-        bump_n(state);
         if ctx.is_some() {
             bump_step_vars(state, ids);
         }
     } else if was_open {
         reveal_picker(app, state);
-    }
-    if !keep_open {
-        reset_n(state);
     }
     ok
 }
@@ -2119,15 +2090,6 @@ fn var_map(state: &AppState) -> HashMap<String, String> {
         .collect()
 }
 
-fn peek_n(state: &AppState) -> u32 {
-    *state.paste_serial.lock().expect("paste_serial")
-}
-
-fn bump_n(state: &AppState) {
-    let mut serial = state.paste_serial.lock().expect("paste_serial");
-    *serial = serial.saturating_add(1);
-}
-
 fn bump_step_vars(state: &AppState, ids: &[String]) {
     let app = foreground_app(state);
     let vars = var_map(state);
@@ -2160,21 +2122,6 @@ fn bump_step_vars(state: &AppState, ids: &[String]) {
     state.settings.lock().expect("settings").bump_steps(&names);
 }
 
-fn reset_n(state: &AppState) {
-    let n = state.settings.lock().expect("settings").n();
-    *state.paste_serial.lock().expect("paste_serial") = n;
-}
-
-fn format_n(state: &AppState) -> String {
-    let start = state.settings.lock().expect("settings").n();
-    let next = peek_n(state);
-    if start == next {
-        format!("{start}")
-    } else {
-        format!("初期値 {start}\n次 {next}")
-    }
-}
-
 fn expand_context(
     state: &AppState,
     sel: String,
@@ -2186,14 +2133,12 @@ fn expand_context(
             .map(|foreground| platform::app_and_title(&foreground))
             .unwrap_or_default()
     };
-    let n = peek_n(state);
     let now = Local::now();
     text::Expand {
         date: now.format("%Y/%m/%d").to_string(),
         time: now.format("%H:%M").to_string(),
         clip: clipboard::peek_text().unwrap_or_default(),
         sel,
-        n,
         uuid: uuid::Uuid::new_v4().to_string(),
         user: text::login_name(),
         host: text::host_name(),
@@ -2904,7 +2849,6 @@ pub(crate) fn show_picker(app: &tauri::AppHandle, state: &AppState) {
     if !already {
         *state.foreground.lock().expect("foreground") = platform::capture_foreground();
     }
-    reset_n(state);
     apply_saved_size(&window, state);
 
     let position = (*state.last_position.lock().expect("last_position"))
@@ -3031,7 +2975,6 @@ pub fn run() {
             let store = Store::load(dir.join("items.json"));
             let settings = Settings::load(dir.join("settings.json"));
             let shortcuts = settings.shortcuts().clone();
-            let n_start = settings.n();
             let last_position = Mutex::new(settings.window().map(|geom| Point {
                 x: geom.x,
                 y: geom.y,
@@ -3041,7 +2984,6 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 foreground: Mutex::new(None),
                 last_position,
-                paste_serial: Mutex::new(n_start),
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
                 hold_picker: Mutex::new(false),
@@ -3116,7 +3058,6 @@ pub fn run() {
             set_keymaps,
             open_settings_file,
             apply_set,
-            apply_n,
             font_px,
             bump_font,
             log_selection,
@@ -3185,7 +3126,6 @@ mod tests {
             time: "10:54".into(),
             clip: "CLIP".into(),
             sel: "SEL".into(),
-            n: 3,
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),
