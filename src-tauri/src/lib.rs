@@ -655,7 +655,7 @@ fn expand_items(
 
 #[tauri::command]
 fn expand_text(text: String, state: tauri::State<'_, AppState>) -> String {
-    let ctx = expand_context(&state, String::new(), HashMap::new(), focus_of(&text));
+    let ctx = expand_context(&state, String::new(), HashMap::new());
     text::expand_template(&text, &ctx)
 }
 
@@ -686,7 +686,7 @@ fn expand_ids(
     force_sh: bool,
     answers: HashMap<String, String>,
 ) -> Option<String> {
-    let ctx = expand_context(state, String::new(), answers, focus_for_items(state, ids));
+    let ctx = expand_context(state, String::new(), answers);
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
         .iter()
@@ -873,7 +873,7 @@ fn pipe_bodies(
     } else {
         String::new()
     };
-    let ctx = expand_context(state, sel, HashMap::new(), focus_for_items(state, ids));
+    let ctx = expand_context(state, sel, HashMap::new());
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
     drop(store);
@@ -1526,7 +1526,7 @@ fn expand_captured(app: &tauri::AppHandle, state: &AppState, text: &str) {
     if apply_solo_pipe(app, state, &text) {
         return;
     }
-    let ctx = expand_context(state, String::new(), HashMap::new(), focus_of(text));
+    let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let ran = if shell::has_sh_token(text) {
         match shell::apply_sh(text, true) {
@@ -1798,7 +1798,7 @@ fn deliver_completion(
             .get(id)
             .cloned()
     }?;
-    let ctx = expand_context(state, sel.to_string(), HashMap::new(), focus_of(&item.text));
+    let ctx = expand_context(state, sel.to_string(), HashMap::new());
     let mut ops = completion_ops(&item, &ctx)?;
     if !prefix.is_empty() {
         ops.insert(0, text::PasteOp::Text(prefix.to_string()));
@@ -1853,7 +1853,7 @@ fn completion_index(state: &AppState, ids: &[String], start: usize, sel: &str) -
         let Some(item) = item else {
             continue;
         };
-        let ctx = expand_context(state, sel.to_string(), HashMap::new(), focus_of(&item.text));
+        let ctx = expand_context(state, sel.to_string(), HashMap::new());
         if completion_ops(&item, &ctx).is_some() {
             return Some(index);
         }
@@ -1933,7 +1933,7 @@ fn run_paste(
     let ctx = if raw {
         None
     } else {
-        Some(expand_context(state, sel, answers, focus_for_items(state, ids)))
+        Some(expand_context(state, sel, answers))
     };
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
@@ -2107,7 +2107,7 @@ fn bump_n(state: &AppState) {
 fn bump_step_vars(state: &AppState, ids: &[String]) {
     let app = foreground_app(state);
     let vars = var_map(state);
-    let focus = focus_for_items(state, ids);
+    let focus = platform::focused_control();
     let names = {
         let store = state.store.lock().expect("store");
         let mut names = Vec::new();
@@ -2155,7 +2155,6 @@ fn expand_context(
     state: &AppState,
     sel: String,
     answers: HashMap<String, String>,
-    focus: String,
 ) -> text::Expand {
     let (app_name, front) = {
         let foreground = *state.foreground.lock().expect("foreground");
@@ -2176,7 +2175,7 @@ fn expand_context(
         host: text::host_name(),
         app: app_name,
         front,
-        focus,
+        focus: platform::focused_control(),
         now,
         answers,
         vars: var_map(state),
@@ -2205,35 +2204,10 @@ fn capture_grab_input(app: &tauri::AppHandle, state: &AppState) -> String {
     }
 }
 
-/// 本文が `{{focus}}` か `{{when focus:}}` のときだけ UI Automation を読む。
-fn focus_for_items(state: &AppState, ids: &[String]) -> String {
-    let needs = {
-        let store = state.store.lock().expect("store");
-        ids.iter().any(|id| {
-            store
-                .get(id)
-                .is_some_and(|item| text::needs_focus(&item.text))
-        })
-    };
-    if needs {
-        platform::focused_control()
-    } else {
-        String::new()
-    }
-}
-
-fn focus_of(text: &str) -> String {
-    if text::needs_focus(text) {
-        platform::focused_control()
-    } else {
-        String::new()
-    }
-}
-
 fn has_sel(state: &AppState, ids: &[String]) -> bool {
     let app = foreground_app(state);
     let vars = var_map(state);
-    let focus = focus_for_items(state, ids);
+    let focus = platform::focused_control();
     let store = state.store.lock().expect("store");
     ids.iter().any(|id| {
         store.get(id).map_or(false, |item| {
