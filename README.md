@@ -80,7 +80,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 
 ## キー操作
 
-一覧の中で `:help`。機能ごとなら `:help sh`。`{{date}}` などのトークンは `:help template`。
+一覧の中で `:help`。引数なしは目次で、各行の `:help 名前` から操作を開く。機能ごとなら `:help sh`。`{{date}}` などのトークンは `:help template`。
 
 ### 移動
 
@@ -184,7 +184,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 
 | コマンド | 動き |
 | --- | --- |
-| `:help` / `:help sh` / `:help template` | 使い方。`j` / `k` でスクロール。`{{date}}` などの一覧は `template` |
+| `:help` / `:help sh` / `:help template` | 引数なしは目次。`j` / `k` でスクロール。操作は `:help 名前`。`{{date}}` などの一覧は `template` |
 | `:showerror` | 直前の失敗を1つ出す。成功すると消える |
 | `:sh dir` | 1 行実行して標準出力を貼る。履歴には残さない。stdin なし |
 | `:.!sh xxx` | カレント行（`V` なら改行つなぎ）を stdin に流して `xxx` を実行。標準出力を貼る |
