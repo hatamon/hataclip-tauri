@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
+  import { uniqueAskNames } from "$lib/ask";
   import { splitHelpLinks, pushHelpHistory } from "$lib/helpLinks";
   import {
     applyColonCompletion,
