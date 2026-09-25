@@ -89,9 +89,12 @@
   let previewText = $state("");
   let runConfirm = $state(false);
   let shConfirm = $state(false);
+  let dragging = $state(false);
   let pendingResolved = $state<string | null>(null);
   let tagCycle = $state(-1);
   let draftNewId = $state<string | null>(null);
+  let draftAnchorId = $state<string | null>(null);
+  let draftAbove = $state(false);
   let colonEl = $state<HTMLInputElement | undefined>(undefined);
   let colonInput = $state("");
   let colonHistory = $state<string[]>([]);
@@ -167,6 +170,18 @@
         }
       }
       list = fuzzy;
+    }
+    if (draftNewId && !list.some((item) => item.id === draftNewId)) {
+      const draft = items.find((item) => item.id === draftNewId);
+      if (draft) {
+        const at = draftAnchorId ? list.findIndex((item) => item.id === draftAnchorId) : -1;
+        if (at < 0) {
+          list = [draft, ...list];
+        } else {
+          const index = draftAbove ? at : at + 1;
+          list = [...list.slice(0, index), draft, ...list.slice(index)];
+        }
+      }
     }
     return list;
   });
@@ -770,6 +785,7 @@
       tags: yanked.tags,
       anchorId: currentItem()?.id ?? null,
       above,
+      pinned: null,
     });
     items = result.items;
     selectById(result.item.id);
@@ -1117,13 +1133,17 @@
     });
   }
 
-  async function openBlank() {
+  async function openBlank(above: boolean) {
+    const anchorItem = above ? filtered[range[0]] : filtered[range[1]];
     const result = await invoke<{ item: Item; items: Item[] }>("put_item", {
       text: "",
       tags: [],
-      anchorId: null,
-      above: true,
+      anchorId: anchorItem?.id ?? null,
+      above,
+      pinned: anchorItem?.pinned ?? false,
     });
+    draftAnchorId = anchorItem?.id ?? null;
+    draftAbove = above;
     items = result.items;
     draftNewId = result.item.id;
     editingId = result.item.id;
@@ -2091,10 +2111,10 @@
       cycleTag(event.shiftKey ? -1 : 1);
       return;
     }
-    if (event.key === "o") {
+    if (event.key === "o" || event.key === "O") {
       event.preventDefault();
       pending = "";
-      void openBlank();
+      void openBlank(event.key === "O");
       return;
     }
     if (event.key === ":") {
@@ -2272,6 +2292,20 @@
   onMount(() => {
     const onKey = (event: KeyboardEvent) => onDocumentKeydown(event);
     window.addEventListener("keydown", onKey, true);
+    const onBlur = () => {
+      if (dragging) {
+        return;
+      }
+      if (shConfirm) {
+        shConfirm = false;
+        helpText = "";
+        mode = "normal";
+        void invoke("cancel_selection_expand");
+        return;
+      }
+      void invoke("hide_picker");
+    };
+    window.addEventListener("blur", onBlur);
 
     const unlistenOpened = listen<Item[]>("picker-opened", (event) => {
       openPicker(event.payload);
@@ -2319,6 +2353,7 @@
 
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
       void unlistenPipe.then((stop) => stop());
@@ -2330,7 +2365,13 @@
 </script>
 
 <div class="picker" style:font-size="{fontPx}px">
-  <div class="drag" data-tauri-drag-region></div>
+  <div
+    class="drag"
+    data-tauri-drag-region
+    onpointerdown={() => (dragging = true)}
+    onpointerup={() => (dragging = false)}
+    onpointercancel={() => (dragging = false)}
+  ></div>
   {#if mode === "editing"}
     <div class="edit">
       <textarea bind:this={editEl} bind:value={editText} rows="6"></textarea>

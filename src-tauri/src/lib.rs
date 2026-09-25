@@ -89,16 +89,18 @@ fn put_item(
     tags: Vec<String>,
     anchor_id: Option<String>,
     above: bool,
+    pinned: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Put {
-    let item = Item::new(text, tags);
+    let mut item = Item::new(text, tags);
+    item.pinned = pinned.unwrap_or(false);
     state
         .store
         .lock()
         .expect("store")
         .insert_relative(anchor_id.as_deref(), above, item.clone());
     Put {
-        items: view(&state),
+        items: view_keeping(&state, &[item.id.clone()]),
         item,
     }
 }

@@ -175,14 +175,62 @@ impl Store {
     }
 
     /// 指定した行のすぐ上か下に差し込む。同じ本文でもまとめない。
-    pub fn insert_relative(&mut self, anchor: Option<&str>, above: bool, item: Item) {
+    pub fn insert_relative(&mut self, anchor: Option<&str>, above: bool, mut item: Item) {
         self.absorb();
         self.push_undo();
+        if item.pinned {
+            if let Some(id) = anchor {
+                item.pin_rank = self.pin_rank_beside(id, above);
+            }
+        }
         let at = anchor
             .and_then(|id| self.items.iter().position(|item| item.id == id))
             .map(|index| if above { index } else { index + 1 })
             .unwrap_or(0);
         self.insert_at(at, item);
+    }
+
+    fn pin_rank_beside(&mut self, anchor_id: &str, above: bool) -> i32 {
+        let anchor_rank = self.get(anchor_id).map(|item| item.pin_rank).unwrap_or(0);
+        if above {
+            let prev = self
+                .items
+                .iter()
+                .filter(|item| item.pinned && item.pin_rank < anchor_rank)
+                .map(|item| item.pin_rank)
+                .max();
+            match prev {
+                None => anchor_rank - 1,
+                Some(prev) if prev + 1 < anchor_rank => prev + 1,
+                Some(_) => {
+                    for item in &mut self.items {
+                        if item.pinned && item.pin_rank < anchor_rank {
+                            item.pin_rank -= 1;
+                        }
+                    }
+                    anchor_rank - 1
+                }
+            }
+        } else {
+            let next = self
+                .items
+                .iter()
+                .filter(|item| item.pinned && item.pin_rank > anchor_rank)
+                .map(|item| item.pin_rank)
+                .min();
+            match next {
+                None => anchor_rank + 1,
+                Some(next) if anchor_rank + 1 < next => anchor_rank + 1,
+                Some(_) => {
+                    for item in &mut self.items {
+                        if item.pinned && item.pin_rank > anchor_rank {
+                            item.pin_rank += 1;
+                        }
+                    }
+                    anchor_rank + 1
+                }
+            }
+        }
     }
 
     fn insert_at(&mut self, index: usize, item: Item) {
