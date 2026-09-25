@@ -60,6 +60,8 @@ describe("matchingColonCommands", () => {
       "filter",
       "put",
       "each",
+      "crypt",
+      "decrypt",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);
@@ -71,7 +73,7 @@ describe("matchingColonCommands", () => {
 
   it("completes the stage after a pipe", () => {
     expect(matchingColonCommands("sh dir | qu")).toEqual(["quote"]);
-    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip", "camel", "col"]);
+    expect(matchingColonCommands("sh dir | c")).toEqual(["clear", "clip", "camel", "col", "crypt"]);
   });
 });
 
@@ -90,6 +92,8 @@ describe("applyColonCompletion", () => {
     expect(applyColonCompletion("", "quote")).toBe("quote ");
     expect(applyColonCompletion("sh dir | qu", "quote")).toBe("sh dir | quote ");
     expect(applyColonCompletion("", "join")).toBe("join ");
+    expect(applyColonCompletion("", "crypt")).toBe("crypt ");
+    expect(applyColonCompletion("", "decrypt")).toBe("decrypt ");
     expect(applyColonCompletion("", "!!")).toBe("!!sh ");
   });
 });
@@ -146,6 +150,22 @@ describe("parseColonPipe", () => {
       kind: "ok",
       sink: { kind: "paste" },
       usesSelection: true,
+    });
+    expect(parseColonPipe("crypt secret")).toEqual({
+      kind: "ok",
+      sink: { kind: "paste" },
+      usesSelection: true,
+      ops: [{ kind: "crypt", arg: "secret", selectionStdin: false }],
+    });
+    expect(parseColonPipe("crypt")).toEqual({ kind: "none" });
+    expect(parseColonPipe("sel | crypt secret | clip")).toEqual({
+      kind: "ok",
+      sink: { kind: "clip" },
+      usesSelection: false,
+      ops: [
+        { kind: "sel", arg: "", selectionStdin: false },
+        { kind: "crypt", arg: "secret", selectionStdin: false },
+      ],
     });
     expect(parseColonPipe("echo 3+4")).toEqual({
       kind: "ok",

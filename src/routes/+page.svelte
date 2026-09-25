@@ -1380,7 +1380,16 @@
     mode = "normal";
     colonInput = "";
     colonHistIndex = -1;
-    if (historyLine.length > 0 && colonHistory[colonHistory.length - 1] !== historyLine) {
+    const pipe = parseColonPipe(historyLine);
+    const hidesKey =
+      /^(crypt|decrypt)(\s|$)/.test(line) ||
+      (pipe.kind === "ok" &&
+        pipe.ops.some((op) => op.kind === "crypt" || op.kind === "decrypt"));
+    if (
+      !hidesKey &&
+      historyLine.length > 0 &&
+      colonHistory[colonHistory.length - 1] !== historyLine
+    ) {
       colonHistory = [...colonHistory, historyLine];
     }
     if (historyLine === "from" || historyLine.startsWith("from ")) {
@@ -1401,12 +1410,27 @@
       helpTopics = await invoke<string[]>("help_topics");
       return;
     }
-    const pipe = parseColonPipe(historyLine);
     if (pipe.kind === "bad") {
       await invoke("remember_error", { message: "段が違う" });
       return;
     }
     if (pipe.kind === "ok") {
+      const only = pipe.ops.length === 1 ? pipe.ops[0] : undefined;
+      if (
+        only &&
+        pipe.sink.kind === "paste" &&
+        (only.kind === "crypt" || only.kind === "decrypt")
+      ) {
+        if (selectedIds.length === 0 || only.arg.length === 0) {
+          return;
+        }
+        items = await invoke<Item[]>("apply_row_crypt", {
+          ids: selectedIds,
+          key: only.arg,
+          decrypt: only.kind === "decrypt",
+        });
+        return;
+      }
       await executePipe(pipe);
       return;
     }

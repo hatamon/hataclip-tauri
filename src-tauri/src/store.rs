@@ -720,6 +720,23 @@ impl Store {
         true
     }
 
+    /// 本文を置き換え、式は消す。1回の取り消しで全部戻る。
+    pub fn seal_texts(&mut self, updates: &[(String, String)]) -> bool {
+        self.absorb();
+        if updates.is_empty() || updates.iter().any(|(id, _)| self.get(id).is_none()) {
+            return false;
+        }
+        self.push_undo();
+        for (id, text) in updates {
+            if let Some(item) = self.items.iter_mut().find(|item| &item.id == id) {
+                item.text = text.clone();
+                item.formula.clear();
+            }
+        }
+        self.save();
+        true
+    }
+
     /// 本文を置き換え、同じ式を残す。本文も式も同じなら何もしない。
     pub fn rewrite_with_formula(&mut self, updates: &[(String, String)], formula: &str) -> bool {
         self.absorb();
@@ -1719,5 +1736,18 @@ mod tests {
         store.undo();
         assert_eq!(store.get("a").unwrap().formula, "sel | kebab");
         assert_eq!(store.get("a").unwrap().text, "http-response");
+    }
+
+    #[test]
+    fn seal_texts_clears_the_formula() {
+        let mut store = fresh("seal");
+        store.insert(item("a", "hello"));
+        assert!(store.set_formula("a", "sel | kebab".into()));
+        assert!(store.seal_texts(&[("a".into(), "hataclip1.x".into())]));
+        assert_eq!(store.get("a").unwrap().text, "hataclip1.x");
+        assert!(store.get("a").unwrap().formula.is_empty());
+        store.undo();
+        assert_eq!(store.get("a").unwrap().text, "hello");
+        assert_eq!(store.get("a").unwrap().formula, "sel | kebab");
     }
 }

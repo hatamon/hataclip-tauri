@@ -106,7 +106,7 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, String> {
             }
             let tags = text::auto_tags(&text);
             let mut item = Item::new(text, tags);
-            item.formula = pipe::render_ops(&script.ops);
+            item.formula = pipe::stored_formula(&script.ops);
             store.insert(item);
             Ok(CliResult::Quiet)
         }
@@ -185,7 +185,7 @@ fn walk(
                     return Err("失敗".to_string());
                 };
                 if !current.is_empty() {
-                    added.push((current.to_string(), pipe::render_ops(&ops[..index])));
+                    added.push((current.to_string(), pipe::stored_formula(&ops[..index])));
                 }
             }
             "show" => {
@@ -264,6 +264,12 @@ fn walk(
                     _ => None,
                 };
                 text = Some(next.ok_or_else(|| "失敗".to_string())?);
+            }
+            "crypt" | "decrypt" => {
+                let current = take_text(&mut text, piped)?;
+                text = Some(
+                    crate::crypt::apply(&op.kind, &current, &op.arg).ok_or_else(|| "失敗".to_string())?,
+                );
             }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {

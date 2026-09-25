@@ -536,6 +536,12 @@ fn stage_of(part: &str) -> Option<Op> {
     if let Some(arg) = sub_arg(part) {
         return Some(op("sub", &arg, false));
     }
+    if let Some(key) = keyed_arg(part, "crypt") {
+        return Some(op("crypt", &key, false));
+    }
+    if let Some(key) = keyed_arg(part, "decrypt") {
+        return Some(op("decrypt", &key, false));
+    }
     if part == "sh" || part.starts_with("sh ") || part.starts_with("sh\t") {
         let raw = if part == "sh" { "" } else { &part[2..] };
         let script = sh_script(raw.trim_start());
@@ -562,6 +568,23 @@ fn dot_sh_raw(part: &str) -> Option<&str> {
         return Some(rest);
     }
     None
+}
+
+fn keyed_arg(part: &str, name: &str) -> Option<String> {
+    let rest = if part == name {
+        ""
+    } else if let Some(rest) = part
+        .strip_prefix(name)
+        .filter(|rest| rest.starts_with(' ') || rest.starts_with('\t'))
+    {
+        rest.trim()
+    } else {
+        return None;
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    Some(rest.to_string())
 }
 
 fn op(kind: &str, arg: &str, selection_stdin: bool) -> Op {
@@ -730,6 +753,10 @@ fn eval_local(
                 };
                 text = Some(next?);
             }
+            "crypt" | "decrypt" => {
+                let current = take_or_dot(&mut text, dot)?;
+                text = Some(crate::crypt::apply(&op.kind, &current, &op.arg)?);
+            }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 let current = take_or_dot(&mut text, dot)?;
@@ -763,6 +790,14 @@ fn take_or_dot(text: &mut Option<String>, dot: &str) -> Option<String> {
 
 pub(crate) fn render_ops(ops: &[Op]) -> String {
     ops.iter().map(render_op).collect::<Vec<_>>().join(" | ")
+}
+
+/// 鍵を式に残さない。`crypt` か `decrypt` を含む式は空。
+pub(crate) fn stored_formula(ops: &[Op]) -> String {
+    if ops.iter().any(|op| op.kind == "crypt" || op.kind == "decrypt") {
+        return String::new();
+    }
+    render_ops(ops)
 }
 
 fn render_op(op: &Op) -> String {
@@ -809,6 +844,7 @@ fn render_op(op: &Op) -> String {
             let (pointer, value) = op.arg.split_once('\u{1}').unwrap_or((op.arg.as_str(), ""));
             format!("put {pointer} {}", quote_render(value))
         }
+        "crypt" | "decrypt" => format!("{} {}", op.kind, op.arg),
         "sub" => {
             let (old, new) = op.arg.split_once('\u{1}').unwrap_or((op.arg.as_str(), ""));
             format!("s/{old}/{new}")
@@ -1111,6 +1147,23 @@ mod tests {
         let shown = colon_preview("upper", &long, "").unwrap();
         assert!(shown.ends_with("\n..."));
         assert_eq!(shown.lines().count(), 13);
+    }
+
+    #[test]
+    fn crypt_round_trips_and_drops_the_key_from_the_formula() {
+        let PasteBody::Run(script) = classify("crypt secret") else {
+            panic!("crypt");
+        };
+        assert!(stored_formula(&script.ops).is_empty());
+        let sealed = colon_preview("crypt secret", "hello", "").unwrap();
+        assert!(sealed.starts_with("hataclip1."));
+        assert!(!sealed.contains("secret"));
+        assert_eq!(
+            colon_preview(&format!("decrypt secret"), &sealed, "").as_deref(),
+            Some("hello")
+        );
+        assert!(colon_preview("decrypt other", &sealed, "").is_none());
+        assert!(colon_preview("crypt", "hello", "").is_none());
     }
 
     #[test]

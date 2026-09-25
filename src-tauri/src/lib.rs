@@ -4,6 +4,7 @@ mod cli_args;
 mod page;
 mod chord;
 mod clipboard;
+mod crypt;
 mod keys;
 mod editor;
 mod eval;
@@ -839,7 +840,7 @@ fn render_formula(ops: &[PipeOp]) -> String {
             selection_stdin: op.selection_stdin,
         })
         .collect();
-    pipe::render_ops(&ops)
+    pipe::stored_formula(&ops)
 }
 
 fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
@@ -1087,6 +1088,16 @@ fn walk_pipe(
                         Some(value) => *current = value,
                         None => return Err("抜けない".into()),
                     }
+                }
+            }
+            "crypt" | "decrypt" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                if let Some(current) = text.as_mut() {
+                    *current = crypt::apply(&op.kind, current, &op.arg).ok_or("できない")?;
                 }
             }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
@@ -2436,6 +2447,52 @@ pub(crate) fn log_destination(explicit: &str, fallback: Option<&str>) -> Option<
 }
 
 #[tauri::command]
+fn apply_row_crypt(
+    ids: Vec<String>,
+    key: String,
+    decrypt: bool,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Vec<Item> {
+    if key.is_empty() || ids.is_empty() {
+        return view(&state);
+    }
+    let rows: Vec<(String, String)> = {
+        let store = state.store.lock().expect("store");
+        let mut rows = Vec::new();
+        for id in &ids {
+            let Some(item) = store.get(id) else {
+                return view(&state);
+            };
+            rows.push((item.id.clone(), item.text.clone()));
+        }
+        rows
+    };
+    if decrypt {
+        let mut plains = Vec::new();
+        for (_, text) in &rows {
+            let Some(plain) = crypt::open(text, &key) else {
+                return view(&state);
+            };
+            plains.push(plain);
+        }
+        let _ = paste_text(&app, &state, &plains.join("\n"), false);
+        return view(&state);
+    }
+    let mut updates = Vec::new();
+    for (id, text) in &rows {
+        let Some(sealed) = crypt::seal(text, &key) else {
+            return view(&state);
+        };
+        updates.push((id.clone(), sealed));
+    }
+    state.store.lock().expect("store").seal_texts(&updates);
+    let items = view(&state);
+    let _ = app.emit("items-changed", items.clone());
+    items
+}
+
+#[tauri::command]
 fn log_selection(
     ids: Vec<String>,
     path: String,
@@ -3062,7 +3119,8 @@ pub fn run() {
             apply_n,
             font_px,
             bump_font,
-            log_selection
+            log_selection,
+            apply_row_crypt
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

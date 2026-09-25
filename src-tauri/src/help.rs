@@ -1054,6 +1054,29 @@ g: でもう一度。式の編集は :help from
 詳しくは :help snake :help add",
     },
     Page {
+        name: "crypt",
+        group: "colon",
+        summary: "選択行の本文を暗号文にする",
+        body: "\
+打つ: :crypt secret
+変わるのは選択行の本文。前面には貼らない。式は消す。: の上下履歴には残さない。settings.json には鍵を書かない。
+例: 本文 hello で :crypt secret すると本文が hataclip1. で始まる暗号文になる。前面は hello のまま。
+鍵が空なら何もしない。V は各行。u で戻せる。同じ鍵でも暗号文は毎回違ってよい。
+パイプの段でも同じ。:sel | crypt secret | clip はクリップボードが暗号文で、履歴の行は変わらない。| add で足した行の式は空。
+詳しくは :help decrypt",
+    },
+    Page {
+        name: "decrypt",
+        group: "colon",
+        summary: "暗号文を前面に貼る",
+        body: "\
+打つ: :decrypt secret
+変わるのは前面。行は暗号文のまま。一覧は閉じる。
+例: 本文が :crypt secret の暗号文なら、:decrypt secret で前面に hello が貼る。:decrypt other は何も貼らない。
+暗号文でない、鍵が空、も何もしない。V は改行つなぎ。どれか失敗したら何もしない。: の上下履歴には残さない。
+詳しくは :help crypt",
+    },
+    Page {
         name: "upper",
         group: "pipe",
         summary: "大文字にする",
@@ -1533,6 +1556,10 @@ mod tests {
         assert!(render(Some("template")).contains(":help date"));
         assert!(render(Some("template")).contains(":help when"));
         assert!(render(Some("colon")).contains(":help sh"));
+        assert!(render(Some("crypt")).contains("hataclip1."));
+        assert!(render(Some("crypt")).contains("前面は hello のまま"));
+        assert!(render(Some("decrypt")).contains(":decrypt other"));
+        assert!(render(Some("decrypt")).contains("何も貼らない"));
         assert!(render(Some("pipe")).contains(":help sel"));
         assert!(render(Some("j")).contains("3行目"));
         assert!(render(Some("dd")).contains("#lock"));

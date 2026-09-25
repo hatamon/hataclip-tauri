@@ -44,6 +44,8 @@ export const COLON_COMMANDS = [
   "filter",
   "put",
   "each",
+  "crypt",
+  "decrypt",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -100,7 +102,7 @@ function completedColonCommand(command: string): string {
   if (command === "export" || command === "import" || command === "sh" || command === "help" || command === "echo" || command === "log") {
     return `${command} `;
   }
-  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join" || command === "filter") {
+  if (command === "map" || command === "unmap" || command === "mapleader" || command === "set" || command === "n" || command === "quote" || command === "join" || command === "filter" || command === "crypt" || command === "decrypt") {
     return `${command} `;
   }
   return command;
@@ -287,7 +289,9 @@ export type PipeOp = {
     | "diff"
     | "only"
     | "put"
-    | "sub";
+    | "sub"
+    | "crypt"
+    | "decrypt";
   arg: string;
   selectionStdin: boolean;
 };
@@ -506,6 +510,17 @@ function sinkOf(part: string): PipeSink | null {
   return null;
 }
 
+function keyedArg(part: string, name: string): string | null {
+  if (part !== name && !part.startsWith(`${name} `) && !part.startsWith(`${name}\t`)) {
+    return null;
+  }
+  const arg = part === name ? "" : part.slice(name.length).trim();
+  if (arg.length === 0) {
+    return null;
+  }
+  return arg;
+}
+
 function shScript(raw: string): string {
   const quoted = unquoteColonArg(raw);
   if (quoted !== null) {
@@ -592,6 +607,14 @@ function stageOf(part: string): PipeOp | null {
   const sub = subArg(part);
   if (sub !== null) {
     return { kind: "sub", arg: sub, selectionStdin: false };
+  }
+  const crypt = keyedArg(part, "crypt");
+  if (crypt !== null) {
+    return { kind: "crypt", arg: crypt, selectionStdin: false };
+  }
+  const decrypt = keyedArg(part, "decrypt");
+  if (decrypt !== null) {
+    return { kind: "decrypt", arg: decrypt, selectionStdin: false };
   }
   if (part === "sh" || part.startsWith("sh ") || part.startsWith("sh\t")) {
     const script = shScript(part === "sh" ? "" : part.slice(3));
