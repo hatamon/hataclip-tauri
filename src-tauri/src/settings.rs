@@ -110,6 +110,8 @@ struct SettingsFile {
     steps: BTreeSet<String>,
     #[serde(default = "default_n", skip_serializing_if = "is_default_n")]
     n: u32,
+    #[serde(default = "default_font", skip_serializing_if = "is_default_font")]
+    font_px: u32,
 }
 
 pub struct Settings {
@@ -121,6 +123,7 @@ pub struct Settings {
     vars: BTreeMap<String, String>,
     steps: BTreeSet<String>,
     n: u32,
+    font_px: u32,
 }
 
 pub enum SetCommand {
@@ -144,6 +147,17 @@ fn is_default_n(n: &u32) -> bool {
     *n == 1
 }
 
+fn default_font() -> u32 {
+    13
+}
+
+fn is_default_font(px: &u32) -> bool {
+    *px == default_font()
+}
+
+pub const FONT_MIN: u32 = 9;
+pub const FONT_MAX: u32 = 32;
+
 impl Settings {
     pub fn load(path: PathBuf) -> Self {
         let loaded = read_file(&path);
@@ -156,6 +170,7 @@ impl Settings {
             vars: loaded.vars,
             steps: loaded.steps,
             n: loaded.n,
+            font_px: loaded.font_px,
         }
     }
 
@@ -182,7 +197,22 @@ impl Settings {
         self.vars = loaded.vars;
         self.steps = loaded.steps;
         self.n = loaded.n;
+        self.font_px = loaded.font_px;
         true
+    }
+
+    pub fn font_px(&self) -> u32 {
+        self.font_px
+    }
+
+    /// 一覧の文字を 1px 動かす。端では止まる。
+    pub fn bump_font(&mut self, delta: i32) -> u32 {
+        let next = (self.font_px as i32 + delta).clamp(FONT_MIN as i32, FONT_MAX as i32) as u32;
+        if next != self.font_px {
+            self.font_px = next;
+            self.save();
+        }
+        self.font_px
     }
 
     pub fn vars(&self) -> &BTreeMap<String, String> {
@@ -347,6 +377,7 @@ impl Settings {
             &self.vars,
             &self.steps,
             self.n,
+            self.font_px,
         );
     }
 }
@@ -359,6 +390,7 @@ struct Loaded {
     vars: BTreeMap<String, String>,
     steps: BTreeSet<String>,
     n: u32,
+    font_px: u32,
 }
 
 fn empty_loaded() -> Loaded {
@@ -370,6 +402,7 @@ fn empty_loaded() -> Loaded {
         vars: BTreeMap::new(),
         steps: BTreeSet::new(),
         n: default_n(),
+        font_px: default_font(),
     }
 }
 
@@ -400,6 +433,7 @@ fn from_file(file: SettingsFile) -> Loaded {
         steps: sanitize_steps(&file.steps, &vars),
         vars,
         n: file.n,
+        font_px: file.font_px.clamp(FONT_MIN, FONT_MAX),
     }
 }
 
@@ -627,6 +661,7 @@ fn write_file(
     vars: &BTreeMap<String, String>,
     steps: &BTreeSet<String>,
     n: u32,
+    font_px: u32,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -640,6 +675,7 @@ fn write_file(
         vars: vars.clone(),
         steps: steps.clone(),
         n,
+        font_px,
     };
     fs::write(path, serde_json::to_string_pretty(&file)?)
 }
@@ -661,11 +697,18 @@ mod tests {
     fn missing_file_yields_defaults() {
         let path = temp_path("missing");
         let _ = fs::remove_file(&path);
-        let settings = Settings::load(path);
+        let mut settings = Settings::load(path);
         assert_eq!(settings.shortcuts(), &Shortcuts::default());
         assert_eq!(settings.window(), None);
         assert_eq!(settings.keymaps(), &KeyMaps::default());
         assert_eq!(settings.n(), 1);
+        assert_eq!(settings.font_px(), 13);
+        assert_eq!(settings.bump_font(1), 14);
+        assert_eq!(settings.bump_font(-100), FONT_MIN);
+        assert_eq!(settings.bump_font(100), FONT_MAX);
+        let again = Settings::load(settings.path().to_path_buf());
+        assert_eq!(again.font_px(), FONT_MAX);
+        let _ = fs::remove_file(again.path());
         assert_eq!(settings.copy_for("putty"), "ctrl+c");
         assert_eq!(settings.paste_for("putty"), "ctrl+v");
     }

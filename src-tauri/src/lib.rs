@@ -144,6 +144,16 @@ fn move_pins(ids: Vec<String>, delta: i32, state: tauri::State<'_, AppState>) ->
 }
 
 #[tauri::command]
+fn font_px(state: tauri::State<'_, AppState>) -> u32 {
+    state.settings.lock().expect("settings").font_px()
+}
+
+#[tauri::command]
+fn bump_font(delta: i32, state: tauri::State<'_, AppState>) -> u32 {
+    state.settings.lock().expect("settings").bump_font(delta)
+}
+
+#[tauri::command]
 fn split_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
     state.store.lock().expect("store").split_items(&ids);
     view(&state)
@@ -2736,6 +2746,8 @@ pub fn run() {
             open_settings_file,
             apply_set,
             apply_n,
+            font_px,
+            bump_font,
             log_selection
         ])
         .build(tauri::generate_context!())

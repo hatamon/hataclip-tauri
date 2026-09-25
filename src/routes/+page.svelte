@@ -170,6 +170,7 @@
     return list;
   });
 
+  let fontPx = $state(13);
   let listScroll = $state(0);
   let listBox = $state(400);
   let rowHeights = $state<Record<string, number>>({});
@@ -1670,6 +1671,24 @@
     return event.key === "Escape" || isCtrl(event, "[");
   }
 
+  function adjustFont(event: KeyboardEvent): boolean {
+    if (!event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+    const zoomIn = event.key === "+" || event.key === "=" || event.key === "Add";
+    const zoomOut = event.key === "-" || event.key === "Subtract";
+    if (!zoomIn && !zoomOut) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pending = "";
+    void invoke<number>("bump_font", { delta: zoomIn ? 1 : -1 }).then((px) => {
+      fontPx = px;
+    });
+    return true;
+  }
+
   function handleWindowKeys(event: KeyboardEvent) {
     if (!event.ctrlKey || event.altKey || event.metaKey) {
       return false;
@@ -1797,6 +1816,9 @@
       event.key === "Alt" ||
       event.key === "Meta"
     ) {
+      return;
+    }
+    if (adjustFont(event)) {
       return;
     }
     if (mode === "search" || mode === "tag" || mode === "colon" || mode === "ask") {
@@ -2242,6 +2264,9 @@
       mode = "help";
     });
 
+    void invoke<number>("font_px").then((px) => {
+      fontPx = px;
+    });
     void invoke<{ leader: string; maps: KeyMap[] }>("get_keymaps").then((next) => {
       mapLeader = next.leader;
       maps = next.maps;
@@ -2278,7 +2303,7 @@
   });
 </script>
 
-<div class="picker">
+<div class="picker" style:font-size="{fontPx}px">
   <div class="drag" data-tauri-drag-region></div>
   {#if mode === "editing"}
     <div class="edit">
@@ -2623,7 +2648,7 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
     width: 10px;
     text-align: right;
     color: #778;
-    font-size: 11px;
+    font-size: 0.85em;
   }
 
   .body {
@@ -2649,7 +2674,7 @@ tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentI
   .hint,
   .empty {
     color: #9aa;
-    font-size: 11px;
+    font-size: 0.85em;
   }
 
   .pin {
