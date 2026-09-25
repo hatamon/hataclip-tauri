@@ -1413,11 +1413,27 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         return;
     }
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
+    if let Some(cycle) = pending_cycle(state).filter(|cycle| cycle.query.trim().starts_with('/')) {
+        if !advance_complete(app, state, &cycle) {
+            *state.complete_cycle.lock().expect("complete") = None;
+            note_error(state, "当たらない");
+        }
+        return;
+    }
     let captured = capture_front_text(state);
     let Some(text) = captured else {
         note_error(state, "選択が空");
         return;
     };
+    let search = text.trim().strip_prefix('/').map(str::to_string);
+    if let Some(search) = search {
+        if search.trim().is_empty() {
+            note_error(state, "選択が空");
+            return;
+        }
+        begin_complete(app, state, text, &search);
+        return;
+    }
     if apply_headed_pipe(app, state, &text) {
         return;
     }
@@ -1505,14 +1521,7 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
         return;
     }
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-    let now = std::time::Instant::now();
-    let pending = {
-        let slot = state.complete_cycle.lock().expect("complete");
-        slot.clone().filter(|cycle| {
-            now.duration_since(cycle.at) < std::time::Duration::from_secs(2)
-        })
-    };
-    if let Some(cycle) = pending {
+    if let Some(cycle) = pending_cycle(state) {
         if !advance_complete(app, state, &cycle) {
             *state.complete_cycle.lock().expect("complete") = None;
             note_error(state, "当たらない");
@@ -1523,15 +1532,29 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
         note_error(state, "選択が空");
         return;
     };
-    let ids = completion_ids(state, &query);
-    let Some(index) = paste_completion_from(app, state, &ids, 0, &query) else {
+    begin_complete(app, state, query.clone(), &query);
+}
+
+fn pending_cycle(state: &AppState) -> Option<CompleteCycle> {
+    let now = std::time::Instant::now();
+    state
+        .complete_cycle
+        .lock()
+        .expect("complete")
+        .clone()
+        .filter(|cycle| now.duration_since(cycle.at) < std::time::Duration::from_secs(2))
+}
+
+fn begin_complete(app: &tauri::AppHandle, state: &AppState, identity: String, search: &str) {
+    let ids = completion_ids(state, search);
+    let Some(index) = paste_completion_from(app, state, &ids, 0, &identity) else {
         note_error(state, "当たらない");
         return;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
-        query,
+        query: identity,
         index,
-        at: now,
+        at: std::time::Instant::now(),
         ids,
     });
 }
