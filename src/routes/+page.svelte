@@ -1675,7 +1675,7 @@
     if (!event.ctrlKey || event.altKey || event.metaKey) {
       return false;
     }
-    const zoomIn = event.key === "+" || event.key === "=" || event.key === "Add";
+    const zoomIn = event.key === ";";
     const zoomOut = event.key === "-" || event.key === "Subtract";
     if (!zoomIn && !zoomOut) {
       return false;
