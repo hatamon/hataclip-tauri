@@ -979,6 +979,7 @@ pub fn new_id() -> String {
     format!("{nanos:x}")
 }
 
+#[cfg(test)]
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
