@@ -10,6 +10,7 @@ pub struct Chord {
 pub enum ChordKey {
     Char(char),
     Insert,
+    Home,
 }
 
 pub const DEFAULT_COPY: &str = "ctrl+c";
@@ -32,6 +33,12 @@ pub fn parse(input: &str) -> Option<Chord> {
                     return None;
                 }
                 key = Some(ChordKey::Insert);
+            }
+            "home" => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(ChordKey::Home);
             }
             one if one.chars().count() == 1 => {
                 let ch = one.chars().next()?;
@@ -63,6 +70,7 @@ pub fn display(chord: &Chord) -> String {
     parts.push(match chord.key {
         ChordKey::Char(ch) => ch.to_string(),
         ChordKey::Insert => "insert".to_string(),
+        ChordKey::Home => "home".to_string(),
     });
     parts.join("+")
 }

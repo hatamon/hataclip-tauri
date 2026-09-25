@@ -33,9 +33,11 @@ use tauri::{
 #[derive(Clone)]
 struct CompleteCycle {
     query: String,
+    prefix: String,
     index: usize,
     at: std::time::Instant,
     ids: Vec<String>,
+    expand_key: bool,
 }
 
 pub(crate) struct AppState {
@@ -1413,7 +1415,7 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         return;
     }
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-    if let Some(cycle) = pending_cycle(state).filter(|cycle| cycle.query.trim().starts_with('/')) {
+    if let Some(cycle) = pending_cycle(state).filter(|cycle| cycle.expand_key) {
         if !advance_complete(app, state, &cycle) {
             *state.complete_cycle.lock().expect("complete") = None;
             note_error(state, "当たらない");
@@ -1421,17 +1423,27 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         return;
     }
     let captured = capture_front_text(state);
-    let Some(text) = captured else {
-        note_error(state, "選択が空");
-        return;
+    let (text, from_line) = if let Some(text) = captured {
+        (text, false)
+    } else {
+        match select_line_start(state) {
+            LinePick::Empty => {
+                note_error(state, "選択が空");
+                return;
+            }
+            LinePick::Newline => {
+                note_error(state, "行頭までの選択に改行がある");
+                return;
+            }
+            LinePick::Text(text) => (text, true),
+        }
     };
-    let search = text.trim().strip_prefix('/').map(str::to_string);
-    if let Some(search) = search {
+    if let Some((prefix, search)) = completion_span(&text, from_line) {
         if search.trim().is_empty() {
             note_error(state, "選択が空");
             return;
         }
-        begin_complete(app, state, text, &search);
+        begin_complete(app, state, text, &search, &prefix, true);
         return;
     }
     if apply_headed_pipe(app, state, &text) {
@@ -1532,7 +1544,7 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
         note_error(state, "選択が空");
         return;
     };
-    begin_complete(app, state, query.clone(), &query);
+    begin_complete(app, state, query.clone(), &query, "", false);
 }
 
 fn pending_cycle(state: &AppState) -> Option<CompleteCycle> {
@@ -1545,18 +1557,61 @@ fn pending_cycle(state: &AppState) -> Option<CompleteCycle> {
         .filter(|cycle| now.duration_since(cycle.at) < std::time::Duration::from_secs(2))
 }
 
-fn begin_complete(app: &tauri::AppHandle, state: &AppState, identity: String, search: &str) {
+fn begin_complete(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    identity: String,
+    search: &str,
+    prefix: &str,
+    expand_key: bool,
+) {
     let ids = completion_ids(state, search);
-    let Some(index) = paste_completion_from(app, state, &ids, 0, &identity) else {
+    let Some(index) = paste_completion_from(app, state, &ids, 0, &identity, prefix) else {
         note_error(state, "当たらない");
         return;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
         query: identity,
+        prefix: prefix.to_string(),
         index,
         at: std::time::Instant::now(),
         ids,
+        expand_key,
     });
+}
+
+enum LinePick {
+    Empty,
+    Newline,
+    Text(String),
+}
+
+#[cfg(windows)]
+fn select_line_start(state: &AppState) -> LinePick {
+    if !platform::simulate_chord("shift+home") {
+        return LinePick::Empty;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    match capture_front_text(state) {
+        Some(text) if text.contains('\n') || text.contains('\r') => LinePick::Newline,
+        Some(text) => LinePick::Text(text),
+        None => LinePick::Empty,
+    }
+}
+
+#[cfg(not(windows))]
+fn select_line_start(_state: &AppState) -> LinePick {
+    LinePick::Empty
+}
+
+/// 先頭の `/`、または行頭まで自動選択した行の最後の `/` から補完する。
+fn completion_span(text: &str, from_line: bool) -> Option<(String, String)> {
+    if from_line {
+        let at = text.rfind('/')?;
+        return Some((text[..at].to_string(), text[at + '/'.len_utf8()..].to_string()));
+    }
+    let search = text.trim().strip_prefix('/')?;
+    Some((String::new(), search.to_string()))
 }
 
 fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCycle) -> bool {
@@ -1581,14 +1636,16 @@ fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCy
             return false;
         }
     }
-    let Some(index) = paste_completion_from(app, state, &cycle.ids, index, &cycle.query) else {
+    let Some(index) = paste_completion_from(app, state, &cycle.ids, index, &cycle.query, &cycle.prefix) else {
         return false;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
         query: cycle.query.clone(),
+        prefix: cycle.prefix.clone(),
         index,
         at: std::time::Instant::now(),
         ids: cycle.ids.clone(),
+        expand_key: cycle.expand_key,
     });
     true
 }
@@ -1600,6 +1657,7 @@ fn paste_completion_from(
     ids: &[String],
     start: usize,
     sel: &str,
+    prefix: &str,
 ) -> Option<usize> {
     if ids.is_empty() {
         return None;
@@ -1607,7 +1665,7 @@ fn paste_completion_from(
     let start = start % ids.len();
     for offset in 0..ids.len() {
         let index = (start + offset) % ids.len();
-        match deliver_completion(app, state, &ids[index], sel) {
+        match deliver_completion(app, state, &ids[index], sel, prefix) {
             Some(true) => return Some(index),
             Some(false) => return None,
             None => continue,
@@ -1621,6 +1679,7 @@ fn deliver_completion(
     state: &AppState,
     id: &str,
     sel: &str,
+    prefix: &str,
 ) -> Option<bool> {
     let item = {
         state
@@ -1632,7 +1691,10 @@ fn deliver_completion(
     }?;
     let mut ctx = expand_context(state, sel.to_string(), HashMap::new());
     ctx.read_cred = true;
-    let ops = completion_ops(&item, &ctx)?;
+    let mut ops = completion_ops(&item, &ctx)?;
+    if !prefix.is_empty() {
+        ops.insert(0, text::PasteOp::Text(prefix.to_string()));
+    }
     let ok = play_resolved(app, state, ops, false, false);
     if ok {
         bump_n(state);

@@ -68,6 +68,7 @@ fn send_chord(chord: Chord) -> bool {
     let key = match chord.key {
         ChordKey::Char(ch) => Key::Unicode(ch),
         ChordKey::Insert => Key::Insert,
+        ChordKey::Home => Key::Home,
     };
     ok &= enigo.key(key, Click).is_ok();
     if press_shift {
