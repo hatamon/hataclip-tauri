@@ -92,6 +92,17 @@ pub struct TargetKeys {
     pub copy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paste: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut: Option<String>,
+}
+
+enum TargetSlot {
+    Copy,
+    Paste,
+    Home,
+    Cut,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +141,8 @@ pub enum SetCommand {
     List,
     Copy(String),
     Paste(String),
+    Home(String),
+    Cut(String),
     Var { name: String, value: String },
     Step(String),
 }
@@ -325,15 +338,39 @@ impl Settings {
             .unwrap_or_else(|| chord::DEFAULT_PASTE.to_string())
     }
 
+    pub fn home_for(&self, app: &str) -> String {
+        self.target_keys
+            .get(&app.to_lowercase())
+            .and_then(|row| row.home.clone())
+            .unwrap_or_else(|| chord::DEFAULT_HOME.to_string())
+    }
+
+    /// まだどの動作も送らない。設定だけ残す。
+    #[allow(dead_code)]
+    pub fn cut_for(&self, app: &str) -> String {
+        self.target_keys
+            .get(&app.to_lowercase())
+            .and_then(|row| row.cut.clone())
+            .unwrap_or_else(|| chord::DEFAULT_CUT.to_string())
+    }
+
     pub fn set_target_copy(&mut self, app: &str, spec: &str) -> bool {
-        self.set_target_chord(app, spec, true)
+        self.set_target_chord(app, spec, TargetSlot::Copy)
     }
 
     pub fn set_target_paste(&mut self, app: &str, spec: &str) -> bool {
-        self.set_target_chord(app, spec, false)
+        self.set_target_chord(app, spec, TargetSlot::Paste)
     }
 
-    fn set_target_chord(&mut self, app: &str, spec: &str, copy: bool) -> bool {
+    pub fn set_target_home(&mut self, app: &str, spec: &str) -> bool {
+        self.set_target_chord(app, spec, TargetSlot::Home)
+    }
+
+    pub fn set_target_cut(&mut self, app: &str, spec: &str) -> bool {
+        self.set_target_chord(app, spec, TargetSlot::Cut)
+    }
+
+    fn set_target_chord(&mut self, app: &str, spec: &str, slot: TargetSlot) -> bool {
         let app = app.trim().to_lowercase();
         let Some(parsed) = chord::parse(spec) else {
             return false;
@@ -343,10 +380,11 @@ impl Settings {
         }
         let shown = chord::display(&parsed);
         let row = self.target_keys.entry(app).or_default();
-        if copy {
-            row.copy = Some(shown);
-        } else {
-            row.paste = Some(shown);
+        match slot {
+            TargetSlot::Copy => row.copy = Some(shown),
+            TargetSlot::Paste => row.paste = Some(shown),
+            TargetSlot::Home => row.home = Some(shown),
+            TargetSlot::Cut => row.cut = Some(shown),
         }
         self.save();
         true
@@ -457,6 +495,12 @@ pub fn parse_set(rest: &str) -> Option<SetCommand> {
     if let Some(parsed) = chord_spec(rest, "paste") {
         return parsed.map(SetCommand::Paste);
     }
+    if let Some(parsed) = chord_spec(rest, "home") {
+        return parsed.map(SetCommand::Home);
+    }
+    if let Some(parsed) = chord_spec(rest, "cut") {
+        return parsed.map(SetCommand::Cut);
+    }
     let eq = rest.find('=')?;
     let name = rest[..eq].trim();
     if !valid_var_name(name) {
@@ -548,7 +592,7 @@ fn unquote(raw: &str, quote: char) -> Option<String> {
 }
 
 fn valid_var_name(name: &str) -> bool {
-    if name == "paste" || name == "copy" {
+    if name == "paste" || name == "copy" || name == "home" || name == "cut" {
         return false;
     }
     let mut chars = name.chars();
@@ -625,7 +669,13 @@ fn sanitize_target_keys(raw: BTreeMap<String, TargetKeys>) -> BTreeMap<String, T
         row.paste = row
             .paste
             .and_then(|spec| chord::parse(&spec).map(|parsed| chord::display(&parsed)));
-        if row.copy.is_none() && row.paste.is_none() {
+        row.home = row
+            .home
+            .and_then(|spec| chord::parse(&spec).map(|parsed| chord::display(&parsed)));
+        row.cut = row
+            .cut
+            .and_then(|spec| chord::parse(&spec).map(|parsed| chord::display(&parsed)));
+        if row.copy.is_none() && row.paste.is_none() && row.home.is_none() && row.cut.is_none() {
             continue;
         }
         out.insert(app, row);
@@ -806,9 +856,16 @@ mod tests {
         assert!(!settings.set_target_paste("putty", "nope"));
         assert!(!settings.set_target_copy("", "ctrl+c"));
         assert!(!settings.set_target_paste("", "ctrl+v"));
+        assert!(settings.set_target_home("PuTTY", "ctrl+shift+home"));
+        assert!(settings.set_target_cut("PuTTY", "ctrl+shift+x"));
+        assert!(!settings.set_target_home("putty", "nope"));
         let reloaded = Settings::load(path.clone());
         assert_eq!(reloaded.paste_for("putty"), "shift+insert");
         assert_eq!(reloaded.copy_for("putty"), "ctrl+shift+c");
+        assert_eq!(reloaded.home_for("putty"), "ctrl+shift+home");
+        assert_eq!(reloaded.cut_for("putty"), "ctrl+shift+x");
+        assert_eq!(reloaded.home_for("other"), "shift+home");
+        assert_eq!(reloaded.cut_for("other"), "ctrl+x");
         fs::write(
             &path,
             r#"{"version":1,"shortcuts":{"register":"Control+Digit4","show":"Control+Digit7"},"target_keys":{"WT":{"copy":"ctrl+shift+c","paste":"nope"}}}"#,
@@ -859,6 +916,16 @@ mod tests {
         assert!(parse_set("paste=\"no\"").is_none());
         assert!(parse_set("paste").is_none());
         assert!(matches!(
+            parse_set("home shift+home"),
+            Some(SetCommand::Home(spec)) if spec == "shift+home"
+        ));
+        assert!(matches!(
+            parse_set("cut ctrl+x"),
+            Some(SetCommand::Cut(spec)) if spec == "ctrl+x"
+        ));
+        assert!(parse_set("home").is_none());
+        assert!(parse_set("cut").is_none());
+        assert!(matches!(
             parse_set("a="),
             Some(SetCommand::Var { name, value }) if name == "a" && value.is_empty()
         ));
@@ -882,6 +949,8 @@ mod tests {
         assert!(settings.set_var("a", "{{date}}".into()));
         assert!(!settings.set_var("paste", "no".into()));
         assert!(!settings.set_var("copy", "no".into()));
+        assert!(!settings.set_var("home", "no".into()));
+        assert!(!settings.set_var("cut", "no".into()));
         assert_eq!(
             Settings::load(path.clone()).vars().get("a").map(String::as_str),
             Some("{{date}}")

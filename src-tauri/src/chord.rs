@@ -15,6 +15,8 @@ pub enum ChordKey {
 
 pub const DEFAULT_COPY: &str = "ctrl+c";
 pub const DEFAULT_PASTE: &str = "ctrl+v";
+pub const DEFAULT_HOME: &str = "shift+home";
+pub const DEFAULT_CUT: &str = "ctrl+x";
 
 pub fn parse(input: &str) -> Option<Chord> {
     let mut ctrl = false;

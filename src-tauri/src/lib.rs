@@ -481,6 +481,24 @@ fn apply_set(rest: String, state: tauri::State<'_, AppState>) -> Result<Option<S
                 .set_target_paste(&app, &spec);
             Ok(None)
         }
+        Some(SetCommand::Home(spec)) => {
+            let app = foreground_app(&state);
+            let _ = state
+                .settings
+                .lock()
+                .expect("settings")
+                .set_target_home(&app, &spec);
+            Ok(None)
+        }
+        Some(SetCommand::Cut(spec)) => {
+            let app = foreground_app(&state);
+            let _ = state
+                .settings
+                .lock()
+                .expect("settings")
+                .set_target_cut(&app, &spec);
+            Ok(None)
+        }
         Some(SetCommand::Var { name, value }) => {
             if !state
                 .settings
@@ -1664,7 +1682,12 @@ enum LinePick {
 
 #[cfg(windows)]
 fn select_line_start(state: &AppState) -> LinePick {
-    if !platform::simulate_chord("shift+home") {
+    let spec = state
+        .settings
+        .lock()
+        .expect("settings")
+        .home_for(&foreground_app(state));
+    if !platform::simulate_chord(&spec) {
         return LinePick::Empty;
     }
     std::thread::sleep(std::time::Duration::from_millis(50));
