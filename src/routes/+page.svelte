@@ -2538,8 +2538,7 @@
       <pre class="preview">{previewText}</pre>
     {/if}
     {#if info && currentItem()}
-      <pre class="preview">{`count ${currentItem()!.paste_count}
-context ${currentItem()!.contexts.join(" ") || "—"}
+      <pre class="preview">{`context ${currentItem()!.contexts.join(" ") || "—"}
 tags ${currentItem()!.tags.map((tag) => `#${tag}`).join(" ") || "—"}${currentItem()!.formula ? `\nformula ${currentItem()!.formula}` : ""}`}</pre>
     {/if}
     {#if whichKeys.length > 0}

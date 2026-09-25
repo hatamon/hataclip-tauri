@@ -20,8 +20,6 @@ pub struct Item {
     /// 貼り付け先アプリの目印。新しい順。
     #[serde(default)]
     pub contexts: Vec<String>,
-    #[serde(default)]
-    pub paste_count: u32,
     /// ピン留め同士の手動順。小さいほど上。
     #[serde(default)]
     pub pin_rank: i32,
@@ -38,7 +36,6 @@ impl Item {
             tags,
             pinned: false,
             contexts: Vec::new(),
-            paste_count: 0,
             pin_rank: 0,
             formula: String::new(),
         }
@@ -429,20 +426,6 @@ impl Store {
         }
     }
 
-    pub fn bump_paste(&mut self, ids: &[String]) {
-        self.absorb();
-        let mut changed = false;
-        for item in self.items.iter_mut() {
-            if ids.iter().any(|id| id == &item.id) {
-                item.paste_count = item.paste_count.saturating_add(1);
-                changed = true;
-            }
-        }
-        if changed {
-            self.save();
-        }
-    }
-
     pub fn clear_unpinned(&mut self) -> bool {
         self.absorb();
         if self.items.iter().all(|item| item.pinned || item.locked()) {
@@ -703,7 +686,7 @@ impl Store {
         true
     }
 
-    /// 選んだ行の本文を置き換える。タグ・ピン・回数はそのまま。
+    /// 選んだ行の本文を置き換える。タグとピンはそのまま。
     pub fn replace_texts(&mut self, updates: &[(String, String)]) -> bool {
         self.absorb();
         if updates.is_empty() {
@@ -803,7 +786,7 @@ impl Store {
         true
     }
 
-    /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピン・タグ・回数はそのまま。
+    /// 選んだ行を本文の順に並べ、範囲先頭の位置から置き直す。ピンとタグはそのまま。
     pub fn sort_items(&mut self, ids: &[String]) -> bool {
         self.absorb();
         if ids.len() < 2 {
@@ -1092,7 +1075,6 @@ mod tests {
             tags: Vec::new(),
             pinned: false,
             contexts: Vec::new(),
-            paste_count: 0,
             pin_rank: 0,
             formula: String::new(),
         }
@@ -1317,7 +1299,6 @@ mod tests {
             item("a", "one"),
             Item {
                 contexts: vec!["code".into()],
-                paste_count: 9,
                 ..item("b", "two")
             },
             Item {
@@ -1327,22 +1308,6 @@ mod tests {
         ];
         assert_eq!(ordered_ids(&items, Some("code")), vec!["c", "a", "b"]);
         assert_eq!(ordered_ids(&items, None), vec!["c", "a", "b"]);
-    }
-
-    #[test]
-    fn paste_count_does_not_reorder() {
-        let items = vec![
-            Item {
-                paste_count: 1,
-                ..item("a", "one")
-            },
-            Item {
-                paste_count: 5,
-                ..item("b", "two")
-            },
-            item("c", "three"),
-        ];
-        assert_eq!(ordered_ids(&items, None), vec!["a", "b", "c"]);
     }
 
     #[test]
@@ -1401,13 +1366,11 @@ mod tests {
             Item {
                 pinned: true,
                 pin_rank: 1,
-                paste_count: 9,
                 ..item("a", "one")
             },
             Item {
                 pinned: true,
                 pin_rank: 0,
-                paste_count: 0,
                 ..item("b", "two")
             },
         ];
@@ -1586,7 +1549,6 @@ mod tests {
         assert_eq!(store.list()[0].id, "a");
         assert_eq!(store.list()[1].text, "one");
         assert_ne!(store.list()[1].id, "a");
-        assert_eq!(store.list()[1].paste_count, 0);
     }
 
     #[test]
@@ -1660,7 +1622,6 @@ mod tests {
         let mut store = fresh("sort-slot");
         store.insert(Item {
             tags: vec!["keep".into()],
-            paste_count: 4,
             ..item("a", "aa")
         });
         store.insert(item("b", "zz"));
@@ -1669,7 +1630,6 @@ mod tests {
         let ids: Vec<_> = store.list().iter().map(|item| item.id.as_str()).collect();
         assert_eq!(ids, vec!["c", "a", "b"]);
         assert_eq!(store.get("a").unwrap().tags, vec!["keep"]);
-        assert_eq!(store.get("a").unwrap().paste_count, 4);
     }
 
     #[test]

@@ -589,7 +589,6 @@ fn paste_resolved_text(
     if let Some(key) = current_context(state) {
         state.store.lock().expect("store").record_context(ids, &key);
     }
-    state.store.lock().expect("store").bump_paste(ids);
     let ok = paste_text(app, state, &text, keep_open);
     let _ = app.emit("items-changed", view(state));
     bump_n(state);
@@ -1990,7 +1989,6 @@ fn run_paste(
         if let Some(key) = current_context(state) {
             state.store.lock().expect("store").record_context(ids, &key);
         }
-        state.store.lock().expect("store").bump_paste(ids);
         hide_window(app, state);
         let _ = app.emit("items-changed", view(state));
         if keep_open {
@@ -2021,7 +2019,6 @@ fn run_paste(
             .expect("store")
             .record_context(ids, &key);
     }
-    state.store.lock().expect("store").bump_paste(ids);
     let ok = play_resolved(app, state, ops, keep_open, typed);
     if ok {
         let _ = app.emit("items-changed", view(state));
