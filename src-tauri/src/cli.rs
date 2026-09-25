@@ -5,29 +5,41 @@ use crate::text;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-pub fn run(expr: &str, stdin: Option<&str>) -> i32 {
+pub fn run(expr: &str, stdin: Option<&str>, show_error: bool) -> i32 {
     match execute(expr, stdin) {
-        Ok(CliResult::Stdout(text)) => {
-            let mut out = io::stdout().lock();
-            if out.write_all(text.as_bytes()).is_err() {
-                return 1;
-            }
-            if !text.ends_with('\n') && out.write_all(b"\n").is_err() {
-                return 1;
-            }
-            0
-        }
+        Ok(CliResult::Stdout(text)) => write_stdout(&text),
+        Ok(CliResult::Show(text)) => match crate::page::present(&text) {
+            Ok(()) => 0,
+            Err(_) => 1,
+        },
         Ok(CliResult::Quiet) => 0,
-        Err(()) => 1,
+        Err(message) => {
+            if show_error && !message.trim().is_empty() {
+                eprintln!("{message}");
+            }
+            1
+        }
     }
+}
+
+fn write_stdout(text: &str) -> i32 {
+    let mut out = io::stdout().lock();
+    if out.write_all(text.as_bytes()).is_err() {
+        return 1;
+    }
+    if !text.ends_with('\n') && out.write_all(b"\n").is_err() {
+        return 1;
+    }
+    0
 }
 
 enum CliResult {
     Stdout(String),
+    Show(String),
     Quiet,
 }
 
-fn resolve(expr: &str, piped: bool) -> Result<pipe::Script, ()> {
+fn resolve(expr: &str, piped: bool) -> Result<pipe::Script, String> {
     if piped {
         if let Some(script) = pipe::stdin_sink(expr) {
             return Ok(script);
@@ -35,16 +47,16 @@ fn resolve(expr: &str, piped: bool) -> Result<pipe::Script, ()> {
     }
     match pipe::classify(expr) {
         pipe::PasteBody::Run(script) => Ok(script),
-        pipe::PasteBody::Text | pipe::PasteBody::Bad => Err(()),
+        pipe::PasteBody::Text | pipe::PasteBody::Bad => Err("段が読めない".into()),
     }
 }
 
-fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
+fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, String> {
     let script = resolve(expr, stdin.is_some())?;
     if script.ops.iter().any(|op| op.kind == "sel") {
-        return Err(());
+        return Err("選択を取れない".into());
     }
-    let dir = data_dir().ok_or(())?;
+    let dir = data_dir().ok_or_else(|| "失敗".to_string())?;
     let mut store = Store::load(dir.join("items.json"));
     let mut settings = Settings::load(dir.join("settings.json"));
     let vars: std::collections::HashMap<String, String> = settings
@@ -67,21 +79,30 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
         store.insert(item);
     }
     match script.sink.as_str() {
-        "paste" | "show" => {
+        "paste" => {
             if text.is_empty() {
-                return Err(());
+                return Err("空".into());
             }
             Ok(CliResult::Stdout(text))
         }
+        "show" => {
+            if text.is_empty() {
+                return Err("空".into());
+            }
+            Ok(CliResult::Show(text))
+        }
         "clip" => {
-            if text.is_empty() || !crate::clipboard::write_clipboard_text(&text) {
-                return Err(());
+            if text.is_empty() {
+                return Err("空".into());
+            }
+            if !crate::clipboard::write_clipboard_text(&text) {
+                return Err("クリップボードに書けない".into());
             }
             Ok(CliResult::Quiet)
         }
         "add" => {
             if text.is_empty() {
-                return Err(());
+                return Err("空".into());
             }
             let tags = text::auto_tags(&text);
             let mut item = Item::new(text, tags);
@@ -92,7 +113,7 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
         "set" => {
             let name = script.set_name.as_deref().unwrap_or("");
             if !settings.set_var(name, text) {
-                return Err(());
+                return Err("名前が違う".into());
             }
             Ok(CliResult::Quiet)
         }
@@ -108,7 +129,7 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
         }
         "log" => {
             if text.is_empty() {
-                return Err(());
+                return Err("失敗".to_string());
             }
             let vars = settings.vars();
             let Some(path) = crate::log_destination(
@@ -118,11 +139,11 @@ fn execute(expr: &str, stdin: Option<&str>) -> Result<CliResult, ()> {
                 return Ok(CliResult::Quiet);
             };
             if crate::append_log(&path, &text).is_err() {
-                return Err(());
+                return Err("書けない".into());
             }
             Ok(CliResult::Quiet)
         }
-        _ => Err(()),
+        _ => Err("段が読めない".into()),
     }
 }
 
@@ -132,7 +153,7 @@ fn walk(
     vars: &std::collections::HashMap<String, String>,
     piped: bool,
     added: &mut Vec<(String, String)>,
-) -> Result<String, ()> {
+) -> Result<String, String> {
     let mut text = seed;
     let mut index = 0;
     while index < ops.len() {
@@ -146,7 +167,7 @@ fn walk(
                 }
             }
             if kept.is_empty() {
-                return Err(());
+                return Err("失敗".to_string());
             }
             return Ok(kept.join("\n"));
         }
@@ -154,14 +175,14 @@ fn walk(
             "raw" | "dot" => {
                 if text.is_none() {
                     if op.kind == "dot" && !piped {
-                        return Err(());
+                        return Err("失敗".to_string());
                     }
                     text = Some(String::new());
                 }
             }
             "add" => {
                 let Some(current) = text.as_deref() else {
-                    return Err(());
+                    return Err("失敗".to_string());
                 };
                 if !current.is_empty() {
                     added.push((current.to_string(), pipe::render_ops(&ops[..index])));
@@ -170,7 +191,7 @@ fn walk(
             "clip" => match text.as_deref() {
                 Some(current) => {
                     if !current.is_empty() && !crate::clipboard::write_clipboard_text(current) {
-                        return Err(());
+                        return Err("失敗".to_string());
                     }
                 }
                 None => {
@@ -178,7 +199,7 @@ fn walk(
                 }
             },
             "echo" => {
-                let value = crate::expr::eval_with(&op.arg, vars).ok_or(())?;
+                let value = crate::expr::eval_with(&op.arg, vars).ok_or_else(|| "失敗".to_string())?;
                 text = Some(crate::expr::format_number(value));
             }
             "sh" => {
@@ -187,7 +208,8 @@ fn walk(
                 } else {
                     None
                 };
-                let output = crate::shell::run_script_with_stdin(&op.arg, stdin.as_deref()).map_err(|_| ())?;
+                let output = crate::shell::run_script_with_stdin(&op.arg, stdin.as_deref())
+                    .map_err(|err| crate::shell::command_error(&err))?;
                 text = Some(output);
             }
             "json" | "xml" => {
@@ -197,30 +219,30 @@ fn walk(
                 } else {
                     text::pretty_xml(&current)
                 };
-                text = Some(pretty.ok_or(())?);
+                text = Some(pretty.ok_or_else(|| "失敗".to_string())?);
             }
             "put" => {
                 let current = take_text(&mut text, piped)?;
-                let (pointer, value) = op.arg.split_once('\u{1}').ok_or(())?;
-                text = Some(text::json_put(&current, pointer, value).ok_or(())?);
+                let (pointer, value) = op.arg.split_once('\u{1}').ok_or_else(|| "失敗".to_string())?;
+                text = Some(text::json_put(&current, pointer, value).ok_or_else(|| "失敗".to_string())?);
             }
             "diff" | "only" => {
                 let current = take_text(&mut text, piped)?;
                 let other = match op.arg.as_str() {
                     "clip" => crate::clipboard::peek_text().unwrap_or_default(),
-                    "." => return Err(()),
-                    _ => return Err(()),
+                    "." => return Err("失敗".to_string()),
+                    _ => return Err("失敗".to_string()),
                 };
                 let next = if op.kind == "diff" {
                     text::line_diff(&current, &other)
                 } else {
                     text::only_lines(&current, &other)
                 };
-                text = Some(next.ok_or(())?);
+                text = Some(next.ok_or_else(|| "失敗".to_string())?);
             }
             "filter" => {
                 let current = take_text(&mut text, piped)?;
-                text = Some(text::filter_lines(&current, &op.arg).ok_or(())?);
+                text = Some(text::filter_lines(&current, &op.arg).ok_or_else(|| "失敗".to_string())?);
             }
             "split" | "col" | "get" => {
                 let current = take_text(&mut text, piped)?;
@@ -233,12 +255,12 @@ fn walk(
                     "get" => text::json_at(&current, &op.arg),
                     _ => None,
                 };
-                text = Some(next.ok_or(())?);
+                text = Some(next.ok_or_else(|| "失敗".to_string())?);
             }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 if text.is_none() && !piped {
-                    return Err(());
+                    return Err("失敗".to_string());
                 }
                 let current = text.take().unwrap_or_default();
                 text = Some(match op.kind.as_str() {
@@ -255,25 +277,25 @@ fn walk(
                     _ => current,
                 });
             }
-            _ => return Err(()),
+            _ => return Err("失敗".to_string()),
         }
         index += 1;
     }
-    text.ok_or(())
+    text.ok_or_else(|| "空".to_string())
 }
 
-fn take_text(text: &mut Option<String>, piped: bool) -> Result<String, ()> {
+fn take_text(text: &mut Option<String>, piped: bool) -> Result<String, String> {
     if text.is_none() && !piped {
-        return Err(());
+        return Err("空".into());
     }
     Ok(text.take().unwrap_or_default())
 }
 
 #[cfg(test)]
-fn transform(expr: &str, stdin: Option<&str>) -> Result<String, ()> {
+fn transform(expr: &str, stdin: Option<&str>) -> Result<String, String> {
     let script = resolve(expr, stdin.is_some())?;
     if script.ops.iter().any(|op| op.kind == "sel") {
-        return Err(());
+        return Err("選択を取れない".into());
     }
     let mut added = Vec::new();
     walk(

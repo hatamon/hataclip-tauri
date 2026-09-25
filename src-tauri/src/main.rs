@@ -1,62 +1,30 @@
 fn main() {
+    let redirected = stdin_is_redirected();
     #[cfg(windows)]
-    std::process::exit(windows_cli());
-
+    let idle_is_tray = false;
     #[cfg(not(windows))]
-    match decide(std::env::args().skip(1), stdin_is_redirected()) {
-        Launch::Gui => hataclip_lib::run(),
-        Launch::Cli { expr, redirected } => {
+    let idle_is_tray = true;
+    match hataclip_lib::parse_command(std::env::args().skip(1), redirected, idle_is_tray) {
+        hataclip_lib::Command::Gui => hataclip_lib::run(),
+        hataclip_lib::Command::Help(topic) => {
+            let text = hataclip_lib::render_help(topic.as_deref());
+            std::process::exit(hataclip_lib::present_text(&text));
+        }
+        hataclip_lib::Command::Run { expr, show_error } => {
             let stdin = if redirected {
                 Some(read_piped_stdin())
             } else {
                 None
             };
-            std::process::exit(hataclip_lib::run_cli(&expr, stdin.as_deref()))
+            std::process::exit(hataclip_lib::run_cli(&expr, stdin.as_deref(), show_error));
         }
-        Launch::Fail => std::process::exit(1),
+        hataclip_lib::Command::Fail { message, show_error } => {
+            if hataclip_lib::fail_text(message, show_error, cfg!(windows)).is_some() {
+                eprintln!("{message}");
+            }
+            std::process::exit(1);
+        }
     }
-}
-
-/// Windows のパイプ用はコンソール付きの `hataclip.exe`。トレイは `hataclip-gui.exe`。
-#[cfg(windows)]
-fn windows_cli() -> i32 {
-    let mut args = std::env::args().skip(1);
-    let Some(expr) = args.next() else {
-        eprintln!("式を1つ渡す");
-        return 1;
-    };
-    if args.next().is_some() {
-        eprintln!("式は1つ");
-        return 1;
-    }
-    let stdin = if stdin_is_redirected() {
-        Some(read_piped_stdin())
-    } else {
-        None
-    };
-    hataclip_lib::run_cli(&expr, stdin.as_deref())
-}
-
-/// 引数が無ければトレイに常駐する。式が1つならそれを実行する。2つ以上は失敗。
-#[cfg(not(windows))]
-fn decide(args: impl IntoIterator<Item = String>, redirected: bool) -> Launch {
-    let mut args = args.into_iter();
-    let expr = args.next();
-    if args.next().is_some() {
-        return Launch::Fail;
-    }
-    match expr {
-        None if !redirected => Launch::Gui,
-        Some(expr) => Launch::Cli { expr, redirected },
-        None => Launch::Fail,
-    }
-}
-
-#[cfg(not(windows))]
-enum Launch {
-    Gui,
-    Cli { expr: String, redirected: bool },
-    Fail,
 }
 
 /// 標準入力がパイプかファイルなら真。
@@ -71,43 +39,4 @@ fn read_piped_stdin() -> String {
         std::process::exit(1);
     }
     String::from_utf8_lossy(&buf).into_owned()
-}
-
-#[cfg(all(test, not(windows)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_args_without_redirect_starts_the_tray() {
-        assert!(matches!(decide(None, false), Launch::Gui));
-    }
-
-    #[test]
-    fn no_args_with_redirect_exits() {
-        assert!(matches!(decide(None, true), Launch::Fail));
-    }
-
-    #[test]
-    fn one_expr_runs_cli() {
-        match decide(Some("echo 1".to_string()), false) {
-            Launch::Cli { expr, redirected } => {
-                assert_eq!(expr, "echo 1");
-                assert!(!redirected);
-            }
-            _ => panic!("cli"),
-        }
-        match decide(Some("quote".to_string()), true) {
-            Launch::Cli { expr, redirected } => {
-                assert_eq!(expr, "quote");
-                assert!(redirected);
-            }
-            _ => panic!("cli"),
-        }
-    }
-
-    #[test]
-    fn two_args_fail() {
-        let args = ["echo 1".to_string(), "quote".to_string()];
-        assert!(matches!(decide(args, false), Launch::Fail));
-    }
 }

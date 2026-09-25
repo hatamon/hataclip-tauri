@@ -1351,6 +1351,7 @@ dependencies = [
  "arboard",
  "chrono",
  "enigo",
+ "libc",
  "serde",
  "serde_json",
  "tauri",

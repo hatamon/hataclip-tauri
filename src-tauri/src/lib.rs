@@ -1,5 +1,7 @@
 mod actions;
 mod cli;
+mod cli_args;
+mod page;
 mod chord;
 mod clipboard;
 mod keys;
@@ -2854,9 +2856,22 @@ fn clamp_point(window: &WebviewWindow, point: Point, width: u32, height: u32) ->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run_cli(expr: &str, stdin: Option<&str>) -> i32 {
-    cli::run(expr, stdin)
+pub fn run_cli(expr: &str, stdin: Option<&str>, show_error: bool) -> i32 {
+    cli::run(expr, stdin, show_error)
 }
+
+pub fn render_help(topic: Option<&str>) -> String {
+    help::render(topic)
+}
+
+pub fn present_text(text: &str) -> i32 {
+    match page::present(text) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+pub use cli_args::{fail_text, parse_command, Command};
 
 fn watch_items(app: tauri::AppHandle) {
     std::thread::spawn(move || {
