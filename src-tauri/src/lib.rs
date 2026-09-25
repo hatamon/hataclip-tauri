@@ -50,6 +50,7 @@ pub(crate) struct AppState {
     picker_open: Mutex<bool>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
     last_error: Mutex<Option<String>>,
+    pending_expand: Mutex<Option<String>>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -1446,7 +1447,52 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         begin_complete(app, state, text, &search, &prefix, true);
         return;
     }
-    if apply_headed_pipe(app, state, &text) {
+    if ask_shell(app, state, &text) {
+        return;
+    }
+    expand_captured(app, state, &text);
+}
+
+fn ask_shell(app: &tauri::AppHandle, state: &AppState, text: &str) -> bool {
+    let last_sh = state.last_sh.lock().expect("last_sh").clone();
+    let prompts = shell_prompts(text, last_sh.as_deref());
+    if prompts.is_empty() {
+        return false;
+    }
+    *state.pending_expand.lock().expect("pending_expand") = Some(text.to_string());
+    show_window(app);
+    let _ = app.emit("sh-confirm", prompts.join("\n"));
+    true
+}
+
+fn shell_prompts(text: &str, last_sh: Option<&str>) -> Vec<String> {
+    let mut prompts = Vec::new();
+    let first = text.trim().lines().next().unwrap_or("").trim();
+    if first == ":@" {
+        if let Some(script) = last_sh.filter(|script| !script.is_empty()) {
+            prompts.push(script.to_string());
+        }
+    }
+    let script = match pipe::headed_pipe(text) {
+        pipe::Headed::Run { script, .. } => Some(script),
+        _ => match pipe::solo_pipe(text) {
+            pipe::Solo::Run(script) => Some(script),
+            _ => None,
+        },
+    };
+    if let Some(script) = script {
+        for op in script.ops {
+            if op.kind == "sh" && !op.arg.trim().is_empty() {
+                prompts.push(op.arg);
+            }
+        }
+    }
+    prompts.extend(shell::sh_args(text));
+    prompts
+}
+
+fn expand_captured(app: &tauri::AppHandle, state: &AppState, text: &str) {
+    if apply_headed_pipe(app, state, text) {
         return;
     }
     if apply_solo_pipe(app, state, &text) {
@@ -1454,7 +1500,21 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     }
     let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
-    let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
+    let ran = if shell::has_sh_token(text) {
+        match shell::apply_sh(text, true) {
+            Ok(out) => Some(out),
+            Err(err) => {
+                note_error(state, &shell::command_error(&err));
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    let body = ran.as_deref().unwrap_or(text);
+    let Some(out) = eval::resolve_selection(body, &ctx, last_sh.as_deref()).or_else(|| {
+        ran.filter(|out| out != text)
+    }) else {
         note_error(state, "展開できない");
         return;
     };
@@ -1463,8 +1523,24 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
         note_error(state, "展開が空");
         return;
     }
-    remember_last_sh(&text, state);
+    remember_last_sh(text, state);
     play_resolved(app, state, ops, false, false);
+}
+
+#[tauri::command]
+fn confirm_selection_expand(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    let text = state.pending_expand.lock().expect("pending_expand").take();
+    hide_window(&app, &state);
+    let Some(text) = text else {
+        return;
+    };
+    expand_captured(&app, &state, &text);
+}
+
+#[tauri::command]
+fn cancel_selection_expand(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    *state.pending_expand.lock().expect("pending_expand") = None;
+    hide_window(&app, &state);
 }
 
 /// 1行目が `:` のパイプなら、2行目以降を流れにして実行する。扱ったら真。
@@ -2856,6 +2932,7 @@ pub fn run() {
                 picker_open: Mutex::new(false),
                 complete_cycle: Mutex::new(None),
                 last_error: Mutex::new(None),
+                pending_expand: Mutex::new(None),
             });
             tray::setup(app)?;
             watch_items(app.handle().clone());
@@ -2904,6 +2981,8 @@ pub fn run() {
             help_topics,
             last_error,
             remember_error,
+            confirm_selection_expand,
+            cancel_selection_expand,
             export_items,
             import_items,
             clear_unpinned,

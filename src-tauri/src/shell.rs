@@ -249,6 +249,29 @@ pub fn apply_sh(text: &str, run: bool) -> Result<String, ShellError> {
     Ok(out)
 }
 
+pub fn sh_args(text: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+            if let Some(close) = crate::text::find_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                if let Some(arg) = crate::text::arg_after(inner.trim(), "sh") {
+                    let arg = arg.trim();
+                    if !arg.is_empty() {
+                        args.push(arg.to_string());
+                    }
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    args
+}
+
 pub fn has_sh_token(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;

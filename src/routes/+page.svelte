@@ -88,6 +88,7 @@
   let preview = $state(false);
   let previewText = $state("");
   let runConfirm = $state(false);
+  let shConfirm = $state(false);
   let pendingResolved = $state<string | null>(null);
   let tagCycle = $state(-1);
   let draftNewId = $state<string | null>(null);
@@ -1855,8 +1856,20 @@
           pendingResolved = null;
           runConfirm = false;
         }
+        if (shConfirm) {
+          shConfirm = false;
+          void invoke("cancel_selection_expand");
+        }
         mode = "normal";
         helpText = "";
+        return;
+      }
+      if (shConfirm && event.key === "Enter") {
+        event.preventDefault();
+        shConfirm = false;
+        mode = "normal";
+        helpText = "";
+        void invoke("confirm_selection_expand");
         return;
       }
       if (runConfirm && event.key === "Enter") {
@@ -2270,6 +2283,11 @@
       helpText = event.payload;
       mode = "help";
     });
+    const unlistenSh = listen<string>("sh-confirm", (event) => {
+      shConfirm = true;
+      helpText = `${event.payload}\n\nEnter で実行  Esc で中止`;
+      mode = "help";
+    });
 
     void invoke<number>("font_px").then((px) => {
       fontPx = px;
@@ -2304,6 +2322,7 @@
       void unlistenOpened.then((stop) => stop());
       void unlistenChanged.then((stop) => stop());
       void unlistenPipe.then((stop) => stop());
+      void unlistenSh.then((stop) => stop());
       void unlistenSettings.then((stop) => stop());
       stopDrop?.();
     };
