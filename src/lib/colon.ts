@@ -1,5 +1,6 @@
 export const COLON_COMMANDS = [
   "help",
+  "showerror",
   "sh",
   "!!",
   "export",

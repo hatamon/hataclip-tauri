@@ -1323,8 +1323,15 @@
       items = await invoke<Item[]>("set_formula", { id: item.id, formula: rest });
       return;
     }
+    if (line === "showerror") {
+      helpText = await invoke<string>("last_error");
+      helpTopics = await invoke<string[]>("help_topics");
+      mode = "help";
+      return;
+    }
     const pipe = parseColonPipe(historyLine);
     if (pipe.kind === "bad") {
+      await invoke("remember_error", { message: "段が違う" });
       return;
     }
     if (pipe.kind === "ok") {

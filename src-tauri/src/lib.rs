@@ -47,6 +47,7 @@ pub(crate) struct AppState {
     last_sh: Mutex<Option<String>>,
     picker_open: Mutex<bool>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
+    last_error: Mutex<Option<String>>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -208,7 +209,7 @@ fn filter_items(
             return Ok(view(&state));
         };
         let out = shell::run_script_with_stdin(script, Some(&item.text))
-            .map_err(|_| "コマンドに失敗した".to_string())?;
+            .map_err(|err| shell::command_error(&err))?;
         updates.push((id.clone(), out));
     }
     drop(store);
@@ -573,13 +574,18 @@ fn paste_resolved_text(
         text = text::prefix_lines(&text, prefix);
     }
     if to_clipboard {
-        return clipboard::write_clipboard_text(&text);
+        if clipboard::write_clipboard_text(&text) {
+            clear_error(state);
+            return true;
+        }
+        note_error(state, "クリップボードに書けない");
+        return false;
     }
     if let Some(key) = current_context(state) {
         state.store.lock().expect("store").record_context(ids, &key);
     }
     state.store.lock().expect("store").bump_paste(ids);
-    paste_text(app, state, &text, keep_open);
+    let ok = paste_text(app, state, &text, keep_open);
     drop_once(state, ids);
     let _ = app.emit("items-changed", view(state));
     bump_n(state);
@@ -587,14 +593,25 @@ fn paste_resolved_text(
     if !keep_open {
         reset_n(state);
     }
-    true
+    ok
 }
 
 #[tauri::command]
 fn copy_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> bool {
     match expand_ids(&state, &ids, true, HashMap::new()) {
-        Some(text) => clipboard::write_clipboard_text(&text),
-        None => false,
+        Some(text) => {
+            if clipboard::write_clipboard_text(&text) {
+                clear_error(&state);
+                true
+            } else {
+                note_error(&state, "クリップボードに書けない");
+                false
+            }
+        }
+        None => {
+            note_error(&state, "展開できない");
+            false
+        }
     }
 }
 
@@ -667,6 +684,50 @@ fn expand_ids(
 #[tauri::command]
 fn open_target(text: String) -> bool {
     platform::open_target(&text)
+}
+
+fn note_error(state: &AppState, message: &str) {
+    let message = message.trim();
+    if message.is_empty() {
+        return;
+    }
+    *state.last_error.lock().expect("last_error") = Some(message.to_string());
+}
+
+fn clear_error(state: &AppState) {
+    *state.last_error.lock().expect("last_error") = None;
+}
+
+fn mark_paste(state: &AppState, ok: bool) -> bool {
+    if ok {
+        clear_error(state);
+    } else {
+        note_error(state, "貼れない");
+    }
+    ok
+}
+
+fn finish<T>(state: &AppState, result: Result<T, String>) -> Result<T, String> {
+    match &result {
+        Ok(_) => clear_error(state),
+        Err(error) => note_error(state, error),
+    }
+    result
+}
+
+#[tauri::command]
+fn last_error(state: tauri::State<'_, AppState>) -> String {
+    state
+        .last_error
+        .lock()
+        .expect("last_error")
+        .clone()
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn remember_error(message: String, state: tauri::State<'_, AppState>) {
+    note_error(&state, &message);
 }
 
 #[tauri::command]
@@ -819,7 +880,9 @@ fn run_pipe(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    execute_pipe(
+    finish(
+        &state,
+        execute_pipe(
         &app,
         &state,
         &ids,
@@ -828,6 +891,7 @@ fn run_pipe(
         set_name.as_deref(),
         keep_open.unwrap_or(false),
         None,
+    ),
     )
 }
 
@@ -898,7 +962,7 @@ fn walk_pipe(
                     None
                 };
                 let output = shell::run_script_with_stdin(&op.arg, stdin.as_deref())
-                    .map_err(|_| "コマンドに失敗した".to_string())?;
+                    .map_err(|err| shell::command_error(&err))?;
                 *state.last_sh.lock().expect("last_sh") = Some(op.arg.clone());
                 text = Some(output);
                 raw = false;
@@ -1084,7 +1148,13 @@ fn execute_pipe(
                 return Ok(None);
             }
             if !paste_resolved_text(app, state, &pasted_ids, &text, keep_open, false, None, false) {
-                return Err("貼れない".into());
+                let message = state
+                    .last_error
+                    .lock()
+                    .expect("last_error")
+                    .clone()
+                    .unwrap_or_else(|| "貼れない".into());
+                return Err(message);
             }
             Ok(None)
         }
@@ -1155,7 +1225,7 @@ fn paste_script(
         return Ok(());
     }
     let output = shell::run_script_with_stdin(&script, stdin.as_deref())
-        .map_err(|_| "コマンドに失敗した".to_string())?;
+        .map_err(|err| shell::command_error(&err))?;
     *state.last_sh.lock().expect("last_sh") = Some(script);
     if to_clipboard.unwrap_or(false) {
         if !clipboard::write_clipboard_text(&output) {
@@ -1280,7 +1350,9 @@ fn apply_row_pipe(
             selection_stdin: op.selection_stdin,
         })
         .collect();
-    match execute_pipe(
+    match finish(
+        state,
+        execute_pipe(
         app,
         state,
         &ids,
@@ -1289,6 +1361,7 @@ fn apply_row_pipe(
         script.set_name.as_deref(),
         keep_open,
         None,
+    ),
     ) {
         Ok(Some(text)) if show => RowPipe::Show(text),
         Ok(_) => RowPipe::Done,
@@ -1342,6 +1415,7 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     *state.foreground.lock().expect("foreground") = platform::capture_foreground();
     let captured = capture_front_text(state);
     let Some(text) = captured else {
+        note_error(state, "選択が空");
         return;
     };
     if apply_headed_pipe(app, state, &text) {
@@ -1353,10 +1427,12 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
     let ctx = expand_context(state, String::new(), HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let Some(out) = eval::resolve_selection(&text, &ctx, last_sh.as_deref()) else {
+        note_error(state, "展開できない");
         return;
     };
     let ops = text::take_type_ops(&out);
     if !text::has_keys(&ops) && text::flatten_ops(&ops).is_empty() {
+        note_error(state, "展開が空");
         return;
     }
     remember_last_sh(&text, state);
@@ -1401,7 +1477,9 @@ fn play_script(
             selection_stdin: op.selection_stdin,
         })
         .collect();
-    match execute_pipe(
+    match finish(
+        state,
+        execute_pipe(
         app,
         state,
         &[],
@@ -1410,6 +1488,7 @@ fn play_script(
         script.set_name.as_deref(),
         false,
         flow,
+    ),
     ) {
         Ok(Some(shown)) if show => {
             reveal_picker(app, state);
@@ -1436,14 +1515,17 @@ pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) 
     if let Some(cycle) = pending {
         if !advance_complete(app, state, &cycle) {
             *state.complete_cycle.lock().expect("complete") = None;
+            note_error(state, "当たらない");
         }
         return;
     }
     let Some(query) = capture_front_text(state).filter(|text| !text.trim().is_empty()) else {
+        note_error(state, "選択が空");
         return;
     };
     let ids = completion_ids(state, &query);
     let Some(index) = paste_completion_from(app, state, &ids, 0, &query) else {
+        note_error(state, "当たらない");
         return;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
@@ -2086,6 +2168,7 @@ fn play_resolved(
         let text = text::flatten_ops(&ops);
         if typed {
             if text.is_empty() {
+                note_error(state, "展開が空");
                 return false;
             }
             return type_text(app, state, &text, keep_open);
@@ -2108,7 +2191,7 @@ fn play_ops(
     let spec = paste_spec(state);
     let wait = *state.picker_open.lock().expect("picker_open");
     if !yield_target(app, state, keep_open) {
-        return false;
+        return mark_paste(state, false);
     }
     if wait {
         std::thread::sleep(Duration::from_millis(70));
@@ -2148,25 +2231,25 @@ fn play_ops(
                     let _ = clipboard::write_clipboard_text(previous);
                 }
             }
-            return false;
+            return mark_paste(state, false);
         }
     }
     restore(did_paste);
     if keep_open {
         reveal_picker(app, state);
     }
-    true
+    mark_paste(state, true)
 }
 
 #[cfg(not(windows))]
 fn play_ops(
     _app: &tauri::AppHandle,
-    _state: &AppState,
+    state: &AppState,
     _ops: &[text::PasteOp],
     _keep_open: bool,
     _typed: bool,
 ) -> bool {
-    false
+    mark_paste(state, false)
 }
 
 fn apply_tsv(_item: &Item, text: String) -> Option<String> {
@@ -2393,6 +2476,7 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
     let previous = clipboard::peek_text();
     if !clipboard::write_clipboard_text(text) {
+        note_error(state, "クリップボードに書けない");
         return false;
     }
     let spec = paste_spec(state);
@@ -2401,7 +2485,7 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
         if keep_open {
             reveal_picker(app, state);
         }
-        return false;
+        return mark_paste(state, false);
     }
     if wait {
         std::thread::sleep(Duration::from_millis(70));
@@ -2414,21 +2498,26 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
     if keep_open {
         reveal_picker(app, state);
     }
-    ok
+    mark_paste(state, ok)
 }
 
 #[cfg(not(windows))]
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: bool) -> bool {
     let ok = clipboard::write_clipboard_text(text);
     let _ = yield_target(app, state, false);
-    ok
+    if ok {
+        mark_paste(state, true)
+    } else {
+        note_error(state, "クリップボードに書けない");
+        false
+    }
 }
 
 #[cfg(windows)]
 fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
     let wait = *state.picker_open.lock().expect("picker_open");
     if !yield_target(app, state, keep_open) {
-        return false;
+        return mark_paste(state, false);
     }
     let ok = if wait {
         std::thread::sleep(Duration::from_millis(70));
@@ -2439,12 +2528,12 @@ fn type_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bo
     if ok && keep_open {
         reveal_picker(app, state);
     }
-    ok
+    mark_paste(state, ok)
 }
 
 #[cfg(not(windows))]
-fn type_text(_app: &tauri::AppHandle, _state: &AppState, _text: &str, _keep_open: bool) -> bool {
-    false
+fn type_text(_app: &tauri::AppHandle, state: &AppState, _text: &str, _keep_open: bool) -> bool {
+    mark_paste(state, false)
 }
 
 fn reveal_picker(app: &tauri::AppHandle, state: &AppState) {
@@ -2681,6 +2770,7 @@ pub fn run() {
                 last_sh: Mutex::new(None),
                 picker_open: Mutex::new(false),
                 complete_cycle: Mutex::new(None),
+                last_error: Mutex::new(None),
             });
             tray::setup(app)?;
             watch_items(app.handle().clone());
@@ -2727,6 +2817,8 @@ pub fn run() {
             open_target,
             get_help,
             help_topics,
+            last_error,
+            remember_error,
             export_items,
             import_items,
             clear_unpinned,
@@ -2852,7 +2944,7 @@ mod tests {
 
     #[test]
     fn log_uses_the_argument_or_the_default_variable() {
-        let mut vars = HashMap::new();
+        let mut vars: HashMap<String, String> = HashMap::new();
         assert!(log_destination("", None).is_none());
         vars.insert("defaultLogFileName".into(), "  notes.log  ".into());
         assert_eq!(

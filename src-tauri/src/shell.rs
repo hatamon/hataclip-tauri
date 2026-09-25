@@ -9,8 +9,17 @@ const MAX_LINES: usize = 1000;
 #[derive(Debug, PartialEq, Eq)]
 pub enum ShellError {
     Timeout,
-    Failed,
+    Failed(String),
     Empty,
+}
+
+pub fn command_error(err: &ShellError) -> String {
+    match err {
+        ShellError::Timeout => "時間切れ".into(),
+        ShellError::Empty => "空".into(),
+        ShellError::Failed(text) if text.trim().is_empty() => "コマンドに失敗した".into(),
+        ShellError::Failed(text) => text.trim().to_string(),
+    }
 }
 
 /// `{{sh: ...}}` と `:sh` と `#run` 本文の実行。失敗は貼らない。
@@ -24,7 +33,7 @@ pub fn run_script_with_stdin(script: &str, stdin: Option<&str>) -> Result<String
     if script.is_empty() {
         return Err(ShellError::Empty);
     }
-    let mut child = spawn_shell(script, stdin.is_some()).map_err(|_| ShellError::Failed)?;
+    let mut child = spawn_shell(script, stdin.is_some()).map_err(|_| ShellError::Failed(String::new()))?;
     if let Some(input) = stdin {
         if let Some(mut pipe) = child.stdin.take() {
             use std::io::Write;
@@ -36,7 +45,7 @@ pub fn run_script_with_stdin(script: &str, stdin: Option<&str>) -> Result<String
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
-                    return Err(ShellError::Failed);
+                    return Err(failed_stderr(&mut child));
                 }
                 break;
             }
@@ -46,15 +55,23 @@ pub fn run_script_with_stdin(script: &str, stdin: Option<&str>) -> Result<String
                 return Err(ShellError::Timeout);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(_) => return Err(ShellError::Failed),
+            Err(_) => return Err(ShellError::Failed(String::new())),
         }
     }
     let mut buf = Vec::new();
     let Some(mut out) = child.stdout.take() else {
-        return Err(ShellError::Failed);
+        return Err(ShellError::Failed(String::new()));
     };
     let _ = out.read_to_end(&mut buf);
     Ok(trim_output(&strip_ansi(&decode_output(&buf))))
+}
+
+fn failed_stderr(child: &mut std::process::Child) -> ShellError {
+    let mut buf = Vec::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_end(&mut buf);
+    }
+    ShellError::Failed(trim_output(&strip_ansi(&decode_output(&buf))))
 }
 
 fn spawn_shell(script: &str, pipe_stdin: bool) -> std::io::Result<std::process::Child> {
@@ -69,7 +86,7 @@ fn spawn_shell(script: &str, pipe_stdin: bool) -> std::io::Result<std::process::
                 format!("{utf8}{script}")
             };
             command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-            command.stdout(Stdio::piped()).stderr(Stdio::null());
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
             command.stdin(if pipe_stdin {
                 Stdio::piped()
             } else {
@@ -94,7 +111,7 @@ fn spawn_shell(script: &str, pipe_stdin: bool) -> std::io::Result<std::process::
     {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
-        command.stdout(Stdio::piped()).stderr(Stdio::null());
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
         command.stdin(if pipe_stdin {
             Stdio::piped()
         } else {
@@ -254,9 +271,9 @@ pub fn has_sh_token(text: &str) -> bool {
 pub fn read_file_contents(path: &str) -> Result<String, ShellError> {
     let path = path.trim();
     if path.is_empty() {
-        return Err(ShellError::Failed);
+        return Err(ShellError::Failed(String::new()));
     }
-    let data = std::fs::read(path).map_err(|_| ShellError::Failed)?;
+    let data = std::fs::read(path).map_err(|_| ShellError::Failed(String::new()))?;
     let mut text = String::from_utf8_lossy(&data).into_owned();
     if text.len() > MAX_BYTES {
         text.truncate(MAX_BYTES);

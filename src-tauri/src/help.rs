@@ -98,7 +98,7 @@ const OVERVIEW: &str = "\
 編集   dd 削除  yy ヤンク  p P 置く  u Ctrl+R 取り消し  . 繰り返し\n\
        o 空行  e 編集  E nvim  S 分割  J まとめ  c 複製  t T タグ  gp ピン  ga #app  + -\n\
 その他 V 範囲  :open 開く  : コマンド  ドロップでパス  which-key は g d y f <leader>\n\
-:      help  sh  !!  @  echo  export  import  quote  filter  type  format  raw  join  open  log  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
+:      help  showerror  sh  !!  @  echo  export  import  quote  filter  type  format  raw  join  open  log  s/  sort  clear  dedup  map  unmap  mapleader  set  n  settings  tags\n\
 \n\
 詳しくは :help keys  :help paste  :help tag  :help template  :help edit  :help colon  :help map  のように。j / k でスクロール。\
 ";
@@ -137,6 +137,7 @@ const ENTRIES: &[(&str, &str)] = &[
     ("each", "打つ: :sel | each | upper。後ろの段を行ごとに実行する。失敗した行は落ちる。全部失敗なら何もしない。後ろに sh があると不正で何もしない。例: a\\nb を each | upper で A\\nB。"),
     ("add", "打つ: :sel | kebab | add。変わるのは一覧（結果を1件足す）。前面とクリップボードは触らない。式が行に残る。空なら足さない。途中の add は同じ文字を次へ渡す。流れが無い途中の add は何もしない。例: 前面 userName で本文 user-name、式 sel | kebab。:sel | kebab | add | quote は一覧に user-name、前面は > user-name。"),
     ("show", "打つ: :echo 3+4 | show。変わるのはこのヘルプ画面。前面には貼らない。空なら出さない。例: :echo 3+4 | show で 7。"),
+    ("showerror", "打つ: :showerror。変わるのはこのヘルプ画面。直前に期待どおりにならなかった理由を1つ出す。展開、補完、貼り付け、パイプ、:sh、読めない JSON、段が違う、選択が空、クリップボードに書けない、当たらない、時間切れ。標準エラーがあればその文字。成功すると消える。次の失敗で上書きする。空なら何も出さない。貼らない。履歴もクリップボードも触らない。保存しない。終了で消える。Esc で閉じる。一覧の検索が 0 件、:s/old/ で選択が空になるのは失敗にしない。CLI には出ない。Ubuntu も同じ。例: :sh で失敗したあと :showerror でその理由。"),
     ("set", "打つ: :set a=hello または | set a。:set は変数を残す。貼らない。| set a はパイプの結果をその変数へ。名前が不正なら何もしない。引用は \\\" \\t \\n を読む。例: :set a=\"say \\\"hi\\\"\" で値は say \"hi\"。"),
     ("from", "打つ: :from。変わるのはその行の式だけ。本文は e で編集する。引数が無ければ編集画面。引数があればその文字が式になる。式の無い行でも書ける。例: :from sel | upper。"),
     ("s", "打つ: :s/old/new。変わるのは前面へ貼る文字。履歴は触らない。選択行の old を全部 new にする。正規表現は使わない。old が空なら何もしない。old が無くても残りを貼る。結果が空でも選択は空になる。V は改行つなぎ。u では戻らない。本文を直すのは e。例: 選択行 hello に :s/ell/ipp で前面は hippo。段 :sel | s/old/new は前面の選択を置換して貼る。Ctrl+8 で1行目が :s/old/new なら2行目以降を置換して選択全体を置き換える。1行だけは何もしない。"),

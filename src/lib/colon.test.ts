@@ -16,6 +16,7 @@ describe("matchingColonCommands", () => {
     expect(matchingColonCommands("ex")).toEqual(["export"]);
     expect(matchingColonCommands("")).toEqual([
       "help",
+      "showerror",
       "sh",
       "!!",
       "export",
