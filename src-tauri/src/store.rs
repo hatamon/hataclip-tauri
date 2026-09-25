@@ -25,9 +25,6 @@ pub struct Item {
     /// ピン留め同士の手動順。小さいほど上。
     #[serde(default)]
     pub pin_rank: i32,
-    /// 登録時刻（UNIX 秒）。#ttl 用。無い行は 0 で期限切れにしない。
-    #[serde(default)]
-    pub created_at: u64,
     /// `| add` か `:!!sh` で残した式。`g:` でもう一度実行する。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub formula: String,
@@ -43,7 +40,6 @@ impl Item {
             contexts: Vec::new(),
             paste_count: 0,
             pin_rank: 0,
-            created_at: now_secs(),
             formula: String::new(),
         }
     }
@@ -1098,7 +1094,6 @@ mod tests {
             contexts: Vec::new(),
             paste_count: 0,
             pin_rank: 0,
-            created_at: 0,
             formula: String::new(),
         }
     }

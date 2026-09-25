@@ -85,8 +85,6 @@ mod tests {
             app: String::new(),
             front: String::new(),
             focus: String::new(),
-            read_cred: false,
-            cred_fail: std::cell::Cell::new(false),
             now: chrono::Local::now(),
             answers: HashMap::new(),
             vars: HashMap::from([("a".into(), "{{date}}".into())]),

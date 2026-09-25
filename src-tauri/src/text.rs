@@ -36,9 +36,6 @@ pub struct Expand {
     pub app: String,
     pub front: String,
     pub focus: String,
-    /// 貼るときだけ資格情報を読む。`ge` とコピーは false。
-    pub read_cred: bool,
-    pub cred_fail: std::cell::Cell<bool>,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
     pub vars: std::collections::HashMap<String, String>,
@@ -165,11 +162,16 @@ fn expand_seen(
         if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
             if let Some(close) = find_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
+                let end = close + 2;
                 if let Some(value) = token_value(inner.trim(), ctx, seen) {
                     out.push_str(&value);
-                    i = close + 2;
-                    continue;
+                } else {
+                    for ch in &chars[i..end] {
+                        out.push(*ch);
+                    }
                 }
+                i = end;
+                continue;
             }
         }
         out.push(chars[i]);
@@ -584,14 +586,12 @@ fn token_value(
     ctx: &Expand,
     seen: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
-    if inner == "nop" || arg_after(inner, "nop").is_some() {
-        return Some(format!("{{{{{inner}}}}}"));
-    }
     let parts = fallback_parts(inner);
     if parts.len() > 1 {
-        let head = token_value(&parts[0], ctx, seen)?;
-        if !head.is_empty() {
-            return Some(head);
+        if let Some(head) = token_value(&parts[0], ctx, seen) {
+            if !head.is_empty() {
+                return Some(head);
+            }
         }
         return Some(fallback_value(&parts[1..], ctx, seen));
     }
@@ -1648,8 +1648,6 @@ mod tests {
             app: "code".into(),
             front: "TODO.md".into(),
             focus: "Edit".into(),
-            read_cred: false,
-            cred_fail: std::cell::Cell::new(false),
             now: chrono::Local::now(),
             answers: std::collections::HashMap::from([
                 ("名前".into(), "hatamon".into()),
@@ -1682,7 +1680,7 @@ mod tests {
             expand_template("hello {{nop: {{date}}}} world", &ctx),
             "hello {{nop: {{date}}}} world"
         );
-        assert_eq!(expand_template("{{nop: a|b}}", &ctx), "{{nop: a|b}}");
+        assert_eq!(expand_template("{{nop: a|b}}", &ctx), "b");
         assert_eq!(expand_template("{{nope}}", &ctx), "{{nope}}");
     }
 
@@ -1795,7 +1793,7 @@ mod tests {
         assert_eq!(expand_template("{{front|無題}}", &ctx), "TODO.md");
         empty_sel.clip.clear();
         assert_eq!(expand_template("{{sel|clip|なし}}", &empty_sel), "なし");
-        assert_eq!(expand_template("{{nope|clip}}", &ctx), "{{nope|clip}}");
+        assert_eq!(expand_template("{{nope|clip}}", &ctx), "CLIP");
         assert_eq!(
             expand_template("{{sel|hello {{date}}}}", &empty_sel),
             "hello 2026/09/20"
@@ -1880,15 +1878,10 @@ mod tests {
         );
         assert_eq!(expand_template("{{focus}}", &ctx), "Edit");
         assert_eq!(expand_template("{{cred:github}}", &ctx), "{{cred:github}}");
-        let mut reading = sample_ctx();
-        reading.read_cred = true;
-        assert_eq!(expand_template("{{cred:nope name}}", &reading), "{{cred:nope name}}");
-        assert!(!reading.cred_fail.get());
         assert_eq!(
-            expand_template("{{cred:hataclip_missing_cred}}", &reading),
+            expand_template("{{cred:hataclip_missing_cred}}", &ctx),
             "{{cred:hataclip_missing_cred}}"
         );
-        assert!(!reading.cred_fail.get());
         let mut blank = sample_ctx();
         blank.app.clear();
         blank.focus.clear();

@@ -591,7 +591,6 @@ fn paste_resolved_text(
     }
     state.store.lock().expect("store").bump_paste(ids);
     let ok = paste_text(app, state, &text, keep_open);
-    drop_once(state, ids);
     let _ = app.emit("items-changed", view(state));
     bump_n(state);
     bump_step_vars(state, ids);
@@ -1767,8 +1766,7 @@ fn deliver_completion(
             .get(id)
             .cloned()
     }?;
-    let mut ctx = expand_context(state, sel.to_string(), HashMap::new());
-    ctx.read_cred = true;
+    let ctx = expand_context(state, sel.to_string(), HashMap::new());
     let mut ops = completion_ops(&item, &ctx)?;
     if !prefix.is_empty() {
         ops.insert(0, text::PasteOp::Text(prefix.to_string()));
@@ -1823,8 +1821,7 @@ fn completion_index(state: &AppState, ids: &[String], start: usize, sel: &str) -
         let Some(item) = item else {
             continue;
         };
-        let mut ctx = expand_context(state, sel.to_string(), HashMap::new());
-        ctx.read_cred = true;
+        let ctx = expand_context(state, sel.to_string(), HashMap::new());
         if completion_ops(&item, &ctx).is_some() {
             return Some(index);
         }
@@ -1907,9 +1904,7 @@ fn run_paste(
     let ctx = if raw {
         None
     } else {
-        let mut ctx = expand_context(state, sel, answers);
-        ctx.read_cred = true;
-        Some(ctx)
+        Some(expand_context(state, sel, answers))
     };
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
@@ -1996,7 +1991,6 @@ fn run_paste(
             state.store.lock().expect("store").record_context(ids, &key);
         }
         state.store.lock().expect("store").bump_paste(ids);
-        drop_once(state, ids);
         hide_window(app, state);
         let _ = app.emit("items-changed", view(state));
         if keep_open {
@@ -2030,7 +2024,6 @@ fn run_paste(
     state.store.lock().expect("store").bump_paste(ids);
     let ok = play_resolved(app, state, ops, keep_open, typed);
     if ok {
-        drop_once(state, ids);
         let _ = app.emit("items-changed", view(state));
         bump_n(state);
         if ctx.is_some() {
@@ -2156,8 +2149,6 @@ fn expand_context(
         app: app_name,
         front,
         focus: platform::focused_control(),
-        read_cred: false,
-        cred_fail: std::cell::Cell::new(false),
         now,
         answers,
         vars: var_map(state),
@@ -2204,8 +2195,6 @@ fn has_sel(state: &AppState, ids: &[String]) -> bool {
         })
     })
 }
-
-fn drop_once(_state: &AppState, _ids: &[String]) {}
 
 #[cfg(windows)]
 fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
@@ -2280,18 +2269,11 @@ fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<t
     let file = item.tags.iter().any(|tag| tag == "file");
     if run && !shell::has_sh_token(&item.text) {
         let expanded = text::expand_template(&item.text, ctx);
-        if ctx.cred_fail.get() {
-            return None;
-        }
-        return Some(vec![text::PasteOp::Text(apply_tsv(
-            item,
+        return Some(vec![text::PasteOp::Text(
             shell::run_script(&expanded).ok()?,
-        )?)]);
+        )]);
     }
     let expanded = text::expand_template(&item.text, ctx);
-    if ctx.cred_fail.get() {
-        return None;
-    }
     let expanded = shell::apply_sh(&expanded, run || force_sh).ok()?;
     let expanded = if file && !run {
         shell::read_file_contents(&text::flatten_ops(&text::take_type_ops(&expanded))).ok()?
@@ -2302,10 +2284,7 @@ fn resolve_item(item: &Item, ctx: &text::Expand, force_sh: bool) -> Option<Vec<t
     if text::has_keys(&ops) {
         Some(ops)
     } else {
-        Some(vec![text::PasteOp::Text(apply_tsv(
-            item,
-            text::flatten_ops(&ops),
-        )?)])
+        Some(vec![text::PasteOp::Text(text::flatten_ops(&ops))])
     }
 }
 
@@ -2413,10 +2392,6 @@ fn play_ops(
     _typed: bool,
 ) -> bool {
     mark_paste(state, false)
-}
-
-fn apply_tsv(_item: &Item, text: String) -> Option<String> {
-    Some(text)
 }
 
 /// `:log` の出力先。引数が空なら変数 `defaultLogFileName`。無ければ何もしない。
@@ -3078,8 +3053,6 @@ mod tests {
             app: "code".into(),
             front: "TODO.md".into(),
             focus: "Edit".into(),
-            read_cred: true,
-            cred_fail: std::cell::Cell::new(false),
             now: Local::now(),
             answers: HashMap::new(),
             vars: HashMap::new(),

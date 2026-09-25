@@ -6,6 +6,5 @@ export type Item = {
   contexts: string[];
   paste_count: number;
   pin_rank: number;
-  created_at: number;
   formula?: string;
 };
