@@ -26,7 +26,10 @@ pub fn next_offset(offset: usize, lines: usize, height: usize, down: bool) -> us
 }
 
 fn split_lines(text: &str) -> Vec<&str> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
+    let mut lines: Vec<&str> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect();
     if lines.last().is_some_and(|line| line.is_empty()) {
         lines.pop();
     }
@@ -257,5 +260,10 @@ mod tests {
         assert_eq!(next_offset(6, 10, 4, true), 6);
         assert_eq!(next_offset(6, 10, 4, false), 5);
         assert_eq!(next_offset(3, 4, 10, true), 0);
+    }
+
+    #[test]
+    fn carriage_return_is_not_part_of_the_line() {
+        assert_eq!(split_lines("a\r\nb\r\n"), vec!["a", "b"]);
     }
 }
