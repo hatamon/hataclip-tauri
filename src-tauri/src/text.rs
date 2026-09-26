@@ -651,8 +651,9 @@ fn token_value(
         }
         return Some(std::env::var(name).unwrap_or_default());
     }
-    if let Some(name) = arg_after(inner, "var") {
-        let name = expand_seen(name, ctx, seen);
+    if let Some(raw) = arg_after(inner, "var") {
+        let (raw_name, width) = split_var_width(raw);
+        let name = expand_seen(raw_name, ctx, seen);
         let name = name.trim();
         if name.is_empty() {
             return Some(String::new());
@@ -663,10 +664,8 @@ fn token_value(
         }
         let body = ctx.vars.get(name).cloned().unwrap_or_default();
         let expanded = expand_seen(&body, ctx, seen);
-        if let Some(out) = crate::eval::colon_output(&expanded, &ctx.vars) {
-            return Some(out);
-        }
-        return Some(expanded);
+        let expanded = crate::eval::colon_output(&expanded, &ctx.vars).unwrap_or(expanded);
+        return Some(apply_var_width(&expanded, width));
     }
     if let Some(name) = arg_after(inner, "tag") {
         let name = expand_seen(name, ctx, seen);
@@ -765,6 +764,36 @@ fn parse_wait(raw: &str) -> Option<u64> {
     Some(ms.min(5_000))
 }
 
+/// `a:2` は名前 `a` と幅 2。幅が数字でなければ幅だけ捨てて名前を残す。
+/// 名前に `{{` があるときは切らない（`{{var: {{var: b}}}}`）。
+fn split_var_width(raw: &str) -> (&str, Option<usize>) {
+    let raw = raw.trim();
+    let Some((name, width)) = raw.rsplit_once(':') else {
+        return (raw, None);
+    };
+    if name.contains('{') || name.trim().is_empty() {
+        return (raw, None);
+    }
+    let width = width.trim();
+    if width.is_empty() || !width.bytes().all(|b| b.is_ascii_digit()) {
+        return (name.trim(), None);
+    }
+    match width.parse::<usize>() {
+        Ok(width) => (name.trim(), Some(width)),
+        Err(_) => (name.trim(), None),
+    }
+}
+
+fn apply_var_width(text: &str, width: Option<usize>) -> String {
+    let Some(width) = width else {
+        return text.to_string();
+    };
+    let Ok(n) = text.trim().parse::<i64>() else {
+        return text.to_string();
+    };
+    format!("{n:0width$}")
+}
+
 /// `{{var:a}}` と `{{var a}}` の両方。`:` はエクスプローラーの名前に使えない。
 pub(crate) fn arg_after<'a>(inner: &'a str, name: &str) -> Option<&'a str> {
     let rest = inner.strip_prefix(name)?;
@@ -829,7 +858,8 @@ pub fn referenced_vars(text: &str, env: &WhenEnv<'_>) -> Vec<String> {
 fn collect_vars(text: &str, env: &WhenEnv<'_>, names: &mut Vec<String>) {
     walk_tokens(text, |inner| {
         for part in fallback_parts(inner) {
-            if let Some(name) = arg_after(&part, "var") {
+            if let Some(raw) = arg_after(&part, "var") {
+                let (name, _) = split_var_width(raw);
                 let name = name.trim();
                 if !name.is_empty()
                     && !name.contains('{')
@@ -1995,6 +2025,28 @@ mod tests {
         assert_eq!(expand_template("{{var: {{var: b}}}}", &ctx), "2026/09/20");
         assert_eq!(expand_template("{{var:{{var:b}}}}", &ctx), "2026/09/20");
         assert_eq!(expand_template("{{var {{var b}}}}", &ctx), "2026/09/20");
+    }
+
+    #[test]
+    fn pads_a_numeric_var_and_ignores_width_otherwise() {
+        let mut ctx = sample_ctx();
+        ctx.vars.insert("n".into(), "3".into());
+        ctx.vars.insert("wide".into(), "100".into());
+        ctx.vars.insert("word".into(), "hello".into());
+        assert_eq!(expand_template("{{var:n:2}}", &ctx), "03");
+        assert_eq!(expand_template("{{var n:2}}", &ctx), "03");
+        assert_eq!(expand_template("{{var:wide:2}}", &ctx), "100");
+        assert_eq!(expand_template("{{var:n}}", &ctx), "3");
+        assert_eq!(expand_template("{{var:word:2}}", &ctx), "hello");
+        assert_eq!(expand_template("{{var:word:x}}", &ctx), "hello");
+        assert_eq!(expand_template("{{var:missing:2}}", &ctx), "");
+        assert_eq!(expand_template("{{var:sum:2}}", &ctx), "05");
+        assert_eq!(expand_template("{{var:a:2}}", &ctx), "2026/09/20");
+        let empty_vars = std::collections::HashMap::new();
+        assert_eq!(
+            referenced_vars("{{var:n:2}}", &bare("code", &empty_vars)),
+            vec!["n".to_string()]
+        );
     }
 
     #[test]

@@ -1327,9 +1327,9 @@ Esc は中止で貼らない。{{pick:}} より先に全部聞く。
         group: "template",
         summary: "変数の値を展開する",
         body: "\
-書く: {{var:a}} または {{var a}}
-:set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）。無い変数は空。
-例: :set a=hello のあと {{var:a}} は hello。:set a+=1 は貼って成功したあと 1 増やす。:set の一覧は a=1 +=1。
+書く: {{var:a}} または {{var a}} または {{var:a:2}}
+:set a= の値。中の {{date}} も展開する。値が :sh dir ならそのとき実行。:set では実行しない。名前に {{var:b}} を書ける（{{var: {{var: b}}}}）。無い変数は空。{{var:a:2}} と {{var a:2}} は、値が整数なら足りない桁を 0 で埋める。長い数は切らない。整数でなければ :2 は無視する。幅が数字でなければ {{var:a}} と同じ。:set a+=1 の名前は a のまま。
+例: :set a=hello のあと {{var:a}} は hello。:set a=3 のあと {{var:a:2}} は 03。:set a=100 のあと {{var:a:2}} は 100。:set a=hello のあと {{var:a:2}} は hello。:set a+=1 は貼って成功したあと 1 増やす。:set の一覧は a=1 +=1。
 詳しくは :help set",
     },
     Page {
@@ -1598,6 +1598,8 @@ mod tests {
         assert!(render(Some("var")).contains("{{var a}}"));
         assert!(render(Some("var")).contains("{{var: {{var: b}}}}"));
         assert!(render(Some("var")).contains(":set a+=1"));
+        assert!(render(Some("var")).contains("{{var:a:2}}"));
+        assert!(render(Some("var")).contains("03"));
         assert!(render(Some("tagbody")).contains("{{tag:work}}"));
         assert!(render(Some("wait")).contains("{{wait:200}}"));
         assert!(render(Some("sel")).contains("履歴の行にある sel"));
