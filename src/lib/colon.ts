@@ -45,6 +45,10 @@ export const COLON_COMMANDS = [
   "each",
   "crypt",
   "decrypt",
+  "bin",
+  "oct",
+  "dec",
+  "hex",
 ];
 
 /** `> clip` は行き先にしない。呼び出し側の形だけ残す。 */
@@ -290,7 +294,11 @@ export type PipeOp = {
     | "put"
     | "sub"
     | "crypt"
-    | "decrypt";
+    | "decrypt"
+    | "bin"
+    | "oct"
+    | "dec"
+    | "hex";
   arg: string;
   selectionStdin: boolean;
 };
@@ -558,6 +566,9 @@ function stageOf(part: string): PipeOp | null {
     return { kind: part, arg: "", selectionStdin: false };
   }
   if (part === "json" || part === "xml") {
+    return { kind: part, arg: "", selectionStdin: false };
+  }
+  if (part === "bin" || part === "oct" || part === "dec" || part === "hex") {
     return { kind: part, arg: "", selectionStdin: false };
   }
   if (part === "echo" || part.startsWith("echo ") || part.startsWith("echo\t")) {

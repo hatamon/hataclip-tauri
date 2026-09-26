@@ -1081,6 +1081,16 @@ fn walk_pipe(
                     *current = crypt::apply(&op.kind, current, &op.arg).ok_or("できない")?;
                 }
             }
+            "bin" | "oct" | "dec" | "hex" => {
+                if text.is_none() {
+                    used_selection = true;
+                    text = Some(pipe_text(&pipe_bodies(app, state, ids, raw)?, "\n"));
+                    raw = false;
+                }
+                if let Some(current) = text.as_mut() {
+                    *current = expr::convert_base(current, &op.kind).ok_or("読めない")?;
+                }
+            }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" => {
                 if text.is_none() {
                     used_selection = true;

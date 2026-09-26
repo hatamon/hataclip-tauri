@@ -809,9 +809,10 @@ Ctrl+N / Ctrl+P でも移動する。
         group: "colon",
         summary: "四則の結果を貼る",
         body: "\
-打つ: :echo 2+3
-変わるのは前面（計算結果を貼る）。履歴は触らない。* と / が先。() と :set の変数が使える。計算できなければ何もしない。
-例: :echo 3+4 で前面は 7。:echo 2+3 | quote は計算してから段を掛ける。
+打つ: :echo 2+3 または :echo 0x10 + 0b1
+変わるのは前面（計算結果を貼る）。履歴は触らない。* と / が先。() と :set の変数が使える。数は 0b1010、0o12、10、0xff。:set a=0x10 もその進数。計算できなければ何もしない。
+例: :echo 0x10 + 0b1 で前面は 17。:echo 0o10 は 8。:echo 2+3 | quote は計算してから段を掛ける。:echo 255 | hex | show は 0xff。
+出す進数は :help bin :help oct :help dec :help hex。
 複数行で1行目が :echo だけなら何もしない（下の行は残る）。:echo 2+3 の次が notes なら置き換えない。パイプの echo は左を見ず、式の結果で流れを置き換える。
 詳しくは :help show :help set",
     },
@@ -1098,6 +1099,46 @@ g: でもう一度。式の編集は :help from
 例: AbC は abc。
 入力が空なら何もしない。
 詳しくは :help upper",
+    },
+    Page {
+        name: "bin",
+        group: "pipe",
+        summary: "2進で出す",
+        body: "\
+打つ: :echo 0xff | bin または :bin
+変わるのは前面。0b 0o 0x と10進の整数を 0b で出す。clip や show も同じ文字。負、小数、空、読めないときは何もしない。複数行は行ごと。1行でも読めなければ何もしない。
+例: :echo 0xff | bin で前面は 0b11111111。
+詳しくは :help hex :help oct :help dec :help echo",
+    },
+    Page {
+        name: "oct",
+        group: "pipe",
+        summary: "8進で出す",
+        body: "\
+打つ: :echo 0b1010 | oct または :oct
+変わるのは前面。整数を 0o で出す。負、小数、空、読めないときは何もしない。複数行は行ごと。1行でも読めなければ何もしない。
+例: :echo 0b1010 | oct で前面は 0o12。
+詳しくは :help bin :help hex :help dec",
+    },
+    Page {
+        name: "dec",
+        group: "pipe",
+        summary: "10進で出す",
+        body: "\
+打つ: :echo 0xff | hex | dec または :dec
+変わるのは前面。接頭辞なしの10進で出す。0xff も 255 になる。負、小数、空、読めないときは何もしない。複数行は行ごと。1行でも読めなければ何もしない。
+例: 流れが 0xff のとき dec は 255。:echo 0xff | hex | dec も 255。
+詳しくは :help hex :help bin :help oct",
+    },
+    Page {
+        name: "hex",
+        group: "pipe",
+        summary: "16進で出す",
+        body: "\
+打つ: :echo 255 | hex または :hex
+変わるのは前面。0x と小文字で出す。:echo 255 | hex | show はヘルプに 0xff。負、小数、空、読めないときは何もしない。複数行は行ごと。1行でも読めなければ何もしない。
+例: :echo 255 | hex で前面は 0xff。:echo 255 | hex | show も 0xff。
+詳しくは :help bin :help oct :help dec :help show",
     },
     Page {
         name: "json",
@@ -1611,6 +1652,11 @@ mod tests {
         assert!(render(Some("join")).contains(":comma と :tab は何もしない"));
         assert!(render(Some("log")).contains("defaultLogFileName"));
         assert!(render(Some("echo")).contains(":echo 2+3 | quote"));
+        assert!(render(Some("echo")).contains("0x10 + 0b1"));
+        assert!(render(Some("bin")).contains("0b11111111"));
+        assert!(render(Some("oct")).contains("0o12"));
+        assert!(render(Some("dec")).contains("255"));
+        assert!(render(Some("hex")).contains("0xff"));
         assert!(render(Some("set")).contains(":set a="));
         assert!(render(Some("set")).contains("say \"hi\""));
         assert!(render(Some("n")).contains("何もしない"));

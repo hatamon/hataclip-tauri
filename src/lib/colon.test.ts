@@ -61,6 +61,10 @@ describe("matchingColonCommands", () => {
       "each",
       "crypt",
       "decrypt",
+      "bin",
+      "oct",
+      "dec",
+      "hex",
     ]);
     expect(matchingColonCommands("help ")).toEqual([]);
     expect(matchingColonCommands("!")).toEqual(["!!"]);

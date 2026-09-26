@@ -271,6 +271,12 @@ fn walk(
                     crate::crypt::apply(&op.kind, &current, &op.arg).ok_or_else(|| "失敗".to_string())?,
                 );
             }
+            "bin" | "oct" | "dec" | "hex" => {
+                let current = take_text(&mut text, piped)?;
+                text = Some(
+                    crate::expr::convert_base(&current, &op.kind).ok_or_else(|| "失敗".to_string())?,
+                );
+            }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 if text.is_none() && !piped {

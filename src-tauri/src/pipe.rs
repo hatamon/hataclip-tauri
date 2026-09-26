@@ -495,7 +495,8 @@ fn stage_of(part: &str) -> Option<Op> {
     }
     if matches!(
         part,
-        "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" | "json" | "xml"
+        "camel" | "pascal" | "snake" | "kebab" | "upper" | "lower" | "json" | "xml" | "bin"
+        | "oct" | "dec" | "hex"
     ) {
         return Some(op(part, "", false));
     }
@@ -757,6 +758,10 @@ fn eval_local(
                 let current = take_or_dot(&mut text, dot)?;
                 text = Some(crate::crypt::apply(&op.kind, &current, &op.arg)?);
             }
+            "bin" | "oct" | "dec" | "hex" => {
+                let current = take_or_dot(&mut text, dot)?;
+                text = Some(crate::expr::convert_base(&current, &op.kind)?);
+            }
             "quote" | "format" | "join" | "sub" | "camel" | "pascal" | "snake" | "kebab" | "upper"
             | "lower" => {
                 let current = take_or_dot(&mut text, dot)?;
@@ -804,7 +809,8 @@ fn render_op(op: &Op) -> String {
     match op.kind.as_str() {
         "dot" => ".".to_string(),
         "clip" | "sel" | "raw" | "each" | "format" | "json" | "xml" | "camel" | "pascal"
-        | "snake" | "kebab" | "upper" | "lower" | "add" | "show" => op.kind.clone(),
+        | "snake" | "kebab" | "upper" | "lower" | "bin" | "oct" | "dec" | "hex" | "add"
+        | "show" => op.kind.clone(),
         "echo" => format!("echo {}", op.arg),
         "sh" => {
             let script = quote_render(&op.arg);
@@ -1138,6 +1144,14 @@ mod tests {
     fn colon_preview_skips_sel_and_sh() {
         assert!(colon_preview(":sel | kebab", "", "").is_none());
         assert_eq!(colon_preview("upper", "ab", "").as_deref(), Some("AB"));
+        assert_eq!(
+            colon_preview("echo 255 | hex", "", "").as_deref(),
+            Some("0xff")
+        );
+        assert_eq!(
+            colon_preview("echo 0xff | bin", "", "").as_deref(),
+            Some("0b11111111")
+        );
         assert!(colon_preview("sel | sh dir", "", "").is_none());
         assert!(colon_preview("sel | json", "", "").is_none());
         assert!(colon_preview("nope", "", "").is_none());
