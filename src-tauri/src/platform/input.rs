@@ -70,11 +70,16 @@ fn send_chord(chord: Chord) -> bool {
         Ok(enigo) => enigo,
         Err(_) => return false,
     };
-    let (ctrl_held, shift_held) = modifiers_held();
+    let ctrl_held = crate::ctrl_gap::physical();
+    let (_, shift_held) = modifiers_held();
     let plan = modifier_plan(&chord, ctrl_held, shift_held);
     let mut ok = true;
     let released_ctrl = if plan.release_ctrl {
+        crate::ctrl_gap::arm();
         let released = enigo.key(Key::Control, Release).is_ok();
+        if !released {
+            crate::ctrl_gap::disarm();
+        }
         ok &= released;
         released
     } else {

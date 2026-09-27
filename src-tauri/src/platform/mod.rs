@@ -3,22 +3,28 @@ use std::path::Path;
 use std::process::Command;
 
 #[cfg(windows)]
-mod windows;
+mod hook;
 #[cfg(windows)]
 mod input;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use hook::install as install_ctrl_gap_hook;
+#[cfg(windows)]
+pub use input::{
+    simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms,
+};
 #[cfg(windows)]
 pub use windows::{
     app_and_title, capture_foreground, context_key, restore_foreground, same_hwnd, Foreground,
 };
-#[cfg(windows)]
-pub use input::{simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms};
 
 #[cfg(not(windows))]
 mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
-    app_and_title, capture_foreground, context_key, restore_foreground, same_hwnd, Foreground, open_dir,
-    open_file, open_url,
+    app_and_title, capture_foreground, context_key, open_dir, open_file, open_url,
+    restore_foreground, same_hwnd, Foreground,
 };
 
 #[derive(Clone, Copy)]

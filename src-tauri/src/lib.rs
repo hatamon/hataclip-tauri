@@ -5,6 +5,7 @@ mod page;
 mod chord;
 mod clipboard;
 mod crypt;
+mod ctrl_gap;
 mod keys;
 mod editor;
 mod eval;
