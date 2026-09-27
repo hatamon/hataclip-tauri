@@ -1911,7 +1911,7 @@ fn deliver_completion(
 
 fn completion_blocked(tags: &[String], text: &str) -> bool {
     if tags.iter().any(|tag| {
-        matches!(tag.as_str(), "secret" | "run" | "confirm" | "grab")
+        matches!(tag.as_str(), "secret" | "run" | "confirm")
     }) {
         return true;
     }
@@ -2018,16 +2018,12 @@ fn run_paste(
     to_clipboard: bool,
 ) -> bool {
     let was_open = *state.picker_open.lock().expect("picker_open");
-    let needs_grab = !raw && rows_have_tag(state, ids, "grab");
     let needs_sel = !raw && !quiet && has_sel(state, ids);
-    let sel = if needs_grab {
-        capture_grab_input(app, state)
-    } else if needs_sel {
+    let sel = if needs_sel {
         capture_selection(app, state)
     } else {
         String::new()
     };
-    let grab_input = sel.clone();
     let ctx = if raw {
         None
     } else {
@@ -2048,22 +2044,8 @@ fn run_paste(
     let mut paste_parts: Vec<Vec<text::PasteOp>> = Vec::new();
     let mut logged = false;
     for item in &rows {
-        let grabbed = if item.tags.iter().any(|tag| tag == "grab") && ctx.is_some() {
-            let Some(filled) = text::grab_fill(&item.text, &grab_input) else {
-                if was_open {
-                    show_window(app);
-                }
-                return false;
-            };
-            let mut copy = item.clone();
-            copy.text = filled;
-            copy.tags.retain(|tag| tag != "grab");
-            Some(copy)
-        } else {
-            None
-        };
         let resolved = if let Some(ctx) = ctx.as_ref() {
-                    match resolve_item(grabbed.as_ref().unwrap_or(item), ctx, false) {
+                    match resolve_item(item, ctx, false) {
                 Some(ops) => ops,
                 None => {
                     if was_open {
@@ -2251,27 +2233,6 @@ fn expand_context(
         answers,
         vars: var_map(state),
         tags: tag_map(state),
-    }
-}
-
-fn rows_have_tag(state: &AppState, ids: &[String], tag: &str) -> bool {
-    let store = state.store.lock().expect("store");
-    ids.iter().any(|id| {
-        store
-            .get(id)
-            .map_or(false, |item| item.tags.iter().any(|existing| existing == tag))
-    })
-}
-
-fn capture_grab_input(app: &tauri::AppHandle, state: &AppState) -> String {
-    #[cfg(windows)]
-    {
-        capture_selection(app, state)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (app, state);
-        clipboard::peek_text().unwrap_or_default()
     }
 }
 
@@ -3329,7 +3290,12 @@ mod tests {
         assert!(completion_ops(&Item::new(":sel | upper".into(), Vec::new()), &ctx).is_none());
         assert!(completion_ops(&Item::new("echo hi".into(), vec!["run".into()]), &ctx).is_none());
         assert!(completion_ops(&Item::new("ok".into(), vec!["confirm".into()]), &ctx).is_none());
-        assert!(completion_ops(&Item::new("ok".into(), vec!["grab".into()]), &ctx).is_none());
+        let grabbed = completion_ops(
+            &Item::new("gh pr checkout <pr>".into(), vec!["grab".into()]),
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(text::flatten_ops(&grabbed), "gh pr checkout <pr>");
         assert!(completion_ops(&Item::new("ok".into(), vec!["secret".into()]), &ctx).is_none());
     }
 

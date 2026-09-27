@@ -302,7 +302,6 @@
         { key: "p", label: "ピン" },
         { key: "a", label: "#app" },
         { key: ".", label: "直前の貼り付け" },
-        { key: "~", label: "#grab 入替" },
         { key: ":", label: "式" },
         { key: "?", label: "行の情報" },
         ...mapped,
@@ -884,7 +883,6 @@
         await sortSelection();
         return;
       case "swap":
-        await swapGrab();
         return;
       case "formula":
         await rerunFormula();
@@ -900,16 +898,6 @@
     items = await invoke<Item[]>("rerun_formula", { ids: selectedIds });
     selectById(id);
     lastChange = { kind: "formula" };
-  }
-
-  async function swapGrab() {
-    if (selectedIds.length === 0) {
-      return;
-    }
-    const id = selectedItems[0].id;
-    items = await invoke<Item[]>("swap_grab", { ids: selectedIds });
-    selectById(id);
-    lastChange = { kind: "swap" };
   }
 
   async function splitSelection() {
@@ -2088,7 +2076,6 @@
     if (pending === "g" && event.key === "~") {
       event.preventDefault();
       pending = "";
-      void swapGrab();
       return;
     }
     if (pending === "g" && event.key === "?") {

@@ -266,9 +266,9 @@ oldabc ddd
 
 - [x] `sel` をやめる。パイプの `sel` と `{{sel}}` の両方。いまは前面へ Ctrl+C を送り、一覧が開いていれば隠して戻す。やめたあと、`sel` は段として読めない（パイプ全体を何もしない）。`{{sel}}` と `{{sel|clip}}` は展開せずそのまま貼る。前面へコピーキーは送らない。例: 一覧で `:sel | upper` は何もしない。本文 `:sel | snake` の行を Enter / `Ctrl+Shift+1` しても何もしない。本文 `**{{sel}}**` は `**{{sel}}**`。`g:` の式が `sel | kebab` なら失敗して本文はそのまま。Ctrl+8 の複数行で1行目が `:sel | snake` なら段が読めないので何もしない（1行目は `:snake`）。`.` と `clip` と Ctrl+8 の2行目以降は今どおり。残っている式の `sel` は消さない。Tab 補完から外す。`:help sel` は無い。Ubuntu も同じ。README と `:help template` `:help colon` `:help clip` `:help slots` `:help add` `:help from` `:help ctrl8` もこの動きに合わせる。which-key は接頭辞ではないので出さない
 
-## やりたいこと
+- [x] `#grab` をやめる。いまは一覧やスロットからその行を貼ると、前面の選択を型に当てて2行目を埋める。一覧を開いても当たる行は先頭に出さない。Ctrl+8 では当たらない。補完の候補からも外れている。貼るときは前面へ Ctrl+C を送る。やめたあと、`#grab` はただのタグ。Enter / `Ctrl+1`〜`9` / `Ctrl+Shift+1`〜`9` / `g.` はその本文を今までの行と同じく貼る（穴は埋めない。選択は読まない）。例: 1行目 `https://github.com/<org>/<repo>/pull/<pr>`、2行目 `gh pr checkout <pr> --repo <org>/<repo>` の行を Enter すると、その2行がそのまま貼られる。前面の GitHub の URL は見ない。当たらなくても本文は貼る。`g~` は何もしない。`.` の対象から外す。which-key の `g` から `~` を外す。残っている `#grab` は消さない。外すのは今どおり `T`。Ctrl+4 の推測はもう無いので触らない。補完は `#run` `#confirm` と同じ除外から外し、今までの行と同じく本文を展開して貼る。Ubuntu も同じ。README と `:help grab` `:help gtilde` `:help complete` `:help ctrl8` `:help dot` もこの動きに合わせる。which-key は接頭辞ではないので出さない
 
-- [ ] `#grab` をやめる。いまは一覧やスロットからその行を貼ると、前面の選択を型に当てて2行目を埋める。一覧を開いても当たる行は先頭に出さない。Ctrl+8 では当たらない。補完の候補からも外れている。貼るときは前面へ Ctrl+C を送る。やめたあと、`#grab` はただのタグ。Enter / `Ctrl+1`〜`9` / `Ctrl+Shift+1`〜`9` / `g.` はその本文を今までの行と同じく貼る（穴は埋めない。選択は読まない）。例: 1行目 `https://github.com/<org>/<repo>/pull/<pr>`、2行目 `gh pr checkout <pr> --repo <org>/<repo>` の行を Enter すると、その2行がそのまま貼られる。前面の GitHub の URL は見ない。当たらなくても本文は貼る。`g~` は何もしない。`.` の対象から外す。which-key の `g` から `~` を外す。残っている `#grab` は消さない。外すのは今どおり `T`。Ctrl+4 の推測はもう無いので触らない。補完は `#run` `#confirm` と同じ除外から外し、今までの行と同じく本文を展開して貼る。Ubuntu も同じ。README と `:help grab` `:help gtilde` `:help complete` `:help ctrl8` `:help dot` もこの動きに合わせる。which-key は接頭辞ではないので出さない
+## やりたいこと
 
 ### あとまわし
 
