@@ -55,7 +55,9 @@ pub(crate) struct AppState {
     hold_picker: Mutex<bool>,
     complete_cycle: Mutex<Option<CompleteCycle>>,
     last_error: Mutex<Option<String>>,
-    pending_expand: Mutex<Option<String>>,
+    pending_expand: Mutex<Option<(String, String)>>,
+    /// 行頭までの自動選択で、展開するのは印から行末。貼るときに前を残す。
+    expand_keep: Mutex<String>,
 }
 
 /// 追加した行と、更新後の一覧。追加直後にその行を選ぶために両方返す。
@@ -1475,27 +1477,31 @@ pub(crate) fn paste_from_selection(app: &tauri::AppHandle, state: &AppState) {
             LinePick::Text(text) => (text, true),
         }
     };
-    if let Some((prefix, search)) = completion_span(&text, from_line) {
-        if search.trim().is_empty() {
-            note_error(state, "選択が空");
-            return;
+    match line_use(&text, from_line) {
+        LineUse::Complete { prefix, search } => {
+            if search.trim().is_empty() {
+                note_error(state, "選択が空");
+                return;
+            }
+            begin_complete(app, state, text, &search, &prefix, true);
         }
-        begin_complete(app, state, text, &search, &prefix, true);
-        return;
+        LineUse::Expand { keep, body } => {
+            if ask_shell(app, state, &body, &keep) {
+                return;
+            }
+            expand_keeping(app, state, &body, &keep);
+        }
     }
-    if ask_shell(app, state, &text) {
-        return;
-    }
-    expand_captured(app, state, &text);
 }
 
-fn ask_shell(app: &tauri::AppHandle, state: &AppState, text: &str) -> bool {
+fn ask_shell(app: &tauri::AppHandle, state: &AppState, text: &str, keep: &str) -> bool {
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let prompts = shell_prompts(text, last_sh.as_deref());
     if prompts.is_empty() {
         return false;
     }
-    *state.pending_expand.lock().expect("pending_expand") = Some(text.to_string());
+    *state.pending_expand.lock().expect("pending_expand") =
+        Some((text.to_string(), keep.to_string()));
     show_window(app);
     let _ = app.emit("sh-confirm", prompts.join("\n"));
     true
@@ -1565,12 +1571,12 @@ fn expand_captured(app: &tauri::AppHandle, state: &AppState, text: &str) {
 
 #[tauri::command]
 fn confirm_selection_expand(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
-    let text = state.pending_expand.lock().expect("pending_expand").take();
+    let pending = state.pending_expand.lock().expect("pending_expand").take();
     hide_window(&app, &state);
-    let Some(text) = text else {
+    let Some((text, keep)) = pending else {
         return;
     };
-    expand_captured(&app, &state, &text);
+    expand_keeping(&app, &state, &text, &keep);
 }
 
 #[tauri::command]
@@ -1721,14 +1727,99 @@ fn select_line_start(_state: &AppState) -> LinePick {
     LinePick::Empty
 }
 
-/// 先頭の `/`、または行頭まで自動選択した行の最後の `/` から補完する。
-fn completion_span(text: &str, from_line: bool) -> Option<(String, String)> {
-    if from_line {
-        let at = text.rfind('/')?;
-        return Some((text[..at].to_string(), text[at + '/'.len_utf8()..].to_string()));
+enum LineMark {
+    Slash,
+    Colon,
+    Brace,
+}
+
+enum LineUse {
+    Complete { prefix: String, search: String },
+    Expand { keep: String, body: String },
+}
+
+/// 自分で選んだ範囲は先頭の `/` だけ補完する。行頭までの1行は最後の `/` `:` `{{`。
+fn line_use(text: &str, from_line: bool) -> LineUse {
+    if !from_line {
+        if let Some(search) = text.trim().strip_prefix('/') {
+            return LineUse::Complete {
+                prefix: String::new(),
+                search: search.to_string(),
+            };
+        }
+        return LineUse::Expand {
+            keep: String::new(),
+            body: text.to_string(),
+        };
     }
-    let search = text.trim().strip_prefix('/')?;
-    Some((String::new(), search.to_string()))
+    let Some((at, mark)) = last_line_marker(text) else {
+        return LineUse::Expand {
+            keep: String::new(),
+            body: text.to_string(),
+        };
+    };
+    match mark {
+        LineMark::Slash => LineUse::Complete {
+            prefix: text[..at].to_string(),
+            search: text[at + '/'.len_utf8()..].to_string(),
+        },
+        LineMark::Colon | LineMark::Brace => LineUse::Expand {
+            keep: text[..at].to_string(),
+            body: text[at..].to_string(),
+        },
+    }
+}
+
+/// `:` は行頭か空白の直後だけ。`{{` の中の `:` は印にしない。最後の印を返す。
+fn last_line_marker(text: &str) -> Option<(usize, LineMark)> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut depth = 0;
+    let mut last = None;
+    let mut index = 0;
+    while index < chars.len() {
+        let (at, ch) = chars[index];
+        if ch == '{' && chars.get(index + 1).is_some_and(|(_, next)| *next == '{') {
+            last = Some((at, LineMark::Brace));
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if ch == '}' && chars.get(index + 1).is_some_and(|(_, next)| *next == '}') && depth > 0 {
+            depth -= 1;
+            index += 2;
+            continue;
+        }
+        if ch == '/' {
+            last = Some((at, LineMark::Slash));
+        } else if ch == ':' && depth == 0 && colon_starts_command(text, at) {
+            last = Some((at, LineMark::Colon));
+        }
+        index += 1;
+    }
+    last
+}
+
+fn colon_starts_command(text: &str, at: usize) -> bool {
+    at == 0
+        || text[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| ch.is_whitespace())
+}
+
+fn expand_keeping(app: &tauri::AppHandle, state: &AppState, text: &str, keep: &str) {
+    *state.expand_keep.lock().expect("keep") = keep.to_string();
+    expand_captured(app, state, text);
+    *state.expand_keep.lock().expect("keep") = String::new();
+}
+
+fn with_expand_keep(state: &AppState, text: &str) -> String {
+    let keep = state.expand_keep.lock().expect("keep").clone();
+    if keep.is_empty() {
+        text.to_string()
+    } else {
+        format!("{keep}{text}")
+    }
 }
 
 fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCycle) -> bool {
@@ -2660,7 +2751,8 @@ fn yield_target(app: &tauri::AppHandle, state: &AppState, keep_open: bool) -> bo
 
 #[cfg(windows)]
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: bool) -> bool {
-    if !clipboard::write_clipboard_text(text) {
+    let text = with_expand_keep(state, text);
+    if !clipboard::write_clipboard_text(&text) {
         note_error(state, "クリップボードに書けない");
         return false;
     }
@@ -2686,7 +2778,8 @@ fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, keep_open: b
 
 #[cfg(not(windows))]
 fn paste_text(app: &tauri::AppHandle, state: &AppState, text: &str, _keep_open: bool) -> bool {
-    let ok = clipboard::write_clipboard_text(text);
+    let text = with_expand_keep(state, text);
+    let ok = clipboard::write_clipboard_text(&text);
     let _ = yield_target(app, state, false);
     if ok {
         mark_paste(state, true)
@@ -3001,6 +3094,7 @@ pub fn run() {
                 complete_cycle: Mutex::new(None),
                 last_error: Mutex::new(None),
                 pending_expand: Mutex::new(None),
+                expand_keep: Mutex::new(String::new()),
             });
             tray::setup(app)?;
             watch_items(app.handle().clone());
@@ -3108,6 +3202,74 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_line_expands_from_the_last_colon_or_braces() {
+        match line_use("abc {{date}}", true) {
+            LineUse::Expand { keep, body } => {
+                assert_eq!(keep, "abc ");
+                assert_eq!(body, "{{date}}");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+        match line_use("abc :echo 2+3", true) {
+            LineUse::Expand { keep, body } => {
+                assert_eq!(keep, "abc ");
+                assert_eq!(body, ":echo 2+3");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+        match line_use("abc {{var:a}}", true) {
+            LineUse::Expand { keep, body } => {
+                assert_eq!(keep, "abc ");
+                assert_eq!(body, "{{var:a}}");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+        match line_use("abc /work {{date}}", true) {
+            LineUse::Expand { keep, body } => {
+                assert_eq!(keep, "abc /work ");
+                assert_eq!(body, "{{date}}");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+    }
+
+    #[test]
+    fn auto_line_still_completes_from_the_last_slash() {
+        match line_use("abc /work", true) {
+            LineUse::Complete { prefix, search } => {
+                assert_eq!(prefix, "abc ");
+                assert_eq!(search, "work");
+            }
+            LineUse::Expand { .. } => panic!("expand"),
+        }
+        match line_use("hello", true) {
+            LineUse::Expand { keep, body } => {
+                assert!(keep.is_empty());
+                assert_eq!(body, "hello");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+    }
+
+    #[test]
+    fn a_hand_made_selection_does_not_split_mid_line() {
+        match line_use("abc :echo 2+3", false) {
+            LineUse::Expand { keep, body } => {
+                assert!(keep.is_empty());
+                assert_eq!(body, "abc :echo 2+3");
+            }
+            LineUse::Complete { .. } => panic!("complete"),
+        }
+        match line_use("  /work", false) {
+            LineUse::Complete { prefix, search } => {
+                assert!(prefix.is_empty());
+                assert_eq!(search, "work");
+            }
+            LineUse::Expand { .. } => panic!("expand"),
+        }
+    }
 
     #[test]
     fn keeps_the_other_side_untouched() {
