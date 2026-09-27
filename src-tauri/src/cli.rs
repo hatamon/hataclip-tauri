@@ -375,7 +375,7 @@ mod tests {
     }
 }
 
-fn data_dir() -> Option<PathBuf> {
+pub(crate) fn data_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         let base = std::env::var_os("APPDATA")?;

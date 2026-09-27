@@ -18,6 +18,7 @@ mod settings;
 mod shell;
 mod shortcuts;
 mod store;
+mod test_args;
 mod text;
 mod tray;
 
@@ -26,7 +27,7 @@ use platform::Point;
 use serde::{Deserialize, Serialize};
 use settings::{KeyMaps, SetCommand, Settings, Shortcuts, WindowGeom};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use std::time::Duration;
 use store::{Item, Store};
@@ -2960,11 +2961,38 @@ fn watch_items(app: tauri::AppHandle) {
 }
 
 pub fn run() {
+    let production_dir = cli::data_dir();
+    let launch = match test_args::parse_test_args(std::env::args().skip(1), production_dir.as_deref())
+    {
+        Ok(launch) => launch,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
+    test_args::set_active(launch.is_active());
+    run_with(launch);
+}
+
+fn run_with(launch: test_args::TestLaunch) {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .setup(|app| {
-            let dir = app.path().app_data_dir().expect("app data dir");
-            let store = Store::load(dir.join("items.json"));
+        .setup(move |app| {
+            let dir = match launch.dir.clone() {
+                Some(dir) => dir,
+                None => app.path().app_data_dir().expect("app data dir"),
+            };
+            if launch.is_active() {
+                if let Err(message) = test_args::prepare_data_dir(&dir, &launch) {
+                    eprintln!("{message}");
+                    std::process::exit(1);
+                }
+            }
+            let mut store = Store::load(dir.join("items.json"));
+            let dump_status = Arc::new(Mutex::new(test_args::DumpStatus::default()));
+            if let Some(dump_path) = launch.dump_state.clone() {
+                store.set_test_dump(test_args::dump_hook(dump_path, dump_status.clone()));
+            }
             let settings = Settings::load(dir.join("settings.json"));
             let shortcuts = settings.shortcuts().clone();
             let last_position = Mutex::new(settings.window().map(|geom| Point {
@@ -2986,11 +3014,45 @@ pub fn run() {
             });
             tray::setup(app)?;
             watch_items(app.handle().clone());
-            if let Err(error) = shortcuts::apply(app.handle(), &shortcuts) {
+            let register_result = shortcuts::apply(app.handle(), &shortcuts);
+            if let Err(error) = &register_result {
                 eprintln!("failed to register global shortcuts: {error}");
-                open_settings(app.handle());
-            } else if let Some(window) = app.get_webview_window("main") {
-                let _ = window.hide();
+                if !launch.is_active() {
+                    open_settings(app.handle());
+                }
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                if launch.is_active() {
+                    // WinAppDriver は見えているウィンドウが無いとセッションを作れない。
+                    let _ = window.show();
+                    // 前面のままだと登録の Ctrl+C が一覧に当たり、クリップボードが空になる。
+                    #[cfg(windows)]
+                    {
+                        let hide = window.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(1500));
+                            let _ = hide.hide();
+                        });
+                    }
+                } else if register_result.is_ok() {
+                    let _ = window.hide();
+                }
+            }
+            if let Some(dump_path) = launch.dump_state.clone() {
+                let snapshot = {
+                    let mut guard = dump_status.lock().unwrap_or_else(|err| err.into_inner());
+                    guard.ready = true;
+                    guard.shortcuts_ok = register_result.is_ok();
+                    guard.clone()
+                };
+                let items = app
+                    .state::<AppState>()
+                    .store
+                    .lock()
+                    .expect("store")
+                    .list()
+                    .to_vec();
+                test_args::write_dump(&dump_path, &snapshot, &items);
             }
             Ok(())
         })
@@ -3065,6 +3127,10 @@ pub fn run() {
             ) {
                 if let Some(window) = app.get_webview_window("main") {
                     persist_geometry(&window, &app.state::<AppState>());
+                }
+                #[cfg(windows)]
+                if test_args::is_active() {
+                    platform::release_test_modifiers();
                 }
             }
             if let tauri::RunEvent::WindowEvent {

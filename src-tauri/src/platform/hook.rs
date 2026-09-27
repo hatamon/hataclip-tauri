@@ -33,7 +33,12 @@ unsafe extern "system" fn proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
     if code == HC_ACTION as i32 {
         let info = &*(lparam as *const KBDLLHOOKSTRUCT);
         let injected = (info.flags & (LLKHF_INJECTED | 0x02)) != 0;
-        if !injected {
+        let accept = crate::ctrl_gap::should_treat_as_physical(
+            injected,
+            crate::test_args::is_active(),
+            crate::ctrl_gap::is_sending(),
+        );
+        if accept {
             let was_down = crate::ctrl_gap::physical();
             let down = (info.flags & LLKHF_UP) == 0;
             let swallow = crate::ctrl_gap::on_hook_key(info.vkCode as u16, down);

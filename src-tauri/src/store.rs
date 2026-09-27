@@ -3,6 +3,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CURRENT_VERSION: u32 = 1;
@@ -63,6 +64,8 @@ pub struct Store {
     disk_ns: Cell<u128>,
     /// 直前に読み書きした id。これ以外でファイルにだけある行は、保存時に残す。
     baseline: RefCell<HashSet<String>>,
+    /// E2E テストだけが使う。保存の末尾で呼ぶ。
+    dump_hook: Option<Arc<dyn Fn(&[Item]) + Send + Sync>>,
 }
 
 impl Store {
@@ -76,6 +79,7 @@ impl Store {
             redo: Vec::new(),
             disk_ns: Cell::new(0),
             baseline: RefCell::new(HashSet::new()),
+            dump_hook: None,
         };
         store.note_disk();
         store.note_baseline();
@@ -115,6 +119,11 @@ impl Store {
 
     pub fn list(&self) -> &[Item] {
         &self.items
+    }
+
+    /// E2E テストだけが呼ぶ。以後の保存のたびにこのフックへ現在の一覧を渡す。
+    pub fn set_test_dump(&mut self, hook: Arc<dyn Fn(&[Item]) + Send + Sync>) {
+        self.dump_hook = Some(hook);
     }
 
     pub fn get(&self, id: &str) -> Option<&Item> {
@@ -895,6 +904,9 @@ impl Store {
         let _ = write_items(&self.path, &self.items);
         self.note_disk();
         self.note_baseline();
+        if let Some(hook) = &self.dump_hook {
+            hook(&self.items);
+        }
     }
 
     /// 開いたあとにパイプが足した行を、この保存で消さない。

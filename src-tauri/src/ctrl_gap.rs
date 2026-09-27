@@ -341,6 +341,28 @@ pub fn disarm() {
     gap().disarm();
 }
 
+static SENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 自分の enigo 送信のあいだだけ真。フックがこの送信を「指のキー」と誤認しないため。
+pub(crate) fn begin_send() {
+    SENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub(crate) fn end_send() {
+    SENDING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn is_sending() -> bool {
+    SENDING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// フックへ渡すキーを物理キーとして扱うかどうか。
+/// 本番は注入キーを無視する。E2E（`test_mode`）は注入キーも受けるが、
+/// 自分の送信中（`sending`）だけは、送った側を指のキーと誤認しないよう無視する。
+pub fn should_treat_as_physical(injected: bool, test_mode: bool, sending: bool) -> bool {
+    !injected || (test_mode && !sending)
+}
+
 pub fn on_hook_key(vk: u16, down: bool) -> bool {
     let decision = gap().on_key(KeyEv { vk, down });
     match decision {
@@ -491,5 +513,24 @@ mod tests {
         );
         assert!(parse_ctrl_shortcut("Shift+Digit8").is_none());
         assert!(parse_ctrl_shortcut("Control+Super+Digit8").is_none());
+    }
+
+    #[test]
+    fn physical_keys_are_always_accepted() {
+        assert!(should_treat_as_physical(false, false, false));
+        assert!(should_treat_as_physical(false, true, false));
+        assert!(should_treat_as_physical(false, false, true));
+    }
+
+    #[test]
+    fn injected_keys_are_rejected_outside_test_mode() {
+        assert!(!should_treat_as_physical(true, false, false));
+        assert!(!should_treat_as_physical(true, false, true));
+    }
+
+    #[test]
+    fn injected_keys_are_accepted_in_test_mode_unless_we_are_sending() {
+        assert!(should_treat_as_physical(true, true, false));
+        assert!(!should_treat_as_physical(true, true, true));
     }
 }

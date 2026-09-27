@@ -62,6 +62,27 @@ fn with_enigo(body: impl FnOnce(&mut Enigo) -> bool) -> Result<bool, ()> {
     Ok(body(&mut enigo))
 }
 
+/// テスト終了時。WinAppDriver が離し損ねた Shift / Ctrl / Alt を上げる。
+pub fn release_test_modifiers() {
+    crate::ctrl_gap::begin_send();
+    let _ = with_enigo(|enigo| {
+        let keys = [
+            Key::Control,
+            Key::LControl,
+            Key::RControl,
+            Key::Shift,
+            Key::LShift,
+            Key::RShift,
+            Key::Alt,
+        ];
+        for key in keys {
+            let _ = enigo.key(key, Release);
+        }
+        true
+    });
+    crate::ctrl_gap::end_send();
+}
+
 /// 指が Ctrl を離したとき、列が押したままにした Ctrl を上げる。
 pub(super) fn release_control() {
     let _ = with_enigo(|enigo| enigo.key(Key::Control, Release).is_ok());
@@ -73,7 +94,9 @@ fn play(script: &Script) -> bool {
     if script.arms {
         crate::ctrl_gap::arm();
     }
-    match with_enigo(|enigo| {
+    // テストモードでフックが注入キーを見るあいだ、この送信自体を指のキーと誤認しない。
+    crate::ctrl_gap::begin_send();
+    let result = match with_enigo(|enigo| {
         let started = Instant::now();
         let mut ok = true;
         for stroke in &script.strokes {
@@ -94,7 +117,9 @@ fn play(script: &Script) -> bool {
             }
             false
         }
-    }
+    };
+    crate::ctrl_gap::end_send();
+    result
 }
 
 fn send(enigo: &mut Enigo, stroke: &Stroke) -> bool {

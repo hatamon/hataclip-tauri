@@ -2,7 +2,7 @@
 
 Windows / Ubuntu 向けのテキスト専用クリップボードピッカー。常時監視はしない。
 
-ホストに入れるのは **Docker だけ**。Rust / Node の開発パッケージは不要。成果物は Windows の `exe` と Ubuntu のバイナリ。
+ホストに入れるのは **Docker だけ**。Rust / Node の開発パッケージは不要。成果物は Windows の `exe` と Ubuntu のバイナリ。画面操作の E2E だけは、下の「確認」のとおり WinAppDriver もホストに入れる。
 
 ## clone 直後のビルド
 
@@ -270,3 +270,39 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 ## 確認
 
 `npm test` は、画面の型チェック、フロントのテスト、Rust のテストの順に走らせる。どれか失敗したらそこで止まる。人が画面で確認する項目は `TEST.md`。
+
+### E2E（Windows）
+
+`TEST.md` の一部を、Docker 上の Vitest からホストの WinAppDriver 経由で動かす。コンテナはクライアントだけ。WinAppDriver と `hataclip-gui.exe` とメモ帳はホストで動く。`npm test` と `docker compose run --rm test` には含まれない。
+
+ホストに入れるもの:
+
+1. [開発者モード](https://learn.microsoft.com/windows/apps/get-started/enable-your-device-for-development)（設定 → プライバシーとセキュリティ → 開発者向け）
+2. [WinAppDriver](https://github.com/microsoft/WinAppDriver/releases) のインストーラ。既定の場所は `C:\Program Files (x86)\Windows Application Driver\WinAppDriver.exe`
+3. Docker Desktop
+4. 対話ログオン（ロック画面やリモートの切断セッションではキーを送れない）
+
+Windows ファイアウォールで TCP 4723 の受信を許可する。WinAppDriver の既定は `127.0.0.1` なので、コンテナからは届かない。`scripts/start-winappdriver.ps1` は `http://+:4723/` で開く（HTTP.sys は `0.0.0.0` をホスト名として受け付けない。管理者でも `Error adding url to url group` / `0x80004005` になる）。このポートは URL 予約 `http://+:4723/` が要る。無ければ初回だけ管理者の PowerShell で `./scripts/start-winappdriver.ps1` を実行する（または `netsh http add urlacl url=http://+:4723/ user=Everyone`）。予約のあとは管理者でなくてよい。
+
+実行する前に、普段使っている `hataclip-gui.exe` を終了する。ショートカットを取れないとテスト用のプロセスが失敗する。exe は `scripts/build-windows.ps1`（中身は `docker compose run --rm windows-build`）の成果物 `dist/windows/hataclip-gui.exe` でよい。
+
+```powershell
+Copy-Item e2e.env.example e2e.env
+```
+
+`e2e.env` のパスはホストから見た絶対パスにする。例:
+
+```
+$env:E2E_HOST_ROOT="C:\Users\hatamon\source\repos\hataclip-tauri\e2e-workspace"
+$env:HATACLIP_GUI="C:\Users\hatamon\source\repos\hataclip-tauri\dist\windows\hataclip-gui.exe"
+```
+
+ターミナルを2つ使う。先に WinAppDriver を起動したままにしてから、E2E を走らせる。
+
+```powershell
+./scripts/start-winappdriver.ps1
+docker compose --env-file e2e.env run --rm e2e
+```
+
+作業ファイルは `e2e-workspace/` に書く。本番の `%APPDATA%\com.hataclip.app` は触らない。`e2e.env` と `e2e-workspace/` は git に入れない。
+

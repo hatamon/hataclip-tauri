@@ -26,6 +26,27 @@ services:
     <<: *build-env
     command: ["bash", "scripts/test.sh"]
 
+  # パターン1: このコンテナ（Linux）は Vitest と WebDriver クライアントだけを持つ。
+  # WinAppDriver と hataclip-gui.exe、メモ帳はホスト（Windows）側で動く。
+  # 先に `scripts/start-winappdriver.ps1` をホストで起動してから使う。
+  #   docker compose --env-file e2e.env run --rm e2e
+  e2e:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.e2e
+    working_dir: /app
+    volumes:
+      - .:/app
+      - e2e-node-modules:/app/node_modules
+      - ./e2e-workspace:/work/e2e-workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      WINAPPDRIVER_HOST: ${WINAPPDRIVER_HOST:-host.docker.internal}
+      E2E_HOST_ROOT: ${E2E_HOST_ROOT:?e2e.env に E2E_HOST_ROOT が要る}
+      E2E_CONTAINER_ROOT: /work/e2e-workspace
+      HATACLIP_GUI: ${HATACLIP_GUI:?e2e.env に HATACLIP_GUI が要る}
+
 volumes:
   node-modules:
   svelte-kit:
@@ -33,3 +54,4 @@ volumes:
   cargo-registry:
   cargo-git:
   npm-cache:
+  e2e-node-modules:

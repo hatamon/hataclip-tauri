@@ -12,7 +12,8 @@ mod windows;
 pub use hook::install as install_ctrl_gap_hook;
 #[cfg(windows)]
 pub use input::{
-    simulate_chord, simulate_copy, simulate_paste, simulate_type, simulate_type_atoms,
+    release_test_modifiers, simulate_chord, simulate_copy, simulate_paste, simulate_type,
+    simulate_type_atoms,
 };
 #[cfg(windows)]
 pub use windows::{

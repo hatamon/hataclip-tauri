@@ -9,3 +9,7 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# E2E（パターン1）がホストとやり取りする作業フォルダ。exe が items.json / state.json を書く。
+/e2e-workspace
+e2e.env
