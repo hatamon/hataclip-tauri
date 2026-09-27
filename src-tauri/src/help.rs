@@ -1292,24 +1292,14 @@ Esc は中止で貼らない。{{pick:}} より先に全部聞く。
 詳しくは :help app",
     },
     Page {
-        name: "focus",
-        group: "template",
-        summary: "入力欄の種類",
-        body: "\
-書く: {{focus}}
-貼るときに、フォーカスしている入力欄の種類。Edit、Document、ComboBox。常時監視はしない。取れなければ空。Ubuntu は空。
-例: テキスト欄なら Edit。
-詳しくは :help when",
-    },
-    Page {
         name: "when",
         group: "template",
         summary: "条件に当たる区間だけ残す",
         body: "\
-書く: {{when app: chrome}} または {{when var: a: \"AAA\"}} または {{when focus: Edit}} または {{when}}
-その条件のときだけ区間を残す。複数は {{when app: chrome, msedge}}。{{when var: a: \"AAA\"}} は :set のそのままの文字列。{{when}} はどれにも当たらないとき。{{when chrome}} は展開せずそのまま。Ubuntu では app と focus は空なので、その枝は残らない。
-例: chrome のときだけ {{when app: chrome}}中{{when}} の「中」が残る。
-詳しくは :help app :help focus :help var",
+書く: {{when app: chrome}} または {{when var: a: \"AAA\"}} または {{when}}
+その条件のときだけ区間を残す。複数は {{when app: chrome, msedge}}。{{when var: a: \"AAA\"}} は :set のそのままの文字列。{{when}} はどれにも当たらないとき。{{when chrome}} と {{when focus: Edit}} は枝にしない。その文字は前の枝の本文に残る。
+例: chrome のときだけ {{when app: chrome}}中{{when}} の「中」が残る。{{when app: chrome}}web{{when focus: Edit}}in{{when}}out は、chrome なら web{{when focus: Edit}}in、そうでなければ out。
+詳しくは :help app :help var",
     },
     Page {
         name: "uuid",
@@ -1542,7 +1532,7 @@ fn group_page(id: &str) -> String {
         .unwrap_or(id);
     let mut out = format!(":{id}\n\n{title}。各行の :help 名前 を開く。\n");
     if id == "template" {
-        out.push_str("{{sel}} と {{sel|clip}} は展開せずそのまま貼る。前面へコピーキーは送らない。\n");
+        out.push_str("{{sel}} と {{sel|clip}} は展開せずそのまま貼る。前面へコピーキーは送らない。{{focus}} も展開せずそのまま貼る。\n");
     }
     for page in PAGES.iter().filter(|page| page.group == id) {
         out.push_str(&format!("{}    {}    :help {}\n", page.name, page.summary, page.name));
@@ -1623,7 +1613,9 @@ mod tests {
         assert!(render(Some("slottag")).contains("#slot:3"));
         assert!(render(Some("confirm")).contains("#confirm"));
         assert!(render(Some("when")).contains("{{when app: chrome}}"));
-        assert!(render(Some("when")).contains("{{when chrome}} は展開せずそのまま"));
+        assert!(render(Some("when")).contains("{{when chrome}} と {{when focus: Edit}} は枝にしない"));
+        assert!(render(Some("template")).contains("{{focus}} も展開せずそのまま貼る"));
+        assert_eq!(render(Some("focus")).lines().next(), Some("ない: focus"));
         assert!(render(Some("pick")).contains("{{pick tag:env}}"));
         assert!(render(Some("pick")).contains("候補が 9 個までなら 1〜9"));
         assert!(render(Some("date")).contains("{{date+1w}}"));

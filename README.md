@@ -133,8 +133,8 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 | `{{sel}}` | 展開しない。`{{sel|clip}}` もそのまま貼る。前面へコピーキーは送らない |
 | `{{ask:名前}}` | 貼る前に入力。同じ名前は 1 回 |
 | `{{pick list: prod, stg, dev}}` | 貼る前に候補から選ぶ。`j` / `k` と Enter。候補が 9 個までなら `1`〜`9`。`{{pick: prod, stg}}` は空。`{{pick tag:env}}` はタグの本文。`{{pick search: "xx"}}` は `/` と同じ当たりの行（自分自身は入れない。無ければ聞かない） |
-| `{{app}}` / `{{front}}` / `{{focus}}` | 前面アプリのプロセス名 / ウィンドウタイトル / 入力欄の種類（`Edit` `Document` `ComboBox`）。無ければ空。Ubuntu の `{{focus}}` は空 |
-| `{{when app: chrome}}` / `{{when var: a: "AAA"}}` / `{{when focus: Edit}}` / `{{when}}` | 先に当たった枝だけ残す。アプリは複数可（`chrome, msedge`）。変数は `:set` のそのままの文字列。フォーカスは `Edit` `Document` `ComboBox`。どれにも当たらなければ `{{when}}`、それも無ければ空。`{{when chrome}}` は展開せずそのまま。Ubuntu では app と focus は空 |
+| `{{app}}` / `{{front}}` | 前面アプリのプロセス名 / ウィンドウタイトル。無ければ空。Ubuntu の `{{app}}` は空。`{{focus}}` は展開せずそのまま |
+| `{{when app: chrome}}` / `{{when var: a: "AAA"}}` / `{{when}}` | 先に当たった枝だけ残す。アプリは複数可（`chrome, msedge`）。変数は `:set` のそのままの文字列。どれにも当たらなければ `{{when}}`、それも無ければ空。`{{when chrome}}` と `{{when focus: Edit}}` は枝にしない。Ubuntu では app は空 |
 | `{{uuid}}` | UUID v4 |
 | `{{user}}` / `{{host}}` | ログイン名 / コンピュータ名 |
 | `{{env:USERPROFILE}}` | 同名の環境変数。無ければ空 |

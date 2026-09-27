@@ -1,7 +1,8 @@
-use crate::chord::{self, Chord, ChordKey};
-use crate::keys::{TypeAtom, TypeKey, TypeStep};
+use crate::chord::{self, ChordKey};
+use crate::keys::TypeAtom;
+use crate::strokes::{self, Click, Held, Mod, Script, Stroke};
 use enigo::{
-    Direction::{Click, Press, Release},
+    Direction::{Click as PressClick, Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
 use std::time::{Duration, Instant};
@@ -18,168 +19,106 @@ pub fn simulate_chord(spec: &str) -> bool {
     let Some(chord) = chord::parse(spec) else {
         return false;
     };
-    send_chord(chord)
-}
-
-fn modifiers_held() -> (bool, bool) {
-    super::windows::modifiers_held()
-}
-
-/// 本文を 1 文字ずつ前面へ送る。2 秒を超えたら中止。
-pub fn simulate_type(text: &str) -> bool {
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(enigo) => enigo,
-        Err(_) => return false,
-    };
-    let started = Instant::now();
-    for ch in text.chars() {
-        if started.elapsed() >= Duration::from_secs(2) {
-            return false;
-        }
-        let ok = if ch == '\n' || ch == '\r' {
-            enigo.key(Key::Return, Click).is_ok()
-        } else if ch == '\t' {
-            enigo.key(Key::Tab, Click).is_ok()
-        } else {
-            enigo.text(&ch.to_string()).is_ok()
-        };
-        if !ok {
-            return false;
-        }
-    }
-    true
-}
-
-/// コードに無い Ctrl は、押したままでもキーに乗せない。送ったあとは戻す。
-struct ModifierPlan {
-    release_ctrl: bool,
-    press_ctrl: bool,
-    press_shift: bool,
-}
-
-fn modifier_plan(chord: &Chord, ctrl_held: bool, shift_held: bool) -> ModifierPlan {
-    ModifierPlan {
-        release_ctrl: ctrl_held && !chord.ctrl,
-        press_ctrl: chord.ctrl && !ctrl_held,
-        press_shift: chord.shift && !shift_held,
-    }
-}
-
-fn send_chord(chord: Chord) -> bool {
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(enigo) => enigo,
-        Err(_) => return false,
-    };
-    let ctrl_held = crate::ctrl_gap::physical();
-    let (_, shift_held) = modifiers_held();
-    let plan = modifier_plan(&chord, ctrl_held, shift_held);
-    let mut ok = true;
-    let released_ctrl = if plan.release_ctrl {
-        crate::ctrl_gap::arm();
-        let released = enigo.key(Key::Control, Release).is_ok();
-        if !released {
-            crate::ctrl_gap::disarm();
-        }
-        ok &= released;
-        released
-    } else {
-        false
-    };
-    if plan.press_ctrl {
-        ok &= enigo.key(Key::Control, Press).is_ok();
-    }
-    if plan.press_shift {
-        ok &= enigo.key(Key::Shift, Press).is_ok();
-    }
     let key = match chord.key {
-        ChordKey::Char(ch) => Key::Unicode(ch),
-        ChordKey::Insert => Key::Insert,
-        ChordKey::Home => Key::Home,
+        ChordKey::Char(ch) => Click::Char(ch),
+        ChordKey::Insert => Click::Insert,
+        ChordKey::Home => Click::Home,
     };
-    ok &= enigo.key(key, Click).is_ok();
-    if plan.press_shift {
-        ok &= enigo.key(Key::Shift, Release).is_ok();
-    }
-    if plan.press_ctrl {
-        ok &= enigo.key(Key::Control, Release).is_ok();
-    }
-    if released_ctrl {
-        ok &= enigo.key(Key::Control, Press).is_ok();
-    }
-    ok
+    play(&strokes::plan_chord(chord.ctrl, chord.shift, key, held()))
+}
+
+/// 本文を 1 文字ずつ前面へ送る。2 秒を超えた文字は送らず、修飾キーは指へ戻す。
+pub fn simulate_type(text: &str) -> bool {
+    play(&strokes::plan_text(text, held()))
 }
 
 /// `{{type:}}` の断片を前面へ送る。
 pub fn simulate_type_atoms(atoms: &[TypeAtom]) -> bool {
-    for (index, atom) in atoms.iter().enumerate() {
-        let ok = match atom {
-            TypeAtom::Text(text) => simulate_type(text),
-            TypeAtom::Key(step) => send_type_step(step),
-        };
-        if !ok {
-            return false;
-        }
-        if index + 1 < atoms.len() {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-    true
+    play(&strokes::plan_atoms(atoms, held()))
 }
 
-fn send_type_step(step: &TypeStep) -> bool {
+fn held() -> Held {
+    Held {
+        ctrl: crate::ctrl_gap::physical(),
+        shift: crate::ctrl_gap::physical_shift(),
+        alt: crate::ctrl_gap::physical_alt(),
+    }
+}
+
+/// キーを送る唯一の入口。
+fn play(script: &Script) -> bool {
+    if script.arms {
+        crate::ctrl_gap::arm();
+    }
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(enigo) => enigo,
-        Err(_) => return false,
+        Err(_) => {
+            if script.arms {
+                crate::ctrl_gap::disarm();
+            }
+            return false;
+        }
     };
-    let (ctrl_held, shift_held) = modifiers_held();
-    let press_ctrl = step.ctrl && !ctrl_held;
-    let press_shift = step.shift && !shift_held;
+    let started = Instant::now();
     let mut ok = true;
-    if press_ctrl {
-        ok &= enigo.key(Key::Control, Press).is_ok();
-    }
-    if press_shift {
-        ok &= enigo.key(Key::Shift, Press).is_ok();
-    }
-    if step.alt {
-        ok &= enigo.key(Key::Alt, Press).is_ok();
-    }
-    ok &= enigo.key(enigo_key(step.key), Click).is_ok();
-    if step.alt {
-        ok &= enigo.key(Key::Alt, Release).is_ok();
-    }
-    if press_shift {
-        ok &= enigo.key(Key::Shift, Release).is_ok();
-    }
-    if press_ctrl {
-        ok &= enigo.key(Key::Control, Release).is_ok();
+    for stroke in &script.strokes {
+        let expired = started.elapsed() >= Duration::from_secs(2);
+        let skip = expired && matches!(stroke, Stroke::Click(_) | Stroke::Text(_));
+        if skip {
+            ok = false;
+            continue;
+        }
+        ok &= send(&mut enigo, stroke);
     }
     ok
 }
 
-fn enigo_key(key: TypeKey) -> Key {
-    match key {
-        TypeKey::Char(ch) => Key::Unicode(ch),
-        TypeKey::Tab => Key::Tab,
-        TypeKey::Enter => Key::Return,
-        TypeKey::Escape => Key::Escape,
-        TypeKey::Space => Key::Space,
-        TypeKey::Backspace => Key::Backspace,
-        TypeKey::Delete => Key::Delete,
-        TypeKey::Insert => Key::Insert,
-        TypeKey::Up => Key::UpArrow,
-        TypeKey::Down => Key::DownArrow,
-        TypeKey::Left => Key::LeftArrow,
-        TypeKey::Right => Key::RightArrow,
-        TypeKey::Home => Key::Home,
-        TypeKey::End => Key::End,
-        TypeKey::PageUp => Key::PageUp,
-        TypeKey::PageDown => Key::PageDown,
-        TypeKey::F(n) => enigo_fn_key(n),
+fn send(enigo: &mut Enigo, stroke: &Stroke) -> bool {
+    match stroke {
+        Stroke::Release(modifier) => enigo.key(modifier_key(*modifier), Release).is_ok(),
+        Stroke::Press(modifier) => enigo.key(modifier_key(*modifier), Press).is_ok(),
+        Stroke::Click(key) => enigo.key(click_key(*key), PressClick).is_ok(),
+        Stroke::Text(ch) => enigo.text(&ch.to_string()).is_ok(),
+        Stroke::Wait(ms) => {
+            if *ms > 0 {
+                std::thread::sleep(Duration::from_millis(*ms));
+            }
+            true
+        }
     }
 }
 
-fn enigo_fn_key(n: u8) -> Key {
+fn modifier_key(modifier: Mod) -> Key {
+    match modifier {
+        Mod::Ctrl => Key::Control,
+        Mod::Shift => Key::Shift,
+        Mod::Alt => Key::Alt,
+    }
+}
+
+fn click_key(key: Click) -> Key {
+    match key {
+        Click::Char(ch) => Key::Unicode(ch),
+        Click::Insert => Key::Insert,
+        Click::Home => Key::Home,
+        Click::Tab => Key::Tab,
+        Click::Enter => Key::Return,
+        Click::Escape => Key::Escape,
+        Click::Space => Key::Space,
+        Click::Backspace => Key::Backspace,
+        Click::Delete => Key::Delete,
+        Click::Up => Key::UpArrow,
+        Click::Down => Key::DownArrow,
+        Click::Left => Key::LeftArrow,
+        Click::Right => Key::RightArrow,
+        Click::End => Key::End,
+        Click::PageUp => Key::PageUp,
+        Click::PageDown => Key::PageDown,
+        Click::F(n) => fn_key(n),
+    }
+}
+
+fn fn_key(n: u8) -> Key {
     match n {
         1 => Key::F1,
         2 => Key::F2,
@@ -206,42 +145,5 @@ fn enigo_fn_key(n: u8) -> Key {
         23 => Key::F23,
         24 => Key::F24,
         _ => Key::F1,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn home(ctrl: bool) -> Chord {
-        Chord {
-            ctrl,
-            shift: true,
-            key: ChordKey::Home,
-        }
-    }
-
-    #[test]
-    fn held_ctrl_does_not_ride_along_on_shift_home() {
-        let plan = modifier_plan(&home(false), true, false);
-        assert!(plan.release_ctrl);
-        assert!(plan.press_shift);
-        assert!(!plan.press_ctrl);
-    }
-
-    #[test]
-    fn configured_ctrl_home_keeps_the_held_ctrl() {
-        let plan = modifier_plan(&home(true), true, false);
-        assert!(!plan.release_ctrl);
-        assert!(plan.press_shift);
-        assert!(!plan.press_ctrl);
-    }
-
-    #[test]
-    fn shift_home_without_a_held_ctrl_only_presses_shift() {
-        let plan = modifier_plan(&home(false), false, false);
-        assert!(!plan.release_ctrl);
-        assert!(plan.press_shift);
-        assert!(!plan.press_ctrl);
     }
 }

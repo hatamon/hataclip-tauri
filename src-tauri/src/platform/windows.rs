@@ -6,9 +6,6 @@ use windows_sys::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_SHIFT,
-};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetForegroundWindow,
 };
@@ -56,20 +53,6 @@ pub fn context_key(fg: &Foreground) -> Option<String> {
     Some(process)
 }
 
-/// UI Automation のコントロール種別名。取れなければ空。
-pub fn focused_control() -> String {
-    let Ok(automation) = uiautomation::UIAutomation::new() else {
-        return String::new();
-    };
-    let Ok(element) = automation.get_focused_element() else {
-        return String::new();
-    };
-    let Ok(kind) = element.get_control_type() else {
-        return String::new();
-    };
-    format!("{kind}")
-}
-
 pub fn app_and_title(fg: &Foreground) -> (String, String) {
     let hwnd = fg.hwnd as HWND;
     (
@@ -111,14 +94,5 @@ fn window_title(hwnd: HWND) -> Option<String> {
             return None;
         }
         Some(String::from_utf16_lossy(&buffer[..length as usize]))
-    }
-}
-
-/// 物理的に押したままの修飾キー。コピーの SendInput で離すと、次の Ctrl+7 が 7 だけになる。
-pub(crate) fn modifiers_held() -> (bool, bool) {
-    unsafe {
-        let ctrl = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
-        let shift = GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000 != 0;
-        (ctrl, shift)
     }
 }

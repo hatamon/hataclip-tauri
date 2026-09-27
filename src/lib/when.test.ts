@@ -15,7 +15,12 @@ describe("applyWhen", () => {
         vars: { a: "AAA" },
       }),
     ).toBe("git");
-    expect(applyWhen("{{when focus: Edit}}box{{when}}other", { focus: "edit" })).toBe("box");
+    expect(applyWhen("{{when focus: Edit}}box{{when}}other", "code")).toBe(
+      "{{when focus: Edit}}boxother",
+    );
+    expect(applyWhen("{{when app: chrome}}web{{when focus: Edit}}in{{when}}out", "chrome")).toBe(
+      "web{{when focus: Edit}}in",
+    );
     expect(applyWhen("{{when app: chrome}}web{{when focus: Edit}}in{{when}}none", {})).toBe("none");
   });
 });

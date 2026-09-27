@@ -1,5 +1,5 @@
-//! 行頭選択で Ctrl を一度離したあと、指がまだ押している Ctrl 付きのキーを受け直す。
-//! 注入した Ctrl の上げ下げはホットキーに届かないので、物理キーだけを見る。
+//! 行頭選択で修飾キーを一度離したあと、指がまだ押している Ctrl 付きのキーを受け直す。
+//! 注入した上げ下げは見ない。物理キーだけを見る。
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -25,8 +25,6 @@ pub struct Chord {
 pub struct KeyEv {
     pub vk: u16,
     pub down: bool,
-    pub shift: bool,
-    pub alt: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,12 +37,22 @@ pub enum Decision {
 const VK_CONTROL: u16 = 0x11;
 const VK_LCONTROL: u16 = 0xA2;
 const VK_RCONTROL: u16 = 0xA3;
+const VK_SHIFT: u16 = 0x10;
+const VK_LSHIFT: u16 = 0xA0;
+const VK_RSHIFT: u16 = 0xA1;
+const VK_MENU: u16 = 0x12;
+const VK_LMENU: u16 = 0xA4;
+const VK_RMENU: u16 = 0xA5;
 
 pub struct Gap {
     pub chords: Vec<Chord>,
     armed: bool,
     left: bool,
     right: bool,
+    shift_left: bool,
+    shift_right: bool,
+    alt_left: bool,
+    alt_right: bool,
     fired: HashSet<u16>,
 }
 
@@ -55,12 +63,24 @@ impl Gap {
             armed: false,
             left: false,
             right: false,
+            shift_left: false,
+            shift_right: false,
+            alt_left: false,
+            alt_right: false,
             fired: HashSet::new(),
         }
     }
 
     pub fn physical(&self) -> bool {
         self.left || self.right
+    }
+
+    pub fn physical_shift(&self) -> bool {
+        self.shift_left || self.shift_right
+    }
+
+    pub fn physical_alt(&self) -> bool {
+        self.alt_left || self.alt_right
     }
 
     pub fn arm(&mut self) {
@@ -76,14 +96,29 @@ impl Gap {
 
     pub fn on_key(&mut self, ev: KeyEv) -> Decision {
         if is_ctrl(ev.vk) {
-            let down = ev.down;
             if ev.vk == VK_RCONTROL {
-                self.right = down;
+                self.right = ev.down;
             } else {
-                self.left = down;
+                self.left = ev.down;
             }
             if !self.physical() {
                 self.disarm();
+            }
+            return Decision::Pass;
+        }
+        if is_shift(ev.vk) {
+            if ev.vk == VK_RSHIFT {
+                self.shift_right = ev.down;
+            } else {
+                self.shift_left = ev.down;
+            }
+            return Decision::Pass;
+        }
+        if is_alt(ev.vk) {
+            if ev.vk == VK_RMENU {
+                self.alt_right = ev.down;
+            } else {
+                self.alt_left = ev.down;
             }
             return Decision::Pass;
         }
@@ -99,10 +134,12 @@ impl Gap {
             }
             return Decision::Pass;
         }
+        let shift = self.physical_shift();
+        let alt = self.physical_alt();
         let Some(chord) = self
             .chords
             .iter()
-            .find(|chord| chord.vk == ev.vk && chord.shift == ev.shift && chord.alt == ev.alt)
+            .find(|chord| chord.vk == ev.vk && chord.shift == shift && chord.alt == alt)
         else {
             return Decision::Pass;
         };
@@ -119,6 +156,14 @@ impl Default for Gap {
 
 fn is_ctrl(vk: u16) -> bool {
     vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL
+}
+
+fn is_shift(vk: u16) -> bool {
+    vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT
+}
+
+fn is_alt(vk: u16) -> bool {
+    vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU
 }
 
 /// `Control+Digit8` のように Ctrl を含むショートカットだけ。Ctrl が無ければなし。
@@ -248,6 +293,14 @@ pub fn physical() -> bool {
     gap().physical()
 }
 
+pub fn physical_shift() -> bool {
+    gap().physical_shift()
+}
+
+pub fn physical_alt() -> bool {
+    gap().physical_alt()
+}
+
 pub fn arm() {
     gap().arm();
 }
@@ -256,13 +309,8 @@ pub fn disarm() {
     gap().disarm();
 }
 
-pub fn on_hook_key(vk: u16, down: bool, shift: bool, alt: bool) -> bool {
-    let decision = gap().on_key(KeyEv {
-        vk,
-        down,
-        shift,
-        alt,
-    });
+pub fn on_hook_key(vk: u16, down: bool) -> bool {
+    let decision = gap().on_key(KeyEv { vk, down });
     match decision {
         Decision::Pass => false,
         Decision::Swallow => true,
@@ -323,66 +371,57 @@ mod tests {
         gap
     }
 
-    fn down(vk: u16, shift: bool) -> KeyEv {
-        KeyEv {
-            vk,
-            down: true,
-            shift,
-            alt: false,
-        }
+    fn down(vk: u16) -> KeyEv {
+        KeyEv { vk, down: true }
+    }
+
+    fn up(vk: u16) -> KeyEv {
+        KeyEv { vk, down: false }
     }
 
     #[test]
     fn armed_digit_fires_once_and_later_presses_are_swallowed() {
         let mut gap = expand_gap();
-        assert_eq!(gap.on_key(down(0xA2, false)), Decision::Pass);
+        assert_eq!(gap.on_key(down(0xA2)), Decision::Pass);
         gap.arm();
-        assert_eq!(
-            gap.on_key(down(0x38, false)),
-            Decision::Fire(Action::Expand)
-        );
-        assert_eq!(gap.on_key(down(0x38, false)), Decision::Swallow);
-        assert_eq!(gap.on_key(down(0x37, false)), Decision::Fire(Action::Show));
+        assert_eq!(gap.on_key(down(0x38)), Decision::Fire(Action::Expand));
+        assert_eq!(gap.on_key(down(0x38)), Decision::Swallow);
+        assert_eq!(gap.on_key(down(0x37)), Decision::Fire(Action::Show));
     }
 
     #[test]
     fn releasing_ctrl_lets_the_digit_through() {
         let mut gap = expand_gap();
-        gap.on_key(down(0xA2, false));
+        gap.on_key(down(0xA2));
         gap.arm();
-        gap.on_key(KeyEv {
-            vk: 0xA2,
-            down: false,
-            shift: false,
-            alt: false,
-        });
+        gap.on_key(up(0xA2));
         assert!(!gap.physical());
-        assert_eq!(gap.on_key(down(0x38, false)), Decision::Pass);
+        assert_eq!(gap.on_key(down(0x38)), Decision::Pass);
     }
 
     #[test]
     fn arm_does_nothing_until_ctrl_is_physically_down() {
         let mut gap = expand_gap();
+        gap.on_key(down(0xA0));
         gap.arm();
-        assert_eq!(gap.on_key(down(0x38, false)), Decision::Pass);
+        assert_eq!(gap.on_key(down(0x31)), Decision::Pass);
+        gap.on_key(up(0xA0));
+        gap.arm();
+        assert_eq!(gap.on_key(down(0x38)), Decision::Pass);
     }
 
     #[test]
-    fn shift_digit_is_the_shifted_chord() {
+    fn shift_digit_follows_the_physical_shift_key() {
         let mut gap = expand_gap();
-        gap.on_key(down(0xA2, false));
+        gap.on_key(down(0xA2));
+        gap.on_key(down(0xA0));
         gap.arm();
-        assert_eq!(
-            gap.on_key(down(0x31, true)),
-            Decision::Fire(Action::Ranked(0))
-        );
-        gap.on_key(KeyEv {
-            vk: 0x31,
-            down: false,
-            shift: true,
-            alt: false,
-        });
-        assert_eq!(gap.on_key(down(0x31, false)), Decision::Pass);
+        assert_eq!(gap.on_key(down(0x31)), Decision::Fire(Action::Ranked(0)));
+        gap.on_key(up(0x31));
+        assert_eq!(gap.on_key(down(0x31)), Decision::Fire(Action::Ranked(0)));
+        gap.on_key(up(0x31));
+        gap.on_key(up(0xA0));
+        assert_eq!(gap.on_key(down(0x31)), Decision::Pass);
     }
 
     #[test]

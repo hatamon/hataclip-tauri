@@ -1,6 +1,5 @@
 use windows_sys::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU, VK_SHIFT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, SetWindowsHookExW, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
     LLKHF_INJECTED, LLKHF_UP, MSG, WH_KEYBOARD_LL,
@@ -36,9 +35,7 @@ unsafe extern "system" fn proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
         let injected = (info.flags & (LLKHF_INJECTED | 0x02)) != 0;
         if !injected {
             let down = (info.flags & LLKHF_UP) == 0;
-            let shift = GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000 != 0;
-            let alt = GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000 != 0;
-            if crate::ctrl_gap::on_hook_key(info.vkCode as u16, down, shift, alt) {
+            if crate::ctrl_gap::on_hook_key(info.vkCode as u16, down) {
                 return 1;
             }
         }

@@ -38,7 +38,6 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 enigo = "0.6"
-uiautomation = "0.24"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Globalization",

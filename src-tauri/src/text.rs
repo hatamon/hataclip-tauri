@@ -34,7 +34,6 @@ pub struct Expand {
     pub host: String,
     pub app: String,
     pub front: String,
-    pub focus: String,
     pub now: chrono::DateTime<chrono::Local>,
     pub answers: std::collections::HashMap<String, String>,
     pub vars: std::collections::HashMap<String, String>,
@@ -201,17 +200,15 @@ pub(crate) fn find_close(chars: &[char], start: usize) -> Option<usize> {
     None
 }
 
-/// 貼るときの `{{when}}` 判定。`app` と `focus` が空ならその枝は当たらない。
+/// 貼るときの `{{when}}` 判定。`app` が空ならその枝は当たらない。
 pub struct WhenEnv<'a> {
     pub app: &'a str,
-    pub focus: &'a str,
     pub vars: &'a std::collections::HashMap<String, String>,
 }
 
 fn when_env(ctx: &Expand) -> WhenEnv<'_> {
     WhenEnv {
         app: &ctx.app,
-        focus: &ctx.focus,
         vars: &ctx.vars,
     }
 }
@@ -219,12 +216,11 @@ fn when_env(ctx: &Expand) -> WhenEnv<'_> {
 enum WhenKind {
     App(Vec<String>),
     Var { name: String, value: String },
-    Focus(String),
     Fallback,
 }
 
-/// `{{when app:}}` `{{when var:}}` `{{when focus:}}` `{{when}}`。先に当たった枝だけ残す。
-/// `{{when chrome}}` は枝にしない。先頭の `{{when` より前は常に残す。
+/// `{{when app:}}` `{{when var:}}` `{{when}}`。先に当たった枝だけ残す。
+/// `{{when chrome}}` と `{{when focus:}}` は枝にしない。先頭の `{{when` より前は常に残す。
 pub fn apply_when(text: &str, env: &WhenEnv<'_>) -> String {
     let chars: Vec<char> = text.chars().collect();
     struct Mark {
@@ -295,13 +291,6 @@ fn when_kind(token: &str) -> Option<WhenKind> {
     if let Some(rest) = arg.strip_prefix("var:") {
         return when_var(rest.trim());
     }
-    if let Some(rest) = arg.strip_prefix("focus:") {
-        let name = rest.trim();
-        if name.is_empty() {
-            return None;
-        }
-        return Some(WhenKind::Focus(name.to_string()));
-    }
     None
 }
 
@@ -324,7 +313,6 @@ fn when_hits(kind: &WhenKind, env: &WhenEnv<'_>) -> bool {
             .iter()
             .any(|name| !env.app.is_empty() && name.eq_ignore_ascii_case(env.app)),
         WhenKind::Var { name, value } => env.vars.get(name).is_some_and(|current| current == value),
-        WhenKind::Focus(name) => !env.focus.is_empty() && name.eq_ignore_ascii_case(env.focus),
         WhenKind::Fallback => false,
     }
 }
@@ -628,9 +616,6 @@ fn token_value(
     }
     if inner == "front" {
         return Some(ctx.front.clone());
-    }
-    if inner == "focus" {
-        return Some(ctx.focus.clone());
     }
     if let Some(spec) = arg_after(inner, "pick") {
         if pick_kind(spec).is_none() {
@@ -1668,7 +1653,6 @@ mod tests {
             host: "pc".into(),
             app: "code".into(),
             front: "TODO.md".into(),
-            focus: "Edit".into(),
             now: chrono::Local::now(),
             answers: std::collections::HashMap::from([
                 ("名前".into(), "hatamon".into()),
@@ -1893,15 +1877,19 @@ mod tests {
         );
         assert_eq!(
             expand_template("{{when focus: Edit}}box{{when}}other", &ctx),
-            "box"
+            "{{when focus: Edit}}boxother"
         );
-        let mut doc = sample_ctx();
-        doc.focus = "Document".into();
+        let mut chrome = sample_ctx();
+        chrome.app = "chrome".into();
         assert_eq!(
-            expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}out", &doc),
+            expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}out", &chrome),
+            "web{{when focus: Edit}}in"
+        );
+        assert_eq!(
+            expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}out", &ctx),
             "out"
         );
-        assert_eq!(expand_template("{{focus}}", &ctx), "Edit");
+        assert_eq!(expand_template("{{focus}}", &ctx), "{{focus}}");
         assert_eq!(expand_template("{{cred:github}}", &ctx), "{{cred:github}}");
         assert_eq!(
             expand_template("{{cred:hataclip_missing_cred}}", &ctx),
@@ -1909,7 +1897,6 @@ mod tests {
         );
         let mut blank = sample_ctx();
         blank.app.clear();
-        blank.focus.clear();
         assert_eq!(
             expand_template("{{when app: chrome}}web{{when focus: Edit}}in{{when}}none", &blank),
             "none"
@@ -1936,11 +1923,7 @@ mod tests {
         app: &'a str,
         vars: &'a std::collections::HashMap<String, String>,
     ) -> WhenEnv<'a> {
-        WhenEnv {
-            app,
-            focus: "",
-            vars,
-        }
+        WhenEnv { app, vars }
     }
 
     #[test]

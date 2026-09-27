@@ -70,21 +70,19 @@ export function unquoteDouble(raw: string): string | null {
 
 export type WhenEnv = {
   app?: string;
-  focus?: string;
   vars?: Record<string, string>;
 };
 
 type WhenKind =
   | { kind: "app"; names: string[] }
   | { kind: "var"; name: string; value: string }
-  | { kind: "focus"; name: string }
   | { kind: "fallback" };
 
 function asEnv(env: string | WhenEnv | undefined): Required<WhenEnv> {
   if (typeof env === "string" || env === undefined) {
-    return { app: env ?? "", focus: "", vars: {} };
+    return { app: env ?? "", vars: {} };
   }
-  return { app: env.app ?? "", focus: env.focus ?? "", vars: env.vars ?? {} };
+  return { app: env.app ?? "", vars: env.vars ?? {} };
 }
 
 function whenKind(token: string): WhenKind | null {
@@ -116,10 +114,6 @@ function whenKind(token: string): WhenKind | null {
     const value = unquoteDouble(rest.slice(split + 1));
     return value === null ? null : { kind: "var", name, value };
   }
-  if (arg.startsWith("focus:")) {
-    const name = arg.slice(6).trim();
-    return name.length > 0 ? { kind: "focus", name } : null;
-  }
   return null;
 }
 
@@ -130,13 +124,10 @@ function whenHits(kind: WhenKind, env: Required<WhenEnv>): boolean {
   if (kind.kind === "var") {
     return env.vars[kind.name] === kind.value;
   }
-  if (kind.kind === "focus") {
-    return env.focus.length > 0 && kind.name.toLowerCase() === env.focus.toLowerCase();
-  }
   return false;
 }
 
-/** `{{when app:}}` `{{when var:}}` `{{when focus:}}` `{{when}}`。`{{when chrome}}` は枝にしない。 */
+/** `{{when app:}}` `{{when var:}}` `{{when}}`。`{{when chrome}}` と `{{when focus:}}` は枝にしない。 */
 export function applyWhen(text: string, env: string | WhenEnv = ""): string {
   const current = asEnv(env);
   const marks: { start: number; end: number; kind: WhenKind }[] = [];

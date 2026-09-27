@@ -6,6 +6,7 @@ mod chord;
 mod clipboard;
 mod crypt;
 mod ctrl_gap;
+mod strokes;
 mod keys;
 mod editor;
 mod eval;
@@ -2177,7 +2178,6 @@ fn var_map(state: &AppState) -> HashMap<String, String> {
 fn bump_step_vars(state: &AppState, ids: &[String]) {
     let app = foreground_app(state);
     let vars = var_map(state);
-    let focus = platform::focused_control();
     let names = {
         let store = state.store.lock().expect("store");
         let mut names = Vec::new();
@@ -2189,7 +2189,6 @@ fn bump_step_vars(state: &AppState, ids: &[String]) {
                 &item.text,
                 &text::WhenEnv {
                     app: &app,
-                    focus: &focus,
                     vars: &vars,
                 },
             ) {
@@ -2228,7 +2227,6 @@ fn expand_context(
         host: text::host_name(),
         app: app_name,
         front,
-        focus: platform::focused_control(),
         now,
         answers,
         vars: var_map(state),
@@ -2239,7 +2237,6 @@ fn expand_context(
 fn has_sel(state: &AppState, ids: &[String]) -> bool {
     let app = foreground_app(state);
     let vars = var_map(state);
-    let focus = platform::focused_control();
     let store = state.store.lock().expect("store");
     ids.iter().any(|id| {
         store.get(id).map_or(false, |item| {
@@ -2247,7 +2244,6 @@ fn has_sel(state: &AppState, ids: &[String]) -> bool {
                 &item.text,
                 &text::WhenEnv {
                     app: &app,
-                    focus: &focus,
                     vars: &vars,
                 },
             )
@@ -3265,7 +3261,6 @@ mod tests {
             host: "pc".into(),
             app: "code".into(),
             front: "TODO.md".into(),
-            focus: "Edit".into(),
             now: Local::now(),
             answers: HashMap::new(),
             vars: HashMap::new(),
