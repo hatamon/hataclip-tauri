@@ -273,7 +273,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 
 ### E2E（Windows）
 
-`TEST.md` の一部を、Docker 上の Vitest からホストの WinAppDriver 経由で動かす。コンテナはクライアントだけ。WinAppDriver と `hataclip-gui.exe` とメモ帳はホストで動く。`npm test` と `docker compose run --rm test` には含まれない。
+`TEST.md` の一部を、Docker 上の Vitest からホストの WinAppDriver 経由で動かす。コンテナはクライアントだけ。WinAppDriver と `hataclip-gui.exe` とメモ帳はホストで動く。`npm test` と `docker compose run --rm test` には含まれない。節ごとにファイルを分ける（`e2e/register.test.ts` は登録、`e2e/search.test.ts` は移動と検索、`e2e/paste.test.ts` は一覧から貼る、`e2e/ctrl-register.test.ts` と `e2e/ctrl.test.ts` は Ctrl、`e2e/expand.test.ts` は展開、`e2e/complete.test.ts` は補完、`e2e/template.test.ts` はテンプレート、`e2e/command.test.ts` はコマンド、`e2e/pipe.test.ts` はパイプ、`e2e/cli.test.ts` は `hataclip.exe`）。
 
 ホストに入れるもの:
 
@@ -284,7 +284,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 
 Windows ファイアウォールで TCP 4723 の受信を許可する。WinAppDriver の既定は `127.0.0.1` なので、コンテナからは届かない。`scripts/start-winappdriver.ps1` は `http://+:4723/` で開く（HTTP.sys は `0.0.0.0` をホスト名として受け付けない。管理者でも `Error adding url to url group` / `0x80004005` になる）。このポートは URL 予約 `http://+:4723/` が要る。無ければ初回だけ管理者の PowerShell で `./scripts/start-winappdriver.ps1` を実行する（または `netsh http add urlacl url=http://+:4723/ user=Everyone`）。予約のあとは管理者でなくてよい。
 
-実行する前に、普段使っている `hataclip-gui.exe` を終了する。ショートカットを取れないとテスト用のプロセスが失敗する。exe は `scripts/build-windows.ps1`（中身は `docker compose run --rm windows-build`）の成果物 `dist/windows/hataclip-gui.exe` でよい。
+実行する前に、普段使っている `hataclip-gui.exe` を終了する。ショートカットを取れないとテスト用のプロセスが失敗する。exe は `scripts/build-windows.ps1` の成果物 `dist/windows/hataclip-gui.exe` を使う。`target/debug` は Vite（localhost:1420）を開くので、テスト中に「このページに到達できません」になる。
 
 ```powershell
 Copy-Item e2e.env.example e2e.env

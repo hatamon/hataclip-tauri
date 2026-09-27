@@ -12,8 +12,15 @@ const KEY: Record<string, string> = {
   Shift: "\uE008",
   Alt: "\uE00A",
   Enter: "\uE007",
+  Escape: "\uE00C",
+  Tab: "\uE004",
   Home: "\uE011",
   End: "\uE010",
+  ArrowUp: "\uE013",
+  ArrowDown: "\uE015",
+  ArrowLeft: "\uE012",
+  ArrowRight: "\uE014",
+  Delete: "\uE017",
 };
 
 /** 押したままの修飾キーを全部離す。WinAppDriver はこれを送るまで Shift / Ctrl を保持する。 */
@@ -185,6 +192,16 @@ export function launchNotepad(file: string): Promise<Session> {
   return start({
     app: "C:\\Windows\\System32\\notepad.exe",
     appArguments: quoteArg(file),
+    deviceName: "WindowsPC",
+    platformName: "Windows",
+  });
+}
+
+/** ホストで .cmd を走らせる。`/c` だと即終了して WinAppDriver が窓を取れないので `/k`。 */
+export function launchCmd(script: string): Promise<Session> {
+  return start({
+    app: "C:\\Windows\\System32\\cmd.exe",
+    appArguments: `/k ${quoteArg(script)}`,
     deviceName: "WindowsPC",
     platformName: "Windows",
   });

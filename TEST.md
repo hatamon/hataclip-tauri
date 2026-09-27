@@ -2,7 +2,7 @@
 
 人が画面で押して確認する。`npm test` はここを置き換えない。
 
-Windows は `hataclip-gui.exe` を起動し、貼り先はメモ帳にする。Ubuntu は末尾の節だけ追加で見る。項目のキーは初期値。
+Windows は `hataclip-gui.exe` を起動し、貼り先はメモ帳にする。
 
 ## Ctrl
 
@@ -206,12 +206,3 @@ keep
 - [ ] `--help` は一覧の `:help` と同じ文章
 - [ ] `hataclip.exe add` は標準入力を一覧へ1件足す。`hataclip.exe clip` は標準入力をクリップボードへ書く
 - [ ] 引数が無いときは一覧が出る
-
-## Ubuntu
-
-Wayland では他のアプリへキーを送らない。
-
-- [ ] Enter はクリップボードに結果を置いて一覧が閉じる。自分で貼る
-- [ ] Ctrl+4 はクリップボードだけを登録する
-- [ ] 空の選択での Ctrl+8 は何もしない
-- [ ] `:type`、`{{type:}}`、`{{app}}`、`{{front}}`、`a`、`ga` は動かない。`{{app}}` は空

@@ -68,6 +68,7 @@
     | { kind: "app" };
 
   let items = $state<Item[]>([]);
+  let testMode = $state(false);
   let selected = $state(0);
   let lastSelectedId = $state<string | null>(null);
   let mode = $state<Mode>("normal");
@@ -317,6 +318,29 @@
       return [{ key: "文字", label: "その文字へ" }, ...mapped];
     }
     return mapped;
+  });
+
+  $effect(() => {
+    if (!testMode) {
+      return;
+    }
+    const row = filtered[selected];
+    void invoke("report_test_ui", {
+      ui: {
+        mode,
+        query,
+        selected: row?.text ?? null,
+        visible: visibleRows.map((item) => item.text),
+        filtered: filtered.map((item) => item.text),
+        preview: preview ? previewText : "",
+        info:
+          info && row
+            ? `context ${row.contexts.join(" ") || "—"}\ntags ${row.tags.map((tag) => `#${tag}`).join(" ") || "—"}`
+            : "",
+        which: whichKeys.map((entry) => entry.key),
+        contextOnly,
+      },
+    });
   });
 
   $effect(() => {
@@ -1785,10 +1809,24 @@
     return true;
   }
 
+  function keepSelectedRow(keepId: string | null) {
+    queueMicrotask(() => {
+      if (!keepId) {
+        return;
+      }
+      const index = filtered.findIndex((item) => item.id === keepId);
+      if (index >= 0) {
+        selected = index;
+      }
+    });
+  }
+
   function leaveSearch(clear: boolean) {
+    const keepId = filtered[selected]?.id ?? lastSelectedId;
     if (clear) {
       query = "";
       tagCycle = -1;
+      keepSelectedRow(keepId);
     }
     mode = "normal";
     pending = "";
@@ -1987,8 +2025,10 @@
         return;
       }
       if (query.length > 0 || tagCycle >= 0) {
+        const keepId = filtered[selected]?.id ?? lastSelectedId;
         query = "";
         tagCycle = -1;
+        keepSelectedRow(keepId);
         return;
       }
       if (anchor !== null) {
@@ -2347,6 +2387,9 @@
   }
 
   onMount(() => {
+    void invoke<boolean>("is_test_mode").then((on) => {
+      testMode = on;
+    });
     const onKey = (event: KeyboardEvent) => onDocumentKeydown(event);
     window.addEventListener("keydown", onKey, true);
     const onBlur = () => {

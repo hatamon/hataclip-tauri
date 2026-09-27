@@ -385,6 +385,43 @@ fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
+fn is_test_mode() -> bool {
+    test_args::is_active()
+}
+
+#[tauri::command]
+fn report_test_ui(ui: test_args::TestUi, state: tauri::State<'_, AppState>) {
+    if !test_args::is_active() {
+        return;
+    }
+    let items = state.store.lock().expect("store").list().to_vec();
+    test_args::remember_items(&items);
+    test_args::set_ui(ui);
+}
+
+fn watch_test_drops(app: tauri::AppHandle, dir: std::path::PathBuf) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let file = dir.join("drop-paths.json");
+        if !file.exists() {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let _ = std::fs::remove_file(&file);
+        let Ok(paths) = serde_json::from_str::<Vec<String>>(&raw) else {
+            continue;
+        };
+        let state = app.state::<AppState>();
+        state.store.lock().expect("store").drop_paths(&paths);
+        let items = state.store.lock().expect("store").list().to_vec();
+        test_args::remember_items(&items);
+        let _ = app.emit("items-changed", view(&state));
+    });
+}
+
+#[tauri::command]
 fn get_shortcuts(state: tauri::State<'_, AppState>) -> Shortcuts {
     state.settings.lock().expect("settings").shortcuts().clone()
 }
@@ -2757,6 +2794,9 @@ fn show_window(app: &tauri::AppHandle) {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+    if test_args::is_active() {
+        test_args::set_picker_open(true);
+    }
 }
 
 fn hide_window(app: &tauri::AppHandle, state: &AppState) {
@@ -2764,6 +2804,9 @@ fn hide_window(app: &tauri::AppHandle, state: &AppState) {
     if let Some(window) = app.get_webview_window("main") {
         persist_geometry(&window, state);
         let _ = window.hide();
+    }
+    if test_args::is_active() {
+        test_args::set_picker_open(false);
     }
 }
 
@@ -2991,6 +3034,7 @@ fn run_with(launch: test_args::TestLaunch) {
             let mut store = Store::load(dir.join("items.json"));
             let dump_status = Arc::new(Mutex::new(test_args::DumpStatus::default()));
             if let Some(dump_path) = launch.dump_state.clone() {
+                test_args::attach_dump(dump_path.clone(), dump_status.clone());
                 store.set_test_dump(test_args::dump_hook(dump_path, dump_status.clone()));
             }
             let settings = Settings::load(dir.join("settings.json"));
@@ -3038,13 +3082,12 @@ fn run_with(launch: test_args::TestLaunch) {
                     let _ = window.hide();
                 }
             }
-            if let Some(dump_path) = launch.dump_state.clone() {
-                let snapshot = {
+            if launch.dump_state.is_some() {
+                {
                     let mut guard = dump_status.lock().unwrap_or_else(|err| err.into_inner());
                     guard.ready = true;
                     guard.shortcuts_ok = register_result.is_ok();
-                    guard.clone()
-                };
+                }
                 let items = app
                     .state::<AppState>()
                     .store
@@ -3052,7 +3095,15 @@ fn run_with(launch: test_args::TestLaunch) {
                     .expect("store")
                     .list()
                     .to_vec();
-                test_args::write_dump(&dump_path, &snapshot, &items);
+                test_args::remember_items(&items);
+                test_args::write_dump(
+                    launch.dump_state.as_ref().expect("dump"),
+                    &dump_status.lock().unwrap_or_else(|err| err.into_inner()),
+                    &items,
+                );
+            }
+            if launch.is_active() {
+                watch_test_drops(app.handle().clone(), dir.clone());
             }
             Ok(())
         })
@@ -3083,6 +3134,8 @@ fn run_with(launch: test_args::TestLaunch) {
             drop_paths,
             edit_external,
             hide_picker,
+            is_test_mode,
+            report_test_ui,
             paste_items,
             copy_items,
             expand_items,

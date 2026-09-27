@@ -2,7 +2,7 @@
 //! `hataclip.exe`（パイプ用の `parse_command`）には触らない。
 
 use crate::store::Item;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -147,7 +147,41 @@ fn inject_history(dir: &Path, source: &Path) -> Result<(), String> {
 pub struct DumpStatus {
     pub ready: bool,
     pub shortcuts_ok: bool,
+    pub picker_open: bool,
+    pub ui: TestUi,
+    pub last_open: Option<String>,
 }
+
+/// 一覧のフロントから来るスナップショット。テストだけが読む。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestUi {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub query: String,
+    pub selected: Option<String>,
+    #[serde(default)]
+    pub visible: Vec<String>,
+    #[serde(default)]
+    pub filtered: Vec<String>,
+    #[serde(default)]
+    pub preview: String,
+    #[serde(default)]
+    pub info: String,
+    #[serde(default)]
+    pub which: Vec<String>,
+    #[serde(default)]
+    pub context_only: bool,
+}
+
+struct DumpSink {
+    path: PathBuf,
+    status: Arc<Mutex<DumpStatus>>,
+    items: Mutex<Vec<Item>>,
+}
+
+static DUMP: Mutex<Option<DumpSink>> = Mutex::new(None);
 
 #[derive(Serialize)]
 struct DumpItem<'a> {
@@ -156,10 +190,37 @@ struct DumpItem<'a> {
 }
 
 #[derive(Serialize)]
+struct DumpPicker<'a> {
+    open: bool,
+    mode: &'a str,
+    query: &'a str,
+    selected: Option<&'a str>,
+    visible: &'a [String],
+    filtered: &'a [String],
+    preview: &'a str,
+    info: &'a str,
+    which: &'a [String],
+    #[serde(rename = "contextOnly")]
+    context_only: bool,
+}
+
+#[derive(Serialize)]
 struct DumpFile<'a> {
     ready: bool,
     shortcuts: &'static str,
     items: Vec<DumpItem<'a>>,
+    clipboard: String,
+    picker: DumpPicker<'a>,
+    #[serde(rename = "lastOpen")]
+    last_open: Option<&'a str>,
+}
+
+pub fn attach_dump(path: PathBuf, status: Arc<Mutex<DumpStatus>>) {
+    *DUMP.lock().unwrap_or_else(|err| err.into_inner()) = Some(DumpSink {
+        path,
+        status,
+        items: Mutex::new(Vec::new()),
+    });
 }
 
 pub fn write_dump(path: &Path, status: &DumpStatus, items: &[Item]) {
@@ -173,6 +234,20 @@ pub fn write_dump(path: &Path, status: &DumpStatus, items: &[Item]) {
                 tags: &item.tags,
             })
             .collect(),
+        clipboard: crate::clipboard::peek_text().unwrap_or_default(),
+        picker: DumpPicker {
+            open: status.picker_open,
+            mode: &status.ui.mode,
+            query: &status.ui.query,
+            selected: status.ui.selected.as_deref(),
+            visible: &status.ui.visible,
+            filtered: &status.ui.filtered,
+            preview: &status.ui.preview,
+            info: &status.ui.info,
+            which: &status.ui.which,
+            context_only: status.ui.context_only,
+        },
+        last_open: status.last_open.as_deref(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&dump) {
         if let Some(parent) = path.parent() {
@@ -182,15 +257,58 @@ pub fn write_dump(path: &Path, status: &DumpStatus, items: &[Item]) {
     }
 }
 
+fn flush_sink() {
+    let sink = DUMP.lock().unwrap_or_else(|err| err.into_inner());
+    let Some(sink) = sink.as_ref() else {
+        return;
+    };
+    let snapshot = sink.status.lock().unwrap_or_else(|err| err.into_inner()).clone();
+    let items = sink.items.lock().unwrap_or_else(|err| err.into_inner()).clone();
+    write_dump(&sink.path, &snapshot, &items);
+}
+
 /// `Store::save` の末尾から呼ぶフック。呼ぶたびそのときの `status` で書く。
 pub fn dump_hook(
     path: PathBuf,
     status: Arc<Mutex<DumpStatus>>,
 ) -> Arc<dyn Fn(&[Item]) + Send + Sync> {
     Arc::new(move |items: &[Item]| {
+        if let Some(sink) = DUMP.lock().unwrap_or_else(|err| err.into_inner()).as_ref() {
+            *sink.items.lock().unwrap_or_else(|err| err.into_inner()) = items.to_vec();
+        }
         let snapshot = status.lock().unwrap_or_else(|err| err.into_inner()).clone();
         write_dump(&path, &snapshot, items);
     })
+}
+
+pub fn remember_items(items: &[Item]) {
+    if let Some(sink) = DUMP.lock().unwrap_or_else(|err| err.into_inner()).as_ref() {
+        *sink.items.lock().unwrap_or_else(|err| err.into_inner()) = items.to_vec();
+    }
+}
+
+pub fn set_ui(ui: TestUi) {
+    if let Some(sink) = DUMP.lock().unwrap_or_else(|err| err.into_inner()).as_ref() {
+        sink.status.lock().unwrap_or_else(|err| err.into_inner()).ui = ui;
+    }
+    flush_sink();
+}
+
+pub fn set_picker_open(open: bool) {
+    if let Some(sink) = DUMP.lock().unwrap_or_else(|err| err.into_inner()).as_ref() {
+        sink.status.lock().unwrap_or_else(|err| err.into_inner()).picker_open = open;
+    }
+    flush_sink();
+}
+
+pub fn note_open(target: &str) {
+    if let Some(sink) = DUMP.lock().unwrap_or_else(|err| err.into_inner()).as_ref() {
+        sink.status
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .last_open = Some(target.to_string());
+    }
+    flush_sink();
 }
 
 static TEST_MODE: AtomicBool = AtomicBool::new(false);
@@ -365,6 +483,7 @@ mod tests {
         let status = DumpStatus {
             ready: true,
             shortcuts_ok: true,
+            ..DumpStatus::default()
         };
         let items = vec![Item::new("hello".to_string(), vec!["url".to_string()])];
         write_dump(&path, &status, &items);

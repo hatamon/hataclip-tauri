@@ -8,10 +8,26 @@ export type DumpItem = {
   tags: string[];
 };
 
+export type DumpPicker = {
+  open: boolean;
+  mode: string;
+  query: string;
+  selected: string | null;
+  visible: string[];
+  filtered: string[];
+  preview: string;
+  info: string;
+  which: string[];
+  contextOnly: boolean;
+};
+
 export type DumpState = {
   ready: boolean;
   shortcuts: "ok" | "failed";
   items: DumpItem[];
+  clipboard?: string;
+  picker?: DumpPicker;
+  lastOpen?: string | null;
 };
 
 export function readDump(path: string): DumpState | undefined {
@@ -47,6 +63,6 @@ export async function waitForDump(
   throw new Error(`時間切れ: ${path} が条件を満たさない。${detail}`);
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -27,6 +27,15 @@ export function hataclipGuiPath(): string {
   return requireEnv("HATACLIP_GUI");
 }
 
+/** パイプ用 hataclip.exe。無ければ gui と同じフォルダの hataclip.exe。 */
+export function hataclipCliPath(): string {
+  const explicit = process.env.HATACLIP?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return hataclipGuiPath().replace(/hataclip-gui\.exe$/i, "hataclip.exe");
+}
+
 /** WinAppDriver が動いているホスト名。無ければ E2E は skip する。 */
 export function winAppDriverHost(): string | undefined {
   return process.env.WINAPPDRIVER_HOST;

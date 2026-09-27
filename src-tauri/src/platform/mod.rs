@@ -42,6 +42,10 @@ pub fn keeps_clipboard_on_paste() -> bool {
 
 pub fn open_target(text: &str) -> bool {
     let text = text.trim();
+    if crate::test_args::is_active() {
+        crate::test_args::note_open(text);
+        return true;
+    }
     if text.starts_with("http://") || text.starts_with("https://") {
         return open_url(text);
     }

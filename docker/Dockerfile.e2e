@@ -2,4 +2,5 @@ FROM node:22-slim
 
 WORKDIR /app
 
-CMD ["bash", "scripts/test-e2e.sh"]
+# Windows のバインドマウントが CRLF でも、この行はコンテナ内の bash が解釈する。
+CMD ["bash", "-c", "set -euo pipefail; cd /app; npm ci; npm run test:e2e"]

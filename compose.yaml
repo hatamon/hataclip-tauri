@@ -41,11 +41,16 @@ services:
       - ./e2e-workspace:/work/e2e-workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    tty: false
     environment:
+      CI: "true"
       WINAPPDRIVER_HOST: ${WINAPPDRIVER_HOST:-host.docker.internal}
-      E2E_HOST_ROOT: ${E2E_HOST_ROOT:?e2e.env に E2E_HOST_ROOT が要る}
+      # `:?` にすると、windows-build など他サービスを起動するときも
+      # compose 全体の補間で落ちる。無いときの検査は e2e/paths.ts。
+      E2E_HOST_ROOT: ${E2E_HOST_ROOT:-}
       E2E_CONTAINER_ROOT: /work/e2e-workspace
-      HATACLIP_GUI: ${HATACLIP_GUI:?e2e.env に HATACLIP_GUI が要る}
+      HATACLIP_GUI: ${HATACLIP_GUI:-}
+      HATACLIP: ${HATACLIP:-}
 
 volumes:
   node-modules:
