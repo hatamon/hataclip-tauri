@@ -61,13 +61,17 @@ fn held() -> Held {
 
 /// キーを送る唯一の入口。
 fn play(script: &Script) -> bool {
-    if script.arms {
+    let finger = held();
+    // 押し直した Ctrl は Enigo の破棄で上がる。指はまだ押しているので、次の 7 が文字にならないよう受け直す。
+    // 列がすでに Ctrl を離すときは、その時点で受け直している。
+    let rearm = finger.ctrl && !script.arms;
+    if script.arms || rearm {
         crate::ctrl_gap::arm();
     }
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(enigo) => enigo,
         Err(_) => {
-            if script.arms {
+            if script.arms || rearm {
                 crate::ctrl_gap::disarm();
             }
             return false;
@@ -75,7 +79,10 @@ fn play(script: &Script) -> bool {
     };
     // 前の送信は、指へ戻した修飾キーを Enigo の破棄で上げる。列は「まだ押されている」前提で C だけを出すので、
     // 押し直さないと行頭選択のあとのコピーが文字の c になり、選択した {{date}} が c に置き換わる。
-    if !press_held(&mut enigo, held()) {
+    if !press_held(&mut enigo, finger) {
+        if rearm {
+            crate::ctrl_gap::disarm();
+        }
         return false;
     }
     let started = Instant::now();
