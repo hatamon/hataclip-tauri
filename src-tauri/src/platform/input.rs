@@ -50,19 +50,40 @@ pub fn simulate_type(text: &str) -> bool {
     true
 }
 
+/// コードに無い Ctrl は、押したままでもキーに乗せない。送ったあとは戻す。
+struct ModifierPlan {
+    release_ctrl: bool,
+    press_ctrl: bool,
+    press_shift: bool,
+}
+
+fn modifier_plan(chord: &Chord, ctrl_held: bool, shift_held: bool) -> ModifierPlan {
+    ModifierPlan {
+        release_ctrl: ctrl_held && !chord.ctrl,
+        press_ctrl: chord.ctrl && !ctrl_held,
+        press_shift: chord.shift && !shift_held,
+    }
+}
+
 fn send_chord(chord: Chord) -> bool {
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(enigo) => enigo,
         Err(_) => return false,
     };
     let (ctrl_held, shift_held) = modifiers_held();
-    let press_ctrl = chord.ctrl && !ctrl_held;
-    let press_shift = chord.shift && !shift_held;
+    let plan = modifier_plan(&chord, ctrl_held, shift_held);
     let mut ok = true;
-    if press_ctrl {
+    let released_ctrl = if plan.release_ctrl {
+        let released = enigo.key(Key::Control, Release).is_ok();
+        ok &= released;
+        released
+    } else {
+        false
+    };
+    if plan.press_ctrl {
         ok &= enigo.key(Key::Control, Press).is_ok();
     }
-    if press_shift {
+    if plan.press_shift {
         ok &= enigo.key(Key::Shift, Press).is_ok();
     }
     let key = match chord.key {
@@ -71,11 +92,14 @@ fn send_chord(chord: Chord) -> bool {
         ChordKey::Home => Key::Home,
     };
     ok &= enigo.key(key, Click).is_ok();
-    if press_shift {
+    if plan.press_shift {
         ok &= enigo.key(Key::Shift, Release).is_ok();
     }
-    if press_ctrl {
+    if plan.press_ctrl {
         ok &= enigo.key(Key::Control, Release).is_ok();
+    }
+    if released_ctrl {
+        ok &= enigo.key(Key::Control, Press).is_ok();
     }
     ok
 }
@@ -177,5 +201,42 @@ fn enigo_fn_key(n: u8) -> Key {
         23 => Key::F23,
         24 => Key::F24,
         _ => Key::F1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn home(ctrl: bool) -> Chord {
+        Chord {
+            ctrl,
+            shift: true,
+            key: ChordKey::Home,
+        }
+    }
+
+    #[test]
+    fn held_ctrl_does_not_ride_along_on_shift_home() {
+        let plan = modifier_plan(&home(false), true, false);
+        assert!(plan.release_ctrl);
+        assert!(plan.press_shift);
+        assert!(!plan.press_ctrl);
+    }
+
+    #[test]
+    fn configured_ctrl_home_keeps_the_held_ctrl() {
+        let plan = modifier_plan(&home(true), true, false);
+        assert!(!plan.release_ctrl);
+        assert!(plan.press_shift);
+        assert!(!plan.press_ctrl);
+    }
+
+    #[test]
+    fn shift_home_without_a_held_ctrl_only_presses_shift() {
+        let plan = modifier_plan(&home(false), false, false);
+        assert!(!plan.release_ctrl);
+        assert!(plan.press_shift);
+        assert!(!plan.press_ctrl);
     }
 }
