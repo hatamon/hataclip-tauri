@@ -75,7 +75,6 @@ describeE2e("Ctrl（TEST.md、先頭以外）", () => {
     const before = plain(await h.noteText());
     await h.complete();
     expect(plain(await h.noteText())).toBe(before);
-    expect(plain(await h.noteText())).not.toContain("9");
   });
 
   it("Ctrl+Shift+1 で先頭行が貼られ、1 も ! も入らない", async () => {

@@ -273,7 +273,7 @@ Ubuntu（Wayland）では他アプリへキーを送れない。`Enter` はク�
 
 ### E2E（Windows）
 
-`TEST.md` の一部を、Docker 上の Vitest からホストの WinAppDriver 経由で動かす。コンテナはクライアントだけ。WinAppDriver と `hataclip-gui.exe` とメモ帳はホストで動く。`npm test` と `docker compose run --rm test` には含まれない。節ごとにファイルを分ける（`e2e/register.test.ts` は登録、`e2e/search.test.ts` は移動と検索、`e2e/paste.test.ts` は一覧から貼る、`e2e/ctrl-register.test.ts` と `e2e/ctrl.test.ts` は Ctrl、`e2e/expand.test.ts` は展開、`e2e/complete.test.ts` は補完、`e2e/template.test.ts` はテンプレート、`e2e/command.test.ts` はコマンド、`e2e/pipe.test.ts` はパイプ、`e2e/cli.test.ts` は `hataclip.exe`）。
+`TEST.md` の一部を、Docker 上の Vitest からホストの WinAppDriver 経由で動かす。コンテナはクライアントだけ。WinAppDriver と `hataclip-gui.exe` とメモ帳はホストで動く。`npm test` と `docker compose run --rm test` には含まれない。節ごとにファイルを分ける（登録・検索・貼る・Ctrl・展開・補完・テンプレ・コマンド・パイプ・CLI に加え、`e2e/picker.test.ts` は一覧を出す、`e2e/slot.test.ts` は速貼、`e2e/edit.test.ts` は編集、`e2e/visual.test.ts` は複数選択、`e2e/tag.test.ts` はタグと絞り）。トレイの起動・終了は WinAppDriver から触れないので自動化していない。
 
 ホストに入れるもの:
 

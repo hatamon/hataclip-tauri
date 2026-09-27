@@ -49,9 +49,13 @@ describeE2e("補完（TEST.md）", () => {
       throw new Error("harness が無い");
     }
     await h.clearNote();
+    await h.typeNote(chars("otherclip"));
+    await h.selectCopyClear();
+    await h.clearNote();
     await h.typeNote(chars("/xxx {{date}}"));
     await h.notepad.keys(["Shift", "Home", "Shift"]);
-    await h.expand();
+    await h.notepad.keys(["Control", "8", "Control"]);
+    await sleep(400);
     expect(plain(await h.noteText())).toBe("/xxx {{date}}");
   });
 

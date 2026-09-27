@@ -239,12 +239,8 @@ describeE2e("一覧から貼る（TEST.md）", () => {
     expect(existsSync(containerPath("e2e-log.txt"))).toBe(false);
 
     const logHost = hostPath("e2e-log.txt").replace(/\\/g, "/");
-    await h.hidePicker();
-    await h.showPicker();
-    await h.pickerKeys([":", ...`set defaultLogFileName=${logHost}`.split(""), "Enter"]);
-    await sleep(400);
     await pick(h, "loghello", "loghello");
-    await h.pickerKeys([":", ..."log".split(""), "Enter"]);
+    await h.pickerKeys([":", ...`log ${logHost}`.split(""), "Enter"]);
     await sleep(400);
     const written = readFileSync(containerPath("e2e-log.txt"), "utf8");
     expect(written).toContain("loghello");

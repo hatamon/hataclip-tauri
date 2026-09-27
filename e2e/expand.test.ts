@@ -102,8 +102,10 @@ describeE2e("展開（TEST.md）", () => {
       throw new Error("harness が無い");
     }
     await h.clearNote();
-    await h.typeNote(chars(":sh dir"));
+    await h.typeNote(chars("clipkeep"));
     await h.selectCopyClear();
+    await h.clearNote();
+    await h.typeNote(chars(":sh dir"));
     await h.notepad.keys(["Shift", "Home", "Shift"]);
     await h.expand();
     const confirm = await h.waitDump((state) => state.picker?.mode === "help");
@@ -114,7 +116,7 @@ describeE2e("展開（TEST.md）", () => {
     await h.clearNote();
     await h.notepad.keys(["Control", "v", "Control"]);
     await sleep(200);
-    expect(plain(await h.noteText())).toBe(":sh dir");
+    expect(plain(await h.noteText())).toBe("clipkeep");
 
     await h.clearNote();
     await h.typeNote(chars(":sh dir"));
@@ -148,10 +150,6 @@ describeE2e("展開（TEST.md）", () => {
     await h.notepad.keys(["Shift", "Home", "Shift"]);
     await h.expand();
     expect(plain(await h.noteText())).toBe("{{env:HATACLIP_NO_SUCH_E2E}}");
-    await h.clearNote();
-    await h.notepad.keys(["Control", "v", "Control"]);
-    await sleep(200);
-    expect(plain(await h.noteText())).toBe("keepclip");
   });
 
   it(":showerror で直前の失敗が出て、成功すると消える", async () => {

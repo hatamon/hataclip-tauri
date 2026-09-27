@@ -13,6 +13,7 @@ export type HistoryRow = {
   text: string;
   tags?: string[];
   contexts?: string[];
+  pinned?: boolean;
 };
 
 export type Harness = {
@@ -194,14 +195,15 @@ export async function startHarness(options?: {
       await hataclip.keys([":", ...chars(line), "Enter"]);
     },
     async expand() {
-      await notepad.openTab(noteName);
+      await notepad.clickNamed(noteName);
       await sleep(300);
       await notepad.keys(["Control", "8", "Control"]);
       await sleep(400);
     },
     async complete() {
-      await notepad.openTab(noteName);
+      await notepad.clickNamed(noteName);
       await sleep(300);
+      await notepad.keys(["End", "Shift", "Home", "Shift"]);
       await notepad.keys(["Control", "9", "Control"]);
       await sleep(400);
     },

@@ -144,10 +144,15 @@ describeE2e("コマンド（TEST.md）", () => {
       throw new Error("harness が無い");
     }
     await h.showPicker();
-    await h.pickerKeys(["g", "g", "V", "Shift", "g", "Shift"]);
+    await h.pickerKeys(["g", "g"]);
+    await h.pickerKeys(["V"]);
+    const listed = await h.waitDump((state) => (state.picker?.filtered?.length ?? 0) > 1);
+    const count = listed.picker?.filtered.length ?? 0;
+    for (let i = 1; i < count; i += 1) {
+      await h.pickerKeys(["j"]);
+    }
     await h.colon("sort");
-    await sleep(400);
-    const sorted = await h.waitDump((state) => (state.picker?.filtered?.[0] ?? "") <= (state.picker?.filtered?.[1] ?? "z"));
+    const sorted = await h.waitDump((state) => state.picker?.filtered?.[0] === "{{n}}");
     const rows = sorted.picker?.filtered ?? [];
     const copy = [...rows].sort((a, b) => a.localeCompare(b));
     expect(rows[0]).toBe(copy[0]);

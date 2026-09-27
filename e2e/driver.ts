@@ -3,7 +3,8 @@
 //
 // WinAppDriver は JSON Wire の POST /session だけを受ける。/wd/hub は 404。
 
-import { winAppDriverHost } from "./paths";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { containerPath, hostPath, winAppDriverHost } from "./paths";
 
 const PORT = 4723;
 
@@ -197,14 +198,38 @@ export function launchNotepad(file: string): Promise<Session> {
   });
 }
 
-/** ホストで .cmd を走らせる。`/c` だと即終了して WinAppDriver が窓を取れないので `/k`。 */
+/** ホストで .cmd を走らせる。cmd のコンソール窓は conhost 持ちなので WinAppDriver が取れない。mshta の窓で包む。 */
 export function launchCmd(script: string): Promise<Session> {
+  mkdirSync(containerPath("cli"), { recursive: true });
+  const htaHost = hostPath("cli", "launch.hta");
+  writeFileSync(containerPath("cli", "launch.hta"), htaForCmd(script));
   return start({
-    app: "C:\\Windows\\System32\\cmd.exe",
-    appArguments: `/k ${quoteArg(script)}`,
+    app: "C:\\Windows\\System32\\mshta.exe",
+    appArguments: quoteArg(htaHost),
     deviceName: "WindowsPC",
     platformName: "Windows",
   });
+}
+
+function htaForCmd(script: string): string {
+  const quoted = JSON.stringify(`"${script}"`);
+  return [
+    "<html>",
+    "<head>",
+    '<meta http-equiv="X-UA-Compatible" content="IE=edge">',
+    '<HTA:APPLICATION ID="hataclipE2e" BORDER="thin" CAPTION="yes">',
+    "<title>hataclip-e2e</title>",
+    '<script language="JScript">',
+    "window.onload = function () {",
+    "  var sh = new ActiveXObject('WScript.Shell');",
+    `  sh.Run('cmd.exe /c ' + ${quoted}, 0, true);`,
+    "};",
+    "</script>",
+    "</head>",
+    "<body>e2e</body>",
+    "</html>",
+    "",
+  ].join("\r\n");
 }
 
 /** hataclip-gui.exe をテスト用フラグ付きで開く。 */

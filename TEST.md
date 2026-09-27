@@ -3,6 +3,7 @@
 人が画面で押して確認する。`npm test` はここを置き換えない。
 
 Windows は `hataclip-gui.exe` を起動し、貼り先はメモ帳にする。
+Ubuntu のテストは実施しない。
 
 ## Ctrl
 

@@ -217,14 +217,16 @@ describeE2e("テンプレート（TEST.md）", () => {
     if (!h) {
       throw new Error("harness が無い");
     }
+    await h.clearNote();
+    await h.typeNote(chars("{{date}}"));
+    await h.selectCopyClear();
     await h.showPicker();
-    await h.colon("set a={{date}}");
+    await h.pickerKeys([":", ..."set a=".split(""), "Control", "v", "Control", "Enter"]);
     await sleep(300);
     await h.colon("set");
     const listed = await h.waitDump((state) => state.picker?.mode === "help");
     expect(listed.picker?.mode).toBe("help");
     await h.pickerKeys(["Escape"]);
-    await h.hidePicker();
     await h.clearNote();
     await h.revealRow("{{var:a}}");
     await h.pickerKeys(["Enter"]);
@@ -239,7 +241,6 @@ describeE2e("テンプレート（TEST.md）", () => {
     await h.showPicker();
     await h.colon("set a=3");
     await sleep(200);
-    await h.hidePicker();
     await h.clearNote();
     await h.revealRow("{{var:a:2}}");
     await h.pickerKeys(["Enter"]);
@@ -249,7 +250,6 @@ describeE2e("テンプレート（TEST.md）", () => {
     await h.showPicker();
     await h.colon("set a=hello");
     await sleep(200);
-    await h.hidePicker();
     await h.clearNote();
     await h.revealRow("{{var:a:2}}");
     await h.pickerKeys(["Enter"]);
