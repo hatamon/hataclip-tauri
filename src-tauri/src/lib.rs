@@ -570,7 +570,6 @@ fn paste_items(
         answers.unwrap_or_default(),
         prefix.as_deref(),
         typed.unwrap_or(false),
-        false,
         to_clipboard,
     )
 }
@@ -646,7 +645,7 @@ fn expand_items(
 
 #[tauri::command]
 fn expand_text(text: String, state: tauri::State<'_, AppState>) -> String {
-    let ctx = expand_context(&state, String::new(), HashMap::new());
+    let ctx = expand_context(&state, HashMap::new());
     text::expand_template(&text, &ctx)
 }
 
@@ -677,7 +676,7 @@ fn expand_ids(
     force_sh: bool,
     answers: HashMap<String, String>,
 ) -> Option<String> {
-    let ctx = expand_context(state, String::new(), answers);
+    let ctx = expand_context(state, answers);
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
         .iter()
@@ -843,7 +842,7 @@ fn pipe_local(text: &str, kind: &str, arg: &str) -> String {
 }
 
 fn pipe_bodies(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     state: &AppState,
     ids: &[String],
     raw: bool,
@@ -859,12 +858,7 @@ fn pipe_bodies(
         }
         return Ok(rows.into_iter().map(|item| item.text).collect());
     }
-    let sel = if has_sel(state, ids) {
-        capture_selection(app, state)
-    } else {
-        String::new()
-    };
-    let ctx = expand_context(state, sel, HashMap::new());
+    let ctx = expand_context(state, HashMap::new());
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
     drop(store);
@@ -1347,7 +1341,6 @@ pub(crate) fn paste_ranked(index: usize, app: &tauri::AppHandle, state: &AppStat
         None,
         false,
         false,
-        false,
     );
 }
 
@@ -1541,7 +1534,7 @@ fn expand_captured(app: &tauri::AppHandle, state: &AppState, text: &str) {
     if apply_solo_pipe(app, state, &text) {
         return;
     }
-    let ctx = expand_context(state, String::new(), HashMap::new());
+    let ctx = expand_context(state, HashMap::new());
     let last_sh = state.last_sh.lock().expect("last_sh").clone();
     let ran = if shell::has_sh_token(text) {
         match shell::apply_sh(text, true) {
@@ -1685,7 +1678,7 @@ fn begin_complete(
     expand_key: bool,
 ) {
     let ids = completion_ids(state, search);
-    let Some(index) = paste_completion_from(app, state, &ids, 0, &identity, prefix) else {
+    let Some(index) = paste_completion_from(app, state, &ids, 0, prefix) else {
         note_error(state, "当たらない");
         return;
     };
@@ -1824,12 +1817,7 @@ fn with_expand_keep(state: &AppState, text: &str) -> String {
 }
 
 fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCycle) -> bool {
-    let Some(index) = completion_index(
-        state,
-        &cycle.ids,
-        cycle.index.wrapping_add(1),
-        &cycle.query,
-    ) else {
+    let Some(index) = completion_index(state, &cycle.ids, cycle.index.wrapping_add(1)) else {
         return false;
     };
     #[cfg(windows)]
@@ -1845,7 +1833,7 @@ fn advance_complete(app: &tauri::AppHandle, state: &AppState, cycle: &CompleteCy
             return false;
         }
     }
-    let Some(index) = paste_completion_from(app, state, &cycle.ids, index, &cycle.query, &cycle.prefix) else {
+    let Some(index) = paste_completion_from(app, state, &cycle.ids, index, &cycle.prefix) else {
         return false;
     };
     *state.complete_cycle.lock().expect("complete") = Some(CompleteCycle {
@@ -1865,7 +1853,6 @@ fn paste_completion_from(
     state: &AppState,
     ids: &[String],
     start: usize,
-    sel: &str,
     prefix: &str,
 ) -> Option<usize> {
     if ids.is_empty() {
@@ -1874,7 +1861,7 @@ fn paste_completion_from(
     let start = start % ids.len();
     for offset in 0..ids.len() {
         let index = (start + offset) % ids.len();
-        match deliver_completion(app, state, &ids[index], sel, prefix) {
+        match deliver_completion(app, state, &ids[index], prefix) {
             Some(true) => return Some(index),
             Some(false) => return None,
             None => continue,
@@ -1887,7 +1874,6 @@ fn deliver_completion(
     app: &tauri::AppHandle,
     state: &AppState,
     id: &str,
-    sel: &str,
     prefix: &str,
 ) -> Option<bool> {
     let item = {
@@ -1898,7 +1884,7 @@ fn deliver_completion(
             .get(id)
             .cloned()
     }?;
-    let ctx = expand_context(state, sel.to_string(), HashMap::new());
+    let ctx = expand_context(state, HashMap::new());
     let mut ops = completion_ops(&item, &ctx)?;
     if !prefix.is_empty() {
         ops.insert(0, text::PasteOp::Text(prefix.to_string()));
@@ -1934,7 +1920,7 @@ fn completion_ops(item: &Item, ctx: &text::Expand) -> Option<Vec<text::PasteOp>>
 }
 
 /// 展開して空でない次の候補。無ければ `Ctrl+Z` しない。
-fn completion_index(state: &AppState, ids: &[String], start: usize, sel: &str) -> Option<usize> {
+fn completion_index(state: &AppState, ids: &[String], start: usize) -> Option<usize> {
     if ids.is_empty() {
         return None;
     }
@@ -1952,7 +1938,7 @@ fn completion_index(state: &AppState, ids: &[String], start: usize, sel: &str) -
         let Some(item) = item else {
             continue;
         };
-        let ctx = expand_context(state, sel.to_string(), HashMap::new());
+        let ctx = expand_context(state, HashMap::new());
         if completion_ops(&item, &ctx).is_some() {
             return Some(index);
         }
@@ -2015,20 +2001,13 @@ fn run_paste(
     answers: HashMap<String, String>,
     prefix: Option<&str>,
     typed: bool,
-    quiet: bool,
     to_clipboard: bool,
 ) -> bool {
     let was_open = *state.picker_open.lock().expect("picker_open");
-    let needs_sel = !raw && !quiet && has_sel(state, ids);
-    let sel = if needs_sel {
-        capture_selection(app, state)
-    } else {
-        String::new()
-    };
     let ctx = if raw {
         None
     } else {
-        Some(expand_context(state, sel, answers))
+        Some(expand_context(state, answers))
     };
     let store = state.store.lock().expect("store");
     let rows: Vec<Item> = ids
@@ -2205,11 +2184,7 @@ fn bump_step_vars(state: &AppState, ids: &[String]) {
     state.settings.lock().expect("settings").bump_steps(&names);
 }
 
-fn expand_context(
-    state: &AppState,
-    sel: String,
-    answers: HashMap<String, String>,
-) -> text::Expand {
+fn expand_context(state: &AppState, answers: HashMap<String, String>) -> text::Expand {
     let (app_name, front) = {
         let foreground = *state.foreground.lock().expect("foreground");
         foreground
@@ -2221,7 +2196,6 @@ fn expand_context(
         date: now.format("%Y/%m/%d").to_string(),
         time: now.format("%H:%M").to_string(),
         clip: clipboard::peek_text().unwrap_or_default(),
-        sel,
         uuid: uuid::Uuid::new_v4().to_string(),
         user: text::login_name(),
         host: text::host_name(),
@@ -2232,49 +2206,6 @@ fn expand_context(
         vars: var_map(state),
         tags: tag_map(state),
     }
-}
-
-fn has_sel(state: &AppState, ids: &[String]) -> bool {
-    let app = foreground_app(state);
-    let vars = var_map(state);
-    let store = state.store.lock().expect("store");
-    ids.iter().any(|id| {
-        store.get(id).map_or(false, |item| {
-            text::has_sel_token_in(
-                &item.text,
-                &text::WhenEnv {
-                    app: &app,
-                    vars: &vars,
-                },
-            )
-        })
-    })
-}
-
-#[cfg(windows)]
-fn capture_selection(app: &tauri::AppHandle, state: &AppState) -> String {
-    let previous = clipboard::peek_text();
-    let wait = *state.picker_open.lock().expect("picker_open");
-    if wait {
-        hide_window(app, state);
-        let foreground = *state.foreground.lock().expect("foreground");
-        if let Some(foreground) = foreground.as_ref() {
-            let _ = platform::restore_foreground(foreground);
-        }
-        std::thread::sleep(Duration::from_millis(70));
-    }
-    let _ = platform::simulate_copy(&copy_spec(state));
-    std::thread::sleep(Duration::from_millis(200));
-    let captured = clipboard::peek_text();
-    match captured {
-        Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => text,
-        _ => String::new(),
-    }
-}
-
-#[cfg(not(windows))]
-fn capture_selection(_app: &tauri::AppHandle, _state: &AppState) -> String {
-    String::new()
 }
 
 /// パイプの `sel`。前面へ Ctrl+C を送り、200ms 後を読む。クリップボードは戻さない。
@@ -3255,7 +3186,6 @@ mod tests {
             date: "2026/09/20".into(),
             time: "10:54".into(),
             clip: "CLIP".into(),
-            sel: "SEL".into(),
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),

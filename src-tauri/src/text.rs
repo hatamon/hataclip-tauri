@@ -28,7 +28,6 @@ pub struct Expand {
     pub date: String,
     pub time: String,
     pub clip: String,
-    pub sel: String,
     pub uuid: String,
     pub user: String,
     pub host: String,
@@ -335,140 +334,6 @@ pub fn swap_grab_lines(text: &str) -> Option<String> {
         out.push('\n');
     }
     Some(out)
-}
-
-/// `#grab` の1行目に入力を当て、当たった行だけ2行目を埋める。どれも当たらなければなし。
-pub fn grab_fill(body: &str, input: &str) -> Option<String> {
-    if input.is_empty() {
-        return None;
-    }
-    let mut lines = body.lines();
-    let pattern = lines.next()?;
-    let template = lines.next()?;
-    let parts = grab_parts(pattern)?;
-    let mut filled = Vec::new();
-    for line in input.lines() {
-        if line.is_empty() {
-            continue;
-        }
-        let Some(caps) = grab_match(&parts, line) else {
-            continue;
-        };
-        filled.push(grab_apply(template, &caps));
-    }
-    if filled.is_empty() {
-        None
-    } else {
-        Some(filled.join("\n"))
-    }
-}
-
-enum GrabPart {
-    Lit(String),
-    Hole(String),
-}
-
-fn grab_parts(pattern: &str) -> Option<Vec<GrabPart>> {
-    let chars: Vec<char> = pattern.chars().collect();
-    let mut parts = Vec::new();
-    let mut lit = String::new();
-    let mut index = 0;
-    while index < chars.len() {
-        if chars[index] == '<' {
-            let start = index + 1;
-            let mut end = start;
-            while end < chars.len() && chars[end] != '>' {
-                end += 1;
-            }
-            if end >= chars.len() {
-                return None;
-            }
-            let name: String = chars[start..end].iter().collect();
-            if !is_ident(&name) {
-                return None;
-            }
-            if !lit.is_empty() {
-                parts.push(GrabPart::Lit(std::mem::take(&mut lit)));
-            }
-            parts.push(GrabPart::Hole(name));
-            index = end + 1;
-            continue;
-        }
-        lit.push(chars[index]);
-        index += 1;
-    }
-    if !lit.is_empty() {
-        parts.push(GrabPart::Lit(lit));
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts)
-    }
-}
-
-fn grab_match(parts: &[GrabPart], input: &str) -> Option<std::collections::HashMap<String, String>> {
-    let chars: Vec<char> = input.chars().collect();
-    let mut pos = 0usize;
-    let mut caps = std::collections::HashMap::new();
-    for (index, part) in parts.iter().enumerate() {
-        match part {
-            GrabPart::Lit(lit) => {
-                let lit: Vec<char> = lit.chars().collect();
-                if pos + lit.len() > chars.len() || chars[pos..pos + lit.len()] != lit[..] {
-                    return None;
-                }
-                pos += lit.len();
-            }
-            GrabPart::Hole(name) => {
-                let end = if let Some(GrabPart::Lit(next)) = parts.get(index + 1) {
-                    let marker = next.chars().next()?;
-                    let at = chars[pos..].iter().position(|ch| *ch == marker)?;
-                    if at == 0 {
-                        return None;
-                    }
-                    pos + at
-                } else {
-                    if pos >= chars.len() {
-                        return None;
-                    }
-                    chars.len()
-                };
-                let value: String = chars[pos..end].iter().collect();
-                if value.is_empty() || value.contains('\n') {
-                    return None;
-                }
-                caps.insert(name.clone(), value);
-                pos = end;
-            }
-        }
-    }
-    if pos != chars.len() {
-        return None;
-    }
-    Some(caps)
-}
-
-fn grab_apply(template: &str, caps: &std::collections::HashMap<String, String>) -> String {
-    let Some(parts) = grab_parts(template) else {
-        return template.to_string();
-    };
-    let mut out = String::new();
-    for part in parts {
-        match part {
-            GrabPart::Lit(lit) => out.push_str(&lit),
-            GrabPart::Hole(name) => {
-                if let Some(value) = caps.get(&name) {
-                    out.push_str(value);
-                } else {
-                    out.push('<');
-                    out.push_str(&name);
-                    out.push('>');
-                }
-            }
-        }
-    }
-    out
 }
 
 pub(crate) fn is_ident(name: &str) -> bool {
@@ -823,16 +688,6 @@ where
         .or_else(|| (index < items.len()).then_some(index))
 }
 
-fn token_has_sel(inner: &str) -> bool {
-    fallback_parts(inner)
-        .iter()
-        .any(|part| walk_tokens(part, token_has_sel))
-}
-
-pub fn has_sel_token(text: &str) -> bool {
-    walk_tokens(text, token_has_sel)
-}
-
 /// 本文に書いてある `{{var:名前}}`。出現順。同じ名前は 1 回。
 pub fn referenced_vars(text: &str, env: &WhenEnv<'_>) -> Vec<String> {
     let mut names = Vec::new();
@@ -861,12 +716,7 @@ fn collect_vars(text: &str, env: &WhenEnv<'_>, names: &mut Vec<String>) {
     });
 }
 
-pub fn has_sel_token_in(text: &str, env: &WhenEnv<'_>) -> bool {
-    has_sel_token(&apply_when(text, env))
-}
-
 /// 出現順。同じ名前は 1 回だけ。
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn ask_names(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     walk_tokens(text, |inner| {
@@ -1647,7 +1497,6 @@ mod tests {
             date: "2026/09/20".into(),
             time: "10:54".into(),
             clip: "CLIP".into(),
-            sel: "SEL".into(),
             uuid: "uuid-here".into(),
             user: "hatamon".into(),
             host: "pc".into(),
@@ -1736,22 +1585,7 @@ mod tests {
     }
 
     #[test]
-    fn grab_fills_holes_and_skips_misses() {
-        let body = "https://github.com/<org>/<repo>/pull/<pr>\ngh pr checkout <pr> --repo <org>/<repo>";
-        assert_eq!(
-            grab_fill(body, "https://github.com/hatamon/hataclip/pull/12").as_deref(),
-            Some("gh pr checkout 12 --repo hatamon/hataclip")
-        );
-        assert_eq!(grab_fill(body, "https://example.com"), None);
-        let logs = "error at <file>:<line>\n<file>:<line>";
-        let input = "error at src/a.rs:12\nwarn at src/b.rs:44\nerror at src/c.rs:3";
-        assert_eq!(
-            grab_fill(logs, input).as_deref(),
-            Some("src/a.rs:12\nsrc/c.rs:3")
-        );
-        assert_eq!(grab_fill("only one line", "error at src/a.rs:12"), None);
-        assert_eq!(grab_fill(logs, ""), None);
-        assert_eq!(grab_fill("error at <file>:<line>\n<file>:<line>", "error at :12"), None);
+    fn swap_grab_lines_exchanges_the_first_two() {
         assert_eq!(
             swap_grab_lines("https://github.com/<org>/<repo>\ngh pr checkout <pr>").as_deref(),
             Some("gh pr checkout <pr>\nhttps://github.com/<org>/<repo>")
@@ -1777,23 +1611,8 @@ mod tests {
         assert_eq!(expand_template("hi {{ask 名前}}", &ctx), "hi hatamon");
         assert_eq!(ask_names("{{ask a}} {{ask:b}}"), vec!["a", "b"]);
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
-        assert!(!has_sel_token("x {{sel}} y"));
-        assert!(!has_sel_token("{{sel|clip}}"));
         assert_eq!(expand_template("{{sel|clip}}", &ctx), "{{sel|clip}}");
-        let empty_vars = std::collections::HashMap::new();
-        assert!(!has_sel_token_in("{{sel|clip}}", &bare("code", &empty_vars)));
-        assert!(!has_sel_token_in(
-            "{{when app: chrome}}{{sel|clip}}{{when}}",
-            &bare("chrome", &empty_vars)
-        ));
-        assert!(!has_sel_token_in(
-            "{{when app: chrome}}{{sel|clip}}{{when}}",
-            &bare("code", &empty_vars)
-        ));
-        assert!(!has_sel_token("{{clip}}"));
-        assert!(!has_sel_token("{{clip|front}}"));
         let mut empty_sel = sample_ctx();
-        empty_sel.sel.clear();
         assert_eq!(expand_template("{{sel|clip}}", &empty_sel), "{{sel|clip}}");
         assert_eq!(expand_template("{{sel|clip}}", &ctx), "{{sel|clip}}");
         let mut empty_front = sample_ctx();
@@ -1909,14 +1728,6 @@ mod tests {
             apply_when("a{{whenever}}b", &bare("code", &empty_vars)),
             "a{{whenever}}b"
         );
-        assert!(!has_sel_token_in(
-            "{{when app: chrome}}{{sel}}{{when}}plain",
-            &bare("code", &empty_vars)
-        ));
-        assert!(!has_sel_token_in(
-            "{{when app: chrome}}{{sel}}{{when}}plain",
-            &bare("chrome", &empty_vars)
-        ));
     }
 
     fn bare<'a>(

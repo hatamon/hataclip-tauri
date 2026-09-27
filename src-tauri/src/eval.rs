@@ -77,7 +77,6 @@ mod tests {
             date: "2026/09/21".into(),
             time: "13:00".into(),
             clip: String::new(),
-            sel: String::new(),
             uuid: "u".into(),
             user: "hatamon".into(),
             host: "pc".into(),
