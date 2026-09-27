@@ -37,6 +37,20 @@ pub fn simulate_type_atoms(atoms: &[TypeAtom]) -> bool {
     play(&strokes::plan_atoms(atoms, held()))
 }
 
+fn press_held(enigo: &mut Enigo, finger: Held) -> bool {
+    let mut ok = true;
+    if finger.ctrl {
+        ok &= enigo.key(Key::Control, Press).is_ok();
+    }
+    if finger.shift {
+        ok &= enigo.key(Key::Shift, Press).is_ok();
+    }
+    if finger.alt {
+        ok &= enigo.key(Key::Alt, Press).is_ok();
+    }
+    ok
+}
+
 fn held() -> Held {
     Held {
         ctrl: crate::ctrl_gap::physical(),
@@ -59,6 +73,11 @@ fn play(script: &Script) -> bool {
             return false;
         }
     };
+    // 前の送信は、指へ戻した修飾キーを Enigo の破棄で上げる。列は「まだ押されている」前提で C だけを出すので、
+    // 押し直さないと行頭選択のあとのコピーが文字の c になり、選択した {{date}} が c に置き換わる。
+    if !press_held(&mut enigo, held()) {
+        return false;
+    }
     let started = Instant::now();
     let mut ok = true;
     for stroke in &script.strokes {
