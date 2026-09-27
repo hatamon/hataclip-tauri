@@ -56,6 +56,8 @@ describeE2e("テンプレート（TEST.md）", () => {
         { text: "{{host}}" },
         { text: "{{var:a}}" },
         { text: "{{var:a:2}}" },
+        { text: "3" },
+        { text: "hello" },
         { text: "{{tag:work}}" },
         { text: "id{{type:<Tab>}}pass" },
         { text: "pre{{wait:200}}post" },
@@ -258,8 +260,9 @@ describeE2e("テンプレート（TEST.md）", () => {
     if (!h) {
       throw new Error("harness が無い");
     }
-    await h.showPicker();
-    await h.colon("set a=3");
+    // `=` も WinAppDriver / IME に食われることがあるので、選択行を | set する。
+    await h.revealRow("3");
+    await h.colon(". | set a");
     await waitVar(h, "a", "3");
     await h.clearNote();
     await h.revealRow("{{var:a:2}}");
@@ -267,8 +270,8 @@ describeE2e("テンプレート（TEST.md）", () => {
     await h.waitDump((state) => state.picker?.open === false);
     await h.waitNote((text) => plain(text) === "03");
 
-    await h.showPicker();
-    await h.colon("set a=hello");
+    await h.revealRow("hello");
+    await h.colon(". | set a");
     await waitVar(h, "a", "hello");
     await h.clearNote();
     await h.revealRow("{{var:a:2}}");
