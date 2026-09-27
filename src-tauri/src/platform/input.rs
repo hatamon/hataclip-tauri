@@ -37,18 +37,12 @@ pub fn simulate_type_atoms(atoms: &[TypeAtom]) -> bool {
     play(&strokes::plan_atoms(atoms, held()))
 }
 
-fn press_held(enigo: &mut Enigo, finger: Held) -> bool {
-    let mut ok = true;
-    if finger.ctrl {
-        ok &= enigo.key(Key::Control, Press).is_ok();
+fn enigo_settings() -> Settings {
+    // 破棄時に Ctrl を上げると、指のキーアップが来なくなる。受け直しが残ったまま、4 と 7 が文字として入らなくなる。
+    Settings {
+        release_keys_when_dropped: false,
+        ..Settings::default()
     }
-    if finger.shift {
-        ok &= enigo.key(Key::Shift, Press).is_ok();
-    }
-    if finger.alt {
-        ok &= enigo.key(Key::Alt, Press).is_ok();
-    }
-    ok
 }
 
 fn held() -> Held {
@@ -59,44 +53,44 @@ fn held() -> Held {
     }
 }
 
+fn with_enigo(body: impl FnOnce(&mut Enigo) -> bool) -> Result<bool, ()> {
+    let mut enigo = Enigo::new(&enigo_settings()).map_err(|_| ())?;
+    Ok(body(&mut enigo))
+}
+
+/// 指が Ctrl を離したとき、列が押したままにした Ctrl を上げる。
+pub(super) fn release_control() {
+    let _ = with_enigo(|enigo| enigo.key(Key::Control, Release).is_ok());
+}
+
 /// キーを送る唯一の入口。
 fn play(script: &Script) -> bool {
-    let finger = held();
-    // 押し直した Ctrl は Enigo の破棄で上がる。指はまだ押しているので、次の 7 が文字にならないよう受け直す。
-    // 列がすでに Ctrl を離すときは、その時点で受け直している。
-    let rearm = finger.ctrl && !script.arms;
-    if script.arms || rearm {
+    // 列が指の Ctrl を離すときだけ受け直す。コピーだけの Ctrl+4 では離さない。
+    if script.arms {
         crate::ctrl_gap::arm();
     }
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(enigo) => enigo,
-        Err(_) => {
-            if script.arms || rearm {
+    match with_enigo(|enigo| {
+        let started = Instant::now();
+        let mut ok = true;
+        for stroke in &script.strokes {
+            let expired = started.elapsed() >= Duration::from_secs(2);
+            let skip = expired && matches!(stroke, Stroke::Click(_) | Stroke::Text(_));
+            if skip {
+                ok = false;
+                continue;
+            }
+            ok &= send(enigo, stroke);
+        }
+        ok
+    }) {
+        Ok(ok) => ok,
+        Err(()) => {
+            if script.arms {
                 crate::ctrl_gap::disarm();
             }
-            return false;
+            false
         }
-    };
-    // 前の送信は、指へ戻した修飾キーを Enigo の破棄で上げる。列は「まだ押されている」前提で C だけを出すので、
-    // 押し直さないと行頭選択のあとのコピーが文字の c になり、選択した {{date}} が c に置き換わる。
-    if !press_held(&mut enigo, finger) {
-        if rearm {
-            crate::ctrl_gap::disarm();
-        }
-        return false;
     }
-    let started = Instant::now();
-    let mut ok = true;
-    for stroke in &script.strokes {
-        let expired = started.elapsed() >= Duration::from_secs(2);
-        let skip = expired && matches!(stroke, Stroke::Click(_) | Stroke::Text(_));
-        if skip {
-            ok = false;
-            continue;
-        }
-        ok &= send(&mut enigo, stroke);
-    }
-    ok
 }
 
 fn send(enigo: &mut Enigo, stroke: &Stroke) -> bool {
@@ -171,5 +165,13 @@ fn fn_key(n: u8) -> Key {
         23 => Key::F23,
         24 => Key::F24,
         _ => Key::F1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dropping_enigo_does_not_release_a_held_ctrl() {
+        assert!(!super::enigo_settings().release_keys_when_dropped);
     }
 }

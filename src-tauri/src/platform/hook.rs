@@ -34,8 +34,14 @@ unsafe extern "system" fn proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
         let info = &*(lparam as *const KBDLLHOOKSTRUCT);
         let injected = (info.flags & (LLKHF_INJECTED | 0x02)) != 0;
         if !injected {
+            let was_down = crate::ctrl_gap::physical();
             let down = (info.flags & LLKHF_UP) == 0;
-            if crate::ctrl_gap::on_hook_key(info.vkCode as u16, down) {
+            let swallow = crate::ctrl_gap::on_hook_key(info.vkCode as u16, down);
+            if was_down && !crate::ctrl_gap::physical() {
+                // フックの中で送ると固まるので、別スレッドで上げる。
+                std::thread::spawn(super::input::release_control);
+            }
+            if swallow {
                 return 1;
             }
         }
