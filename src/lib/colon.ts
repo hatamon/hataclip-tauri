@@ -26,7 +26,6 @@ export const COLON_COMMANDS = [
   "tags",
   "from",
   "clip",
-  "sel",
   "camel",
   "pascal",
   "snake",
@@ -545,9 +544,6 @@ function stageOf(part: string): PipeOp | null {
   }
   if (part === "show") {
     return { kind: "show", arg: "", selectionStdin: false };
-  }
-  if (part === "sel") {
-    return { kind: "sel", arg: "", selectionStdin: false };
   }
   if (part === "raw" || part === "each") {
     return { kind: part, arg: "", selectionStdin: false };

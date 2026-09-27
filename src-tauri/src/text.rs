@@ -586,6 +586,9 @@ fn token_value(
     seen: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
     let parts = fallback_parts(inner);
+    if parts.first().is_some_and(|head| head == "sel") {
+        return None;
+    }
     if parts.len() > 1 {
         if let Some(head) = token_value(&parts[0], ctx, seen) {
             if !head.is_empty() {
@@ -602,9 +605,6 @@ fn token_value(
     }
     if inner == "clip" {
         return Some(ctx.clip.clone());
-    }
-    if inner == "sel" {
-        return Some(ctx.sel.clone());
     }
     if let Some(name) = arg_after(inner, "ask") {
         return Some(
@@ -841,7 +841,7 @@ where
 fn token_has_sel(inner: &str) -> bool {
     fallback_parts(inner)
         .iter()
-        .any(|part| part == "sel" || walk_tokens(part, token_has_sel))
+        .any(|part| walk_tokens(part, token_has_sel))
 }
 
 pub fn has_sel_token(text: &str) -> bool {
@@ -1788,16 +1788,17 @@ mod tests {
     #[test]
     fn expands_sel_and_ask() {
         let ctx = sample_ctx();
-        assert_eq!(expand_template("**{{sel}}**", &ctx), "**SEL**");
+        assert_eq!(expand_template("**{{sel}}**", &ctx), "**{{sel}}**");
         assert_eq!(expand_template("hi {{ask:名前}}", &ctx), "hi hatamon");
         assert_eq!(expand_template("hi {{ask 名前}}", &ctx), "hi hatamon");
         assert_eq!(ask_names("{{ask a}} {{ask:b}}"), vec!["a", "b"]);
         assert_eq!(expand_template("{{ask:missing}}", &ctx), "");
-        assert!(has_sel_token("x {{sel}} y"));
-        assert!(has_sel_token("{{sel|clip}}"));
+        assert!(!has_sel_token("x {{sel}} y"));
+        assert!(!has_sel_token("{{sel|clip}}"));
+        assert_eq!(expand_template("{{sel|clip}}", &ctx), "{{sel|clip}}");
         let empty_vars = std::collections::HashMap::new();
-        assert!(has_sel_token_in("{{sel|clip}}", &bare("code", &empty_vars)));
-        assert!(has_sel_token_in(
+        assert!(!has_sel_token_in("{{sel|clip}}", &bare("code", &empty_vars)));
+        assert!(!has_sel_token_in(
             "{{when app: chrome}}{{sel|clip}}{{when}}",
             &bare("chrome", &empty_vars)
         ));
@@ -1809,18 +1810,18 @@ mod tests {
         assert!(!has_sel_token("{{clip|front}}"));
         let mut empty_sel = sample_ctx();
         empty_sel.sel.clear();
-        assert_eq!(expand_template("{{sel|clip}}", &empty_sel), "CLIP");
-        assert_eq!(expand_template("{{sel|clip}}", &ctx), "SEL");
+        assert_eq!(expand_template("{{sel|clip}}", &empty_sel), "{{sel|clip}}");
+        assert_eq!(expand_template("{{sel|clip}}", &ctx), "{{sel|clip}}");
         let mut empty_front = sample_ctx();
         empty_front.front.clear();
         assert_eq!(expand_template("{{front|無題}}", &empty_front), "無題");
         assert_eq!(expand_template("{{front|無題}}", &ctx), "TODO.md");
         empty_sel.clip.clear();
-        assert_eq!(expand_template("{{sel|clip|なし}}", &empty_sel), "なし");
+        assert_eq!(expand_template("{{sel|clip|なし}}", &empty_sel), "{{sel|clip|なし}}");
         assert_eq!(expand_template("{{nope|clip}}", &ctx), "CLIP");
         assert_eq!(
             expand_template("{{sel|hello {{date}}}}", &empty_sel),
-            "hello 2026/09/20"
+            "{{sel|hello {{date}}}}"
         );
         let empty_vars = std::collections::HashMap::new();
         assert_eq!(
@@ -1925,7 +1926,7 @@ mod tests {
             "{{when app: chrome}}{{sel}}{{when}}plain",
             &bare("code", &empty_vars)
         ));
-        assert!(has_sel_token_in(
+        assert!(!has_sel_token_in(
             "{{when app: chrome}}{{sel}}{{when}}plain",
             &bare("chrome", &empty_vars)
         ));

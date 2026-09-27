@@ -484,9 +484,6 @@ fn stage_of(part: &str) -> Option<Op> {
     if part == "show" {
         return Some(op("show", "", false));
     }
-    if part == "sel" {
-        return Some(op("sel", "", false));
-    }
     if part == "raw" || part == "each" {
         return Some(op(part, "", false));
     }
@@ -1032,17 +1029,18 @@ mod tests {
         assert!(stdin_sink("upper").is_none());
         assert_eq!(classify("help"), PasteBody::Text);
         assert_eq!(classify("comma"), PasteBody::Text);
-        let PasteBody::Run(split) = classify(r#"sel | split "\t" | col 2 | get /name"#) else {
+        let PasteBody::Run(split) = classify(r#"clip | split "\t" | col 2 | get /name"#) else {
             panic!("split");
         };
         assert_eq!(split.ops[1].kind, "split");
         assert_eq!(split.ops[1].arg, "\t");
         assert_eq!(split.ops[2].arg, "2");
         assert_eq!(split.ops[3].arg, "/name");
-        assert!(matches!(classify("sel | each | get /id"), PasteBody::Run(_)));
-        assert_eq!(classify("sel | each | sh dir"), PasteBody::Bad);
-        assert_eq!(classify("sel | split"), PasteBody::Bad);
-        assert_eq!(classify("sel | col x"), PasteBody::Bad);
+        assert!(matches!(classify("clip | each | get /id"), PasteBody::Run(_)));
+        assert_eq!(classify("clip | each | sh dir"), PasteBody::Bad);
+        assert_eq!(classify("clip | split"), PasteBody::Bad);
+        assert_eq!(classify("clip | col x"), PasteBody::Bad);
+        assert_eq!(classify("sel | upper"), PasteBody::Bad);
         assert_eq!(classify("sel | comma"), PasteBody::Bad);
         assert_eq!(classify("sel | tab"), PasteBody::Bad);
         assert_eq!(classify("quote \"* \" > clip"), PasteBody::Bad);
@@ -1061,26 +1059,21 @@ mod tests {
     }
 
     #[test]
-    fn sel_pipe_runs_without_the_list_selection() {
-        let PasteBody::Run(script) = classify(":sel | upper") else {
-            panic!("run");
-        };
-        assert_eq!(script.sink, "paste");
-        assert!(!script.uses_selection);
-        assert_eq!(script.ops[0].kind, "sel");
-        assert_eq!(script.ops[1].kind, "upper");
+    fn sel_is_not_a_stage() {
+        assert_eq!(classify(":sel | upper"), PasteBody::Bad);
+        assert_eq!(classify("sel | snake"), PasteBody::Bad);
     }
 
     #[test]
     fn unknown_stage_is_rejected_and_middle_clip_passes_through() {
         assert_eq!(classify("sel | snak"), PasteBody::Bad);
-        let PasteBody::Run(script) = classify("sel | clip | upper") else {
+        let PasteBody::Run(script) = classify("echo hi | clip | upper") else {
             panic!("run");
         };
         assert_eq!(script.sink, "paste");
         assert_eq!(
             script.ops.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>(),
-            vec!["sel", "clip", "upper"]
+            vec!["echo", "clip", "upper"]
         );
         let PasteBody::Run(shown) = classify("echo 1 | clip | show") else {
             panic!("show");
@@ -1108,7 +1101,7 @@ mod tests {
 
     #[test]
     fn quote_into_clip_is_a_clip_sink() {
-        let PasteBody::Run(script) = classify(":sel | quote \"> \" | clip") else {
+        let PasteBody::Run(script) = classify(":clip | quote \"> \" | clip") else {
             panic!("run");
         };
         assert_eq!(script.sink, "clip");
@@ -1182,14 +1175,14 @@ mod tests {
 
     #[test]
     fn rendered_formula_parses_again() {
-        let PasteBody::Run(script) = classify("sel | kebab") else {
+        let PasteBody::Run(script) = classify("clip | kebab") else {
             panic!("run");
         };
-        assert_eq!(render_ops(&script.ops), "sel | kebab");
+        assert_eq!(render_ops(&script.ops), "clip | kebab");
         let PasteBody::Run(again) = classify(&render_ops(&script.ops)) else {
             panic!("again");
         };
-        assert_eq!(again.ops[0].kind, "sel");
+        assert_eq!(again.ops[0].kind, "clip");
         assert_eq!(again.ops[1].kind, "kebab");
     }
 
@@ -1268,8 +1261,8 @@ mod tests {
         assert!(matches!(headed_pipe(":s/old/new"), Headed::Skip));
         assert!(matches!(headed_pipe(":s/old/new\n"), Headed::Noop));
         assert!(matches!(headed_pipe(":nope | zz\nx"), Headed::Noop));
-        let PasteBody::Run(script) = classify(":sel | s/old/new") else {
-            panic!("sel");
+        let PasteBody::Run(script) = classify(":clip | s/old/new") else {
+            panic!("sub");
         };
         assert_eq!(
             eval_local(&script.ops, Some("a old".into()), "other", "", "").as_deref(),
@@ -1309,7 +1302,7 @@ mod tests {
         }
         assert!(matches!(solo_pipe(":sh dir | sort"), Solo::Noop));
         assert!(matches!(solo_pipe(":quote"), Solo::Skip));
-        assert!(matches!(solo_pipe(":sel | upper"), Solo::Skip));
+        assert!(matches!(solo_pipe(":sel | upper"), Solo::Noop));
         assert!(matches!(solo_pipe(":s/old/new"), Solo::Skip));
         assert!(matches!(solo_pipe("{{date}}"), Solo::Skip));
         assert!(matches!(solo_pipe(":sh dir | quote\nfoo"), Solo::Skip));
@@ -1319,13 +1312,13 @@ mod tests {
 
     #[test]
     fn filter_keeps_or_drops_lines_that_contain_the_needle() {
-        let PasteBody::Run(script) = classify(r#":sel | filter ".txt""#) else {
+        let PasteBody::Run(script) = classify(r#":clip | filter ".txt""#) else {
             panic!("keep");
         };
         assert_eq!(script.ops[1].kind, "filter");
         assert_eq!(script.ops[1].arg, ".txt");
         assert_eq!(
-            eval_local(&script.ops, None, "a.txt\nb.rs\nc.TXT", "", "").as_deref(),
+            eval_local(&script.ops, None, "", "", "a.txt\nb.rs\nc.TXT").as_deref(),
             Some("a.txt")
         );
         let PasteBody::Run(dropped) = classify(r#"filter not ".txt""#) else {
@@ -1339,7 +1332,7 @@ mod tests {
         assert!(eval_local(&script.ops, None, "b.rs", "", "").is_none());
         assert!(matches!(classify("filter"), PasteBody::Text));
         assert!(matches!(classify("filter not"), PasteBody::Text));
-        assert!(matches!(classify(r#"sel | filter """#), PasteBody::Bad));
+        assert!(matches!(classify(r#"clip | filter """#), PasteBody::Bad));
         let PasteBody::Run(word) = classify(r#"filter "not""#) else {
             panic!("word");
         };

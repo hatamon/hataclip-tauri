@@ -42,7 +42,6 @@ describe("matchingColonCommands", () => {
       "tags",
       "from",
       "clip",
-      "sel",
       "camel",
       "pascal",
       "snake",
@@ -161,15 +160,7 @@ describe("parseColonPipe", () => {
       ops: [{ kind: "crypt", arg: "secret", selectionStdin: false }],
     });
     expect(parseColonPipe("crypt")).toEqual({ kind: "none" });
-    expect(parseColonPipe("sel | crypt secret | clip")).toEqual({
-      kind: "ok",
-      sink: { kind: "clip" },
-      usesSelection: false,
-      ops: [
-        { kind: "sel", arg: "", selectionStdin: false },
-        { kind: "crypt", arg: "secret", selectionStdin: false },
-      ],
-    });
+    expect(parseColonPipe("sel | crypt secret | clip")).toEqual({ kind: "bad" });
     expect(parseColonPipe("echo 3+4")).toEqual({
       kind: "ok",
       sink: { kind: "paste" },
@@ -285,19 +276,11 @@ describe("parseColonPipe", () => {
       ops: [{ kind: "sub", arg: "old\u0001new" }],
     });
     expect(parseColonPipe("s//new")).toEqual({ kind: "none" });
-    expect(parseColonPipe("sel | s/old/new/tail")).toMatchObject({
+    expect(parseColonPipe("clip | s/old/new/tail")).toMatchObject({
       kind: "ok",
-      ops: [{ kind: "sel" }, { kind: "sub", arg: "old\u0001new/tail" }],
+      ops: [{ kind: "clip" }, { kind: "sub", arg: "old\u0001new/tail" }],
     });
-    expect(parseColonPipe("sel | upper")).toEqual({
-      kind: "ok",
-      sink: { kind: "paste" },
-      usesSelection: false,
-      ops: [
-        { kind: "sel", arg: "", selectionStdin: false },
-        { kind: "upper", arg: "", selectionStdin: false },
-      ],
-    });
+    expect(parseColonPipe("sel | upper")).toEqual({ kind: "bad" });
     expect(parseColonPipe("sel | clip | upper")).toEqual({ kind: "bad" });
     expect(parseColonPipe("echo 1 | clip | show")).toEqual({ kind: "bad" });
   });
@@ -305,10 +288,10 @@ describe("parseColonPipe", () => {
   it("rejects an empty stage", () => {
     expect(parseColonPipe("sh dir | | clip")).toEqual({ kind: "bad" });
     expect(parseColonPipe("| clip")).toEqual({ kind: "bad" });
-    expect(parseColonPipe('sel | filter ".txt"')).toMatchObject({
+    expect(parseColonPipe('clip | filter ".txt"')).toMatchObject({
       kind: "ok",
       ops: [
-        { kind: "sel", arg: "", selectionStdin: false },
+        { kind: "clip", arg: "", selectionStdin: false },
         { kind: "filter", arg: ".txt", selectionStdin: false },
       ],
     });

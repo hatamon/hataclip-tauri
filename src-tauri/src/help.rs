@@ -168,7 +168,7 @@ f の前なら動かない。
 打つ: Enter
 変わるのは前面（展開して貼る）。一覧は閉じる。次に一覧を出すとその行。履歴の本文は変えない。
 例: hello の行で Enter すると前面は hello。
-本文がパイプならそのパイプを実行する。段が不正、または sel が空なら何もしない。
+本文がパイプならそのパイプを実行する。段が不正なら何もしない。sel は段として読めない。
 V なら改行つなぎ。詳しくは :help visual :help pipe :help stay",
     },
     Page {
@@ -211,8 +211,8 @@ Enter は閉じて貼る。番号で残すのは :help ctrldigit。: の Ctrl+En
         body: "\
 打つ: Ctrl+Shift+1 から Ctrl+Shift+9
 変わるのは前面。一覧は出さない。#slot:n があればその行。複数なら一覧の先。無ければ並びの n 番目。
-例: #slot:1 の本文が :sel | snake のとき、メモ帳で getUserName を選んで Ctrl+Shift+1 すると get_user_name に置き換わる。
-本文がパイプならそのパイプを実行する。段の名前が不正、または sel が空なら何もしない。
+例: #slot:1 の本文が :sel | snake の行を Ctrl+Shift+1 しても何もしない。sel は段として読めない。
+本文がパイプならそのパイプを実行する。段の名前が不正なら何もしない。
 詳しくは :help slottag :help pipe",
     },
     Page {
@@ -300,7 +300,7 @@ Ubuntu はキーを送らないので何もしない。貼る途中のキーは 
 変わるのは前面の選択。一覧は出さない。空白を除いた先頭が / なら補完で、展開しない。/ は検索語に入れない。/foo は foo。/foo #tag は本文 foo とタグ tag。/#work は #work。/ だけは何もしない。中に {{date}} や :sh があっても展開しない。/xxx {{date}} の検索語は xxx {{date}}。/:sh xxx の検索語は :sh xxx。展開が空でも補完にはしない。
 選択が空なら :help home のキーで行頭まで選び、もう一度コピーする。展開キーの Ctrl を押したままでも、その Ctrl は home のキーに乗らない。shift+home ならその行の先頭までで、文書の先頭までは選ばない。Ctrl を押したまま 8 を何度押しても毎回展開する。8 は入らない。Ctrl を押したままの Ctrl+7 も 7 にはならない。それでも空なら何もしない。自動選択に改行があれば展開も補完もせず、理由は「行頭までの選択に改行がある」。改行が無い1行は、最後の / か、行頭か空白の直後の : か、{{ に反応する。{{ の中の : では切らない。最後が / ならその後ろだけ補完して前は残す。最後が : か {{ ならそこから行末を展開し、前を残して1回貼る。例: abc {{date}} は abc を残して今日の日付。abc :echo 2+3 は abc を残して 5。abc /work は work を補完する。abc /work {{date}} は最後の {{ から展開し、abc /work は残す。印が無ければ行全体を展開する。自分で選んだ範囲は、先頭が / なら補完、そうでなければ全体を展開する。自分で選んだ複数行はそのまま。Ubuntu はキーを送らないので空は何もしない。
 :sh か {{sh:}} か :@ を含み、先頭が / でなければ、実行前にコマンドを出して確認する。Enter で元の前面へ戻して実行する。Esc は何もしない。選択は残し、補完には進まない。:echo や sh の無い展開は確認しない。一覧で打つ :sh と CLI は確認しない。
-選択が2行以上で1行目が : のパイプなら、その式を2行目以降に実行して選択全体を置き換える。1行目は残さない。例: :s/old/new の次が abc def old ghi と oldabc ddd なら abc def new ghi と newabc ddd。:quote | upper の次が xxx と yyy なら > XXX と > YYY。:sh dir | quote は dir の各行の頭に > 。:echo 2+3 | quote \">\" \"<\" は >5<。シェルの | は :sh \"xx | yy\" | quote のように括る。括らない | は段なので、段が無ければ何もしない（:sh dir | sort は何もしない）。:quote や :sel | upper だけの1行は何もしない。複数行で1行目が :echo だけなら何もしない。
+選択が2行以上で1行目が : のパイプなら、その式を2行目以降に実行して選択全体を置き換える。1行目は残さない。例: :s/old/new の次が abc def old ghi と oldabc ddd なら abc def new ghi と newabc ddd。:quote | upper の次が xxx と yyy なら > XXX と > YYY。:sh dir | quote は dir の各行の頭に > 。:echo 2+3 | quote \">\" \"<\" は >5<。シェルの | は :sh \"xx | yy\" | quote のように括る。括らない | は段なので、段が無ければ何もしない（:sh dir | sort は何もしない）。:quote だけの1行は何もしない。1行目が :sel | snake なら段として読めないので何もしない。複数行で1行目が :echo だけなら何もしない。
 2秒の連打が比べる文字と Ctrl+Z のあとに戻る文字は、/ 付きの選択、または自動選択のときは行全体。履歴は変えない。クリップボードは戻さない。
 詳しくは :help complete :help home :help sh :help s :help showerror",
     },
@@ -486,7 +486,7 @@ u で直前の1回を戻せる。V なら範囲。
         body: "\
 打つ: :from または :from sel | upper
 変わるのはその行の式。本文は :help e で編集する。引数が無ければ編集画面。引数があればその文字が式になる。式の無い行でも書ける。
-例: :from sel | upper で、その行の式が sel | upper。
+例: :from sel | upper で、その行の式が sel | upper。残っている式の sel は消さない。sel は段として読めないので、その式を実行しても本文はそのまま。
 u で直前の1回を戻せる。失敗したら本文はそのまま。
 詳しくは :help gcolon :help add",
     },
@@ -496,8 +496,8 @@ u で直前の1回を戻せる。失敗したら本文はそのまま。
         summary: "行に残した式をもう一度実行する",
         body: "\
 打つ: g:
-変わるのは、その式の結果。行に残した式をもう一度実行する。sel はいまの前面の選択、. はいまの本文。失敗したら本文はそのまま。式が無ければ何もしない。
-例: 式が sel | kebab の行で g: すると、前面の選択を kebab にして実行する。
+変わるのは、その式の結果。行に残した式をもう一度実行する。. はいまの本文。sel は段として読めないので、式が sel | kebab なら失敗して本文はそのまま。式が無ければ何もしない。
+例: 式が clip | upper の行で g: すると、クリップボードを大文字にする。式が sel | kebab なら本文はそのまま。
 詳しくは :help from :help add :help dot",
     },
     Page {
@@ -943,8 +943,8 @@ yes が無いとまとまらない。
 打つ: :s/old/new
 変わるのは前面へ貼る文字。履歴は触らない。選択行の old を全部 new にする。正規表現は使わない。old が空なら何もしない。old が無くても残りを貼る。結果が空でも選択は空になる。V は改行つなぎ。u では戻らない。本文を直すのは :help e 。. の対象外。
 例: 選択行 hello に :s/ell/ipp で前面は hippo。
-段 :sel | s/old/new は前面の選択を置換して貼る。new は2つ目の / の後ろ全部。Ctrl+8 で1行目が :s/old/new なら2行目以降を置換して選択全体を置き換える。1行だけは何もしない。
-詳しくは :help ctrl8 :help sel",
+段 :clip | s/old/new はクリップボードを置換して貼る。sel は段として読めない。new は2つ目の / の後ろ全部。Ctrl+8 で1行目が :s/old/new なら2行目以降を置換して選択全体を置き換える。1行だけは何もしない。
+詳しくは :help ctrl8 :help clip",
     },
     Page {
         name: "sort",
@@ -969,34 +969,23 @@ V でなければ何もしない。
 詳しくは :help url :help path",
     },
     Page {
-        name: "sel",
-        group: "pipe",
-        summary: "前面の選択を流れに入れる",
-        body: "\
-打つ: :sel | upper のようにパイプの段。{{sel}} は貼る直前に同じ選択へ変わる。
-変わるのはそのパイプの結果（行き先が無ければ前面）。履歴は触らない。一覧では sel は前面の選択、. は一覧の行。Ctrl+8 の複数行ではどちらも2行目以降。Windows は Ctrl+C の 200ms 後を読む。クリップボードは戻さない。空なら何もしない。Ubuntu では履歴の行にある sel は実行しない。Ctrl+8 の複数行では選択はもう読んであるので sel があっても実行し、結果はクリップボードに置く。
-{{sel|clip}} は空なら隣。隣がトークンなら展開し、違う文字ならそのまま。
-例: 前面の hello に :sel | upper で前面は HELLO。
-詳しくは :help clip :help s :help ctrl8",
-    },
-    Page {
         name: "clip",
         group: "pipe",
         summary: "クリップボードを読む、または書く",
         body: "\
 打つ: :clip | show のように先頭の段、行き先の | clip、または途中の clip。{{clip}} は貼る直前のクリップボード。空なら空。
 先頭で流れが無ければクリップボードを読む。流れがある途中の clip は、その文字をクリップボードへ書いて同じ文字を次へ渡す。空ならクリップボードは変えない。| clip は結果をクリップボードへ書き、前面には貼らない。末尾の > clip も何もしない。画像だけのクリップボードはテキストとして読まない。どの動作でも、読んだあとに元の文字へは戻さない。
-例: :sel | clip | upper は選択をクリップボードへ置き、大文字を前面へ貼る。:clip | upper | clip はクリップボードの hello を HELLO にして戻す。
-詳しくは :help add :help show :help sel",
+例: :clip | upper | clip はクリップボードの hello を HELLO にして戻す。sel は段として読めない。{{sel}} と {{sel|clip}} は展開せずそのまま貼る。前面へコピーキーは送らない。
+詳しくは :help add :help show",
     },
     Page {
         name: "add",
         group: "pipe",
         summary: "結果を一覧へ1件足す",
         body: "\
-打つ: :sel | kebab | add
-変わるのは一覧（結果を1件足す）。前面とクリップボードは触らない。できた行には add より前の式が残る（:sel | kebab | add なら sel | kebab）。空なら足さない。途中の add は同じ文字を次へ渡す。流れが無い途中の add は何もしない。
-例: 前面 userName で本文 user-name、式 sel | kebab。:sel | kebab | add | quote は一覧に user-name、前面は > user-name。
+打つ: :clip | kebab | add
+変わるのは一覧（結果を1件足す）。前面とクリップボードは触らない。できた行には add より前の式が残る（:clip | kebab | add なら clip | kebab）。空なら足さない。途中の add は同じ文字を次へ渡す。流れが無い途中の add は何もしない。sel は段として読めないので :sel | kebab | add は何もしない。残っている式は消さない。
+例: クリップボード userName で :clip | kebab | add | quote は一覧に user-name、前面は > user-name。
 g: でもう一度。式の編集は :help from
 詳しくは :help gcolon :help clip",
     },
@@ -1008,7 +997,7 @@ g: でもう一度。式の編集は :help from
 打つ: :echo 3+4 | show
 変わるのはこのヘルプ画面。前面には貼らない。空なら出さない。途中の show は同じ文字を次へ渡す。hataclip.exe の echo 3+4 | show は標準出力に出す。端末に収まらないときは `j` / `k` で1行ずつ。端で止まる。`q` か Esc で終わる。パイプしたときは全文を出してキーは読まない。
 例: :echo 3+4 | show で 7。:clip | show はクリップボードをここに出す。dir | hataclip の show | add は標準出力に出して、同じ文字を一覧へ1件足す。
-入力中は結果を出さない。Ctrl+Enter で結果の先頭12行をここに出す。式を書き換えたら消える。sel を含む式は出さない。: では一覧を隠さず Ctrl+C は送らない。入力欄とプレビューで一覧が短くなっても、選択行（V なら範囲の先頭）が見えるまでスクロールする。Enter で sel が要るときはその場で読む。sh を含む、段が不正、json が読めない、入力が空のときは出さない。12行を超えたら末尾に ...。
+入力中は結果を出さない。Ctrl+Enter で結果の先頭12行をここに出す。式を書き換えたら消える。sel は段として読めないので出さない。: では一覧を隠さず Ctrl+C は送らない。入力欄とプレビューで一覧が短くなっても、選択行（V なら範囲の先頭）が見えるまでスクロールする。sh を含む、段が不正、json が読めない、入力が空のときは出さない。12行を超えたら末尾に ...。
 詳しくは :help showerror :help echo :help scroll",
     },
     Page {
@@ -1553,6 +1542,9 @@ fn group_page(id: &str) -> String {
         .map(|(_, title)| *title)
         .unwrap_or(id);
     let mut out = format!(":{id}\n\n{title}。各行の :help 名前 を開く。\n");
+    if id == "template" {
+        out.push_str("{{sel}} と {{sel|clip}} は展開せずそのまま貼る。前面へコピーキーは送らない。\n");
+    }
     for page in PAGES.iter().filter(|page| page.group == id) {
         out.push_str(&format!("{}    {}    :help {}\n", page.name, page.summary, page.name));
     }
@@ -1602,7 +1594,8 @@ mod tests {
         assert!(render(Some("crypt")).contains("前面は hello のまま"));
         assert!(render(Some("decrypt")).contains(":decrypt other"));
         assert!(render(Some("decrypt")).contains("何も貼らない"));
-        assert!(render(Some("pipe")).contains(":help sel"));
+        assert!(render(Some("pipe")).contains(":help clip"));
+        assert!(!render(Some("pipe")).contains(":help sel"));
         assert!(render(Some("j")).contains("3行目"));
         assert!(render(Some("dd")).contains("#lock"));
         assert!(render(Some("dd")).contains("残る"));
@@ -1643,9 +1636,7 @@ mod tests {
         assert!(render(Some("var")).contains("03"));
         assert!(render(Some("tagbody")).contains("{{tag:work}}"));
         assert!(render(Some("wait")).contains("{{wait:200}}"));
-        assert!(render(Some("sel")).contains("履歴の行にある sel"));
-        assert!(render(Some("sel")).contains("クリップボードが変わらなければ空") || render(Some("sel")).contains("空なら何もしない"));
-        assert!(render(Some("sel")).contains("{{sel|clip}}"));
+        assert!(render(Some("sel")).contains("ない:"));
         assert!(render(Some("J")).contains("V 中"));
         assert!(render(Some("E")).contains("メモ帳"));
         assert!(render(Some("join")).contains("1行ならその本文"));
@@ -1668,7 +1659,8 @@ mod tests {
         assert!(render(Some("clip")).contains("同じ文字を次へ渡す"));
         assert!(render(Some("clip")).contains("末尾の > clip"));
         assert!(render(Some("add")).contains("流れが無い途中の add"));
-        assert!(render(Some("add")).contains("sel | kebab"));
+        assert!(render(Some("add")).contains("clip | kebab"));
+        assert!(render(Some("template")).contains("{{sel}}"));
         assert!(render(Some("filter")).contains("a.txt"));
         assert!(render(Some("filter")).contains("not"));
         assert!(render(Some("slots")).contains(":sel | snake"));
