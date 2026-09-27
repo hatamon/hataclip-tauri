@@ -46,6 +46,10 @@ fn enigo_settings() -> Settings {
 }
 
 fn held() -> Held {
+    // 追跡だけ Ctrl が残っていると、貼り付けが V だけで、文字の v になる。
+    if crate::ctrl_gap::sync_ctrl_with_finger() {
+        release_control();
+    }
     Held {
         ctrl: crate::ctrl_gap::physical(),
         shift: crate::ctrl_gap::physical_shift(),

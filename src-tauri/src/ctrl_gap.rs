@@ -94,6 +94,17 @@ impl Gap {
         self.fired.clear();
     }
 
+    /// 指が Ctrl を離しているのに追跡だけ残っているとき、追跡を消す。消したら真。
+    pub fn forget_ctrl_if_finger_up(&mut self, finger_down: bool) -> bool {
+        if finger_down || !self.physical() {
+            return false;
+        }
+        self.left = false;
+        self.right = false;
+        self.disarm();
+        true
+    }
+
     pub fn on_key(&mut self, ev: KeyEv) -> Decision {
         if is_ctrl(ev.vk) {
             if ev.vk == VK_RCONTROL {
@@ -293,6 +304,27 @@ pub fn physical() -> bool {
     gap().physical()
 }
 
+/// 左も右も離れていれば、注入で残った Ctrl の追跡を消す。消したら真。
+pub fn sync_ctrl_with_finger() -> bool {
+    gap().forget_ctrl_if_finger_up(finger_ctrl_down())
+}
+
+#[cfg(windows)]
+fn finger_ctrl_down() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LCONTROL, VK_RCONTROL,
+    };
+    unsafe {
+        (GetAsyncKeyState(i32::from(VK_LCONTROL)) as u16) & 0x8000 != 0
+            || (GetAsyncKeyState(i32::from(VK_RCONTROL)) as u16) & 0x8000 != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn finger_ctrl_down() -> bool {
+    false
+}
+
 pub fn physical_shift() -> bool {
     gap().physical_shift()
 }
@@ -397,6 +429,25 @@ mod tests {
         gap.on_key(up(0xA2));
         assert!(!gap.physical());
         assert_eq!(gap.on_key(down(0x38)), Decision::Pass);
+    }
+
+    #[test]
+    fn finger_up_drops_a_stuck_ctrl_and_disarms() {
+        let mut gap = expand_gap();
+        gap.on_key(down(0xA2));
+        gap.arm();
+        assert!(gap.forget_ctrl_if_finger_up(false));
+        assert!(!gap.physical());
+        assert_eq!(gap.on_key(down(0x37)), Decision::Pass);
+        assert!(!gap.forget_ctrl_if_finger_up(false));
+    }
+
+    #[test]
+    fn finger_still_down_keeps_ctrl() {
+        let mut gap = expand_gap();
+        gap.on_key(down(0xA2));
+        assert!(!gap.forget_ctrl_if_finger_up(true));
+        assert!(gap.physical());
     }
 
     #[test]
