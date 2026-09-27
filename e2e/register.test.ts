@@ -1,8 +1,6 @@
 // TEST.md「登録」
 
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { writeFileSync } from "node:fs";
-import { containerPath, hostPath } from "./paths";
 import { chars, describeE2e, startHarness, stopHarness, type Harness } from "./harness";
 import { sleep } from "./dump";
 
@@ -97,17 +95,5 @@ describeE2e("登録（TEST.md）", () => {
       state.items.some((item) => item.text === "C:/Windows" && item.tags.includes("path")),
     );
     expect(path.items.find((item) => item.text === "C:/Windows")?.tags).toContain("path");
-  });
-
-  it("ファイルを落とすとパス本文に #path と #file が付いて先頭になる", async () => {
-    if (!h) {
-      throw new Error("harness が無い");
-    }
-    const name = "dropped.txt";
-    writeFileSync(containerPath(name), "drop");
-    const dropped = hostPath(name);
-    await h.dropPaths([dropped]);
-    const dump = await h.waitDump((state) => state.items[0]?.text === dropped);
-    expect(dump.items[0]?.tags).toEqual(expect.arrayContaining(["path", "file"]));
   });
 });

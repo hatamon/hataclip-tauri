@@ -68,15 +68,6 @@ describeE2e("Ctrl（TEST.md、先頭以外）", () => {
     expect(after).not.toContain("8");
   });
 
-  it("Ctrl+9 で 9 は入らない", async () => {
-    if (!h) {
-      throw new Error("harness が無い");
-    }
-    const before = plain(await h.noteText());
-    await h.complete();
-    expect(plain(await h.noteText())).toBe(before);
-  });
-
   it("Ctrl+Shift+1 で先頭行が貼られ、1 も ! も入らない", async () => {
     if (!h) {
       throw new Error("harness が無い");

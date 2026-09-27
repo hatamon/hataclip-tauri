@@ -2438,22 +2438,6 @@
       maps = event.payload.maps;
     });
 
-    let stopDrop: (() => void) | undefined;
-    void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
-      void getCurrentWebview()
-        .onDragDropEvent((event) => {
-          if (event.payload.type !== "drop") {
-            return;
-          }
-          void invoke<Item[]>("drop_paths", { paths: event.payload.paths }).then((next) => {
-            items = next;
-          });
-        })
-        .then((stop) => {
-          stopDrop = stop;
-        });
-    });
-
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("blur", onBlur);
@@ -2462,7 +2446,6 @@
       void unlistenPipe.then((stop) => stop());
       void unlistenSh.then((stop) => stop());
       void unlistenSettings.then((stop) => stop());
-      stopDrop?.();
     };
   });
 </script>

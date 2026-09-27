@@ -109,16 +109,4 @@ describeE2e("補完（TEST.md）", () => {
     await h.expand();
     expect(plain(await h.noteText())).toBe("work note");
   });
-
-  it("Ctrl+9 は先頭の / が無くても同じ補完をする", async () => {
-    if (!h) {
-      throw new Error("harness が無い");
-    }
-    await sleep(2100);
-    await h.clearNote();
-    await h.typeNote(chars("work"));
-    await h.notepad.keys(["Shift", "Home", "Shift"]);
-    await h.complete();
-    await h.waitNote((text) => plain(text) === "work note");
-  });
 });

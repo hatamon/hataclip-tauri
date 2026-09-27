@@ -137,11 +137,15 @@ describeE2e("編集（TEST.md）", () => {
       throw new Error("harness が無い");
     }
     const row = (await h.waitDump(() => true)).items.find((item) => item.text.startsWith("edit-me"));
-    await h.revealRow(row?.text ?? "edit-me");
+    const text = row?.text ?? "edit-me";
+    await h.revealRow(text);
     await h.pickerKeys(["E"]);
     await sleep(400);
-    const dump = await h.waitDump(() => true);
-    expect(dump.lastOpen === null || typeof dump.lastOpen === "string").toBe(true);
+    await h.quitNvim();
+    const dump = await h.waitDump((state) => state.lastOpen != null);
+    expect(dump.lastOpen).toContain("hataclip-");
+    expect(dump.items.some((item) => item.text === text)).toBe(true);
+    await h.showPicker();
     await h.hidePicker();
   });
 
@@ -237,7 +241,8 @@ describeE2e("編集（TEST.md）", () => {
     await h.waitDump((state) => state.items.some((item) => item.text === "dot-me"));
     await h.pickerKeys(["j"]);
     await h.pickerKeys(["."]);
-    await h.waitDump((state) => !state.items.some((item) => item.text === "dot-me"));
+    await h.waitDump((state) => !state.items.some((item) => item.text === "tilde"));
+    expect((await h.waitDump(() => true)).items.some((item) => item.text === "dot-me")).toBe(true);
     await h.hidePicker();
   });
 
@@ -245,7 +250,7 @@ describeE2e("編集（TEST.md）", () => {
     if (!h) {
       throw new Error("harness が無い");
     }
-    await h.revealRow("tilde");
+    await h.revealRow("gone");
     const before = JSON.stringify((await h.waitDump(() => true)).items);
     await h.pickerKeys(["g", "~"]);
     await sleep(200);

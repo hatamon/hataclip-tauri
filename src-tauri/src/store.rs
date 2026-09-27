@@ -146,36 +146,6 @@ impl Store {
         self.insert_at(0, item);
     }
 
-    /// ドロップしたパスを先頭へ。1 回のドロップは 1 段の取り消し。
-    pub fn drop_paths(&mut self, paths: &[String]) -> bool {
-        self.absorb();
-        let paths: Vec<String> = paths
-            .iter()
-            .map(|path| path.trim().to_string())
-            .filter(|path| !path.is_empty())
-            .collect();
-        if paths.is_empty() {
-            return false;
-        }
-        self.push_undo();
-        for path in paths.into_iter().rev() {
-            if let Some(index) = self.items.iter().position(|item| item.text == path) {
-                let existing = self.items.remove(index);
-                self.items.insert(0, existing);
-            } else {
-                self.items.insert(
-                    0,
-                    Item::new(path, vec!["path".into(), "file".into()]),
-                );
-                if self.items.len() > MAX_ITEMS {
-                    self.items.truncate(MAX_ITEMS);
-                }
-            }
-        }
-        self.save();
-        true
-    }
-
     /// 指定した行のすぐ上か下に差し込む。同じ本文でもまとめない。
     pub fn insert_relative(&mut self, anchor: Option<&str>, above: bool, mut item: Item) {
         self.absorb();
@@ -863,7 +833,12 @@ impl Store {
         let mut keep: Vec<String> = Vec::new();
         let mut seen = std::collections::HashMap::<String, (bool, usize)>::new();
         for (index, item) in self.items.iter().enumerate() {
-            let key = item.text.replace("\r\n", "\n").trim().to_string();
+            let key = item
+                .text
+                .replace("\r\n", "\n")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             match seen.get(&key) {
                 None => {
                     seen.insert(key, (item.pinned || item.locked(), index));
@@ -1607,19 +1582,6 @@ mod tests {
     }
 
     #[test]
-    fn drop_paths_puts_file_rows_in_front() {
-        let mut store = fresh("drop");
-        store.insert(item("a", "keep"));
-        assert!(store.drop_paths(&["C:\\a.txt".into(), "C:\\b.txt".into()]));
-        assert_eq!(store.list()[0].text, "C:\\a.txt");
-        assert_eq!(store.list()[1].text, "C:\\b.txt");
-        assert_eq!(store.list()[0].tags, vec!["path", "file"]);
-        store.undo();
-        assert_eq!(store.list().len(), 1);
-        assert_eq!(store.list()[0].id, "a");
-    }
-
-    #[test]
     fn substitute_replaces_all() {
         let mut store = fresh("sub");
         store.insert(item("a", "foo foo"));
@@ -1655,6 +1617,11 @@ mod tests {
         assert!(store.dedup());
         let ids: Vec<_> = store.list().iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["c", "b"]);
+        let mut spaces = fresh("dedup-space");
+        spaces.insert(item("d", "dup  one"));
+        spaces.insert(item("e", "dup one"));
+        assert!(spaces.dedup());
+        assert_eq!(spaces.list().len(), 1);
     }
 
     #[test]

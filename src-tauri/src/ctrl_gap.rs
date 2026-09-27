@@ -9,7 +9,6 @@ pub enum Action {
     Register,
     Show,
     Expand,
-    Complete,
     Ranked(usize),
 }
 

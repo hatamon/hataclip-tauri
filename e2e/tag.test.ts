@@ -2,7 +2,7 @@
 
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { describeE2e, startHarness, stopHarness, type Harness } from "./harness";
-import { DATE, plain } from "./text";
+import { DATE_IN, plain } from "./text";
 import { sleep } from "./dump";
 
 describeE2e("タグと絞り（TEST.md）", () => {
@@ -92,8 +92,10 @@ describeE2e("タグと絞り（TEST.md）", () => {
     await h.revealRow("Hello {{date}}");
     await h.pickerKeys(["Enter"]);
     await h.waitDump((state) => state.picker?.open === false);
-    expect(plain(await h.noteText())).toBe("Hello {{date}}");
-    expect(plain(await h.noteText())).not.toMatch(DATE);
+    const pasted = plain(await h.noteText());
+    expect(pasted.startsWith("Hello ")).toBe(true);
+    expect(pasted).toMatch(DATE_IN);
+    expect(pasted).not.toContain("<");
   });
 
   it(":dedup のあと :dedup yes で、空白と改行だけ違う行が1つになる", async () => {

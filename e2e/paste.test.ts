@@ -1,7 +1,7 @@
 // TEST.md「一覧から貼る」
 
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { containerPath, hostPath } from "./paths";
 import { chars, describeE2e, startHarness, stopHarness, type Harness } from "./harness";
 import { sleep } from "./dump";
@@ -232,6 +232,7 @@ describeE2e("一覧から貼る（TEST.md）", () => {
       throw new Error("harness が無い");
     }
     await h.clearNote();
+    rmSync(containerPath("e2e-log.txt"), { force: true });
     await pick(h, "loghello", "loghello");
     await h.pickerKeys([":", ..."log".split(""), "Enter"]);
     await sleep(400);

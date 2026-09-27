@@ -341,12 +341,6 @@ fn sort_items(ids: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> 
     view(&state)
 }
 
-#[tauri::command]
-fn drop_paths(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Vec<Item> {
-    state.store.lock().expect("store").drop_paths(&paths);
-    view(&state)
-}
-
 /// 外部エディタを開く。終わるまで待つので、待ち時間は別スレッドに逃がす。
 #[tauri::command]
 fn edit_external(
@@ -357,8 +351,13 @@ fn edit_external(
     let Some(item) = state.store.lock().expect("store").get(&id).cloned() else {
         return Err("編集する行がない".to_string());
     };
-    let editor = editor::find().ok_or("エディタが見つからない")?;
     let file = editor::write_temp_file(&item.id, &item.text).map_err(|error| error.to_string())?;
+    if test_args::is_active() {
+        test_args::note_open(&file.display().to_string());
+        let _ = std::fs::remove_file(&file);
+        return Ok(());
+    }
+    let editor = editor::find().ok_or("エディタが見つからない")?;
     hide_window(&app, &state);
     std::thread::spawn(move || {
         if let Some(text) = editor::run(&editor, &file) {
@@ -397,28 +396,6 @@ fn report_test_ui(ui: test_args::TestUi, state: tauri::State<'_, AppState>) {
     let items = state.store.lock().expect("store").list().to_vec();
     test_args::remember_items(&items);
     test_args::set_ui(ui);
-}
-
-fn watch_test_drops(app: tauri::AppHandle, dir: std::path::PathBuf) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let file = dir.join("drop-paths.json");
-        if !file.exists() {
-            continue;
-        }
-        let Ok(raw) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        let _ = std::fs::remove_file(&file);
-        let Ok(paths) = serde_json::from_str::<Vec<String>>(&raw) else {
-            continue;
-        };
-        let state = app.state::<AppState>();
-        state.store.lock().expect("store").drop_paths(&paths);
-        let items = state.store.lock().expect("store").list().to_vec();
-        test_args::remember_items(&items);
-        let _ = app.emit("items-changed", view(&state));
-    });
 }
 
 #[tauri::command]
@@ -480,12 +457,24 @@ fn set_keymaps(keymaps: KeyMaps, state: tauri::State<'_, AppState>) -> KeyMaps {
 
 #[tauri::command]
 fn open_settings_file(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let editor = editor::find().ok_or("エディタが見つからない")?;
     let path = {
         let settings = state.settings.lock().expect("settings");
         settings.persist();
         settings.path().to_path_buf()
     };
+    if test_args::is_active() {
+        test_args::note_open(&path.display().to_string());
+        let shortcuts = {
+            let mut settings = state.settings.lock().expect("settings");
+            let _ = settings.reload();
+            settings.shortcuts().clone()
+        };
+        if let Err(error) = shortcuts::apply(&app, &shortcuts) {
+            eprintln!("failed to register global shortcuts: {error}");
+        }
+        return Ok(());
+    }
+    let editor = editor::find().ok_or("エディタが見つからない")?;
     hide_window(&app, &state);
     std::thread::spawn(move || {
         let _ = editor::wait_close(&editor, &path);
@@ -1677,26 +1666,6 @@ fn play_script(
     }
 }
 
-/// 前面の選択語で履歴を補完して貼る。テンプレートは一覧の Enter と同じく展開する。一覧は出さない。
-pub(crate) fn complete_from_selection(app: &tauri::AppHandle, state: &AppState) {
-    if *state.picker_open.lock().expect("picker_open") {
-        return;
-    }
-    *state.foreground.lock().expect("foreground") = platform::capture_foreground();
-    if let Some(cycle) = pending_cycle(state) {
-        if !advance_complete(app, state, &cycle) {
-            *state.complete_cycle.lock().expect("complete") = None;
-            note_error(state, "当たらない");
-        }
-        return;
-    }
-    let Some(query) = capture_front_text(state).filter(|text| !text.trim().is_empty()) else {
-        note_error(state, "選択が空");
-        return;
-    };
-    begin_complete(app, state, query.clone(), &query, "", false);
-}
-
 fn pending_cycle(state: &AppState) -> Option<CompleteCycle> {
     let now = std::time::Instant::now();
     state
@@ -2017,7 +1986,10 @@ fn capture_front_text(state: &AppState) -> Option<String> {
         std::thread::sleep(Duration::from_millis(200));
         let captured = clipboard::peek_text();
         match captured {
-            Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => Some(text),
+            Some(text) if previous.as_ref() != Some(&text) && !text.is_empty() => {
+                let _ = clipboard::write_clipboard_text(previous.as_deref().unwrap_or(""));
+                Some(text)
+            }
             _ => None,
         }
     }
@@ -3102,9 +3074,6 @@ fn run_with(launch: test_args::TestLaunch) {
                     &items,
                 );
             }
-            if launch.is_active() {
-                watch_test_drops(app.handle().clone(), dir.clone());
-            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3131,7 +3100,6 @@ fn run_with(launch: test_args::TestLaunch) {
             preview_colon,
             rerun_formula,
             sort_items,
-            drop_paths,
             edit_external,
             hide_picker,
             is_test_mode,

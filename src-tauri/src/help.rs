@@ -309,10 +309,10 @@ Ubuntu はキーを送らないので何もしない。貼る途中のキーは 
         group: "expand",
         summary: "選択語で履歴を補完して貼る",
         body: "\
-打つ: Ctrl+9。設定画面には出さない。settings.json の complete は残っていても、保存しても消さない。
-変わるのは前面。選択語で履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。履歴の本文は変えない。先頭の / は要らない。
-例: 選択 work が本文 hello work の行に当たれば、その本文を展開して貼る。#work はタグ work の行を一覧の順。#work hello はタグと本文。#work #home は両方。本文に無くても #alias:x と #alias:y なら x y で当たる。順は問わない。
-展開が空なら何もしない。{{ask:}} か {{pick:}} がある行、#run #confirm の行、本文がパイプの行は何もしない。#grab はただのタグで、本文を展開して貼る。# だけと #secret は何もしない。0件も何もしない。複数ならその順の最初。2秒以内の連打は、次が展開して空でなければ Ctrl+Z のあと次の候補。次が無い、空、対象外なら Ctrl+Z しない。Ctrl+A は送らない。Ubuntu は展開した文字をクリップボードへ置く。
+打つ: Ctrl+8。空白を除いた先頭が / のときだけ。設定に出るのは展開の1つ。
+変わるのは前面。/ の後ろで履歴を補完し、一覧の Enter と同じく展開して貼る。{{date}} は日付。履歴の本文は変えない。/ は検索語に入れない。
+例: 選択 /work が本文 hello work の行に当たれば、その本文を展開して貼る。/#work はタグ work の行を一覧の順。/#work hello はタグと本文。/#work #home は両方。本文に無くても #alias:x と #alias:y なら x y で当たる。順は問わない。
+展開が空なら何もしない。{{ask:}} か {{pick:}} がある行、#run #confirm の行、本文がパイプの行は何もしない。#grab はただのタグで、本文を展開して貼る。/ だけ、# だけ、#secret は何もしない。0件も何もしない。複数ならその順の最初。2秒以内の連打は、次が展開して空でなければ Ctrl+Z のあと次の候補。次が無い、空、対象外なら Ctrl+Z しない。Ctrl+A は送らない。Ubuntu は展開した文字をクリップボードへ置く。
 詳しくは :help ctrl8 :help slash :help alias",
     },
     Page {
@@ -601,10 +601,10 @@ u で直前の1回を戻せる。失敗したら本文はそのまま。
         summary: "本文のパスの中身を貼る",
         body: "\
 タグ: #file
-変わるのは貼る文字。本文のパスのファイル内容を貼る。#run が先。ドロップすると #path と一緒に付く。
+変わるのは貼る文字。本文のパスのファイル内容を貼る。#run が先。
 例: 本文が C:\\tmp\\a.txt で #file なら、そのファイルの中身を貼る。
 読めなければ貼らない。
-詳しくは :help path :help drop :help run",
+詳しくは :help path :help run",
     },
     Page {
         name: "lock",
@@ -654,9 +654,9 @@ u で直前の1回を戻せる。失敗したら本文はそのまま。
         summary: "パスとして付く目印",
         body: "\
 タグ: #path
-変わるのは登録時のタグ。Ctrl+4 の本文がパスなら付く。ドロップでも付く。動きは目印だけ。中身を貼るのは :help filetag
+変わるのは登録時のタグ。Ctrl+4 の本文がパスなら付く。動きは目印だけ。中身を貼るのは :help filetag
 例: C:\\tmp\\a.txt を Ctrl+4 すると #path が付く。
-詳しくは :help url :help drop",
+詳しくは :help url :help filetag",
     },
     Page {
         name: "register",
@@ -668,7 +668,7 @@ u で直前の1回を戻せる。失敗したら本文はそのまま。
 例: 選択 hello で Ctrl+4 すると、一覧の先頭が hello。
 Ctrl を押したまま 4 の次に 7 を押しても、7 は入らず一覧が出る。Ctrl を離したあとの 4 と 7 は文字として入る。
 選択が空なら足さない。
-詳しくは :help url :help path :help drop",
+詳しくは :help url :help path",
     },
     Page {
         name: "gp",
@@ -965,7 +965,7 @@ V でなければ何もしない。
 打つ: :open
 変わるのは別アプリ。http/https はブラウザ。パスは Explorer。一覧とクリップボードは触らない。URL でもパスでもなければ何もしない。| open も同じ。
 例: https://example.com を :open でブラウザが開く。
-キーに付けるなら :help map 。ドロップは :help drop
+キーに付けるなら :help map
 詳しくは :help url :help path",
     },
     Page {
@@ -1469,17 +1469,6 @@ Esc / Ctrl+[ で待ちだけ解除。
 詳しくは :help map :help esc",
     },
     Page {
-        name: "drop",
-        group: "other",
-        summary: "ドロップしたパスを登録する",
-        body: "\
-操作: ファイルを一覧へドロップする
-変わるのは一覧。パスを本文にして #path と #file を付けた行を先頭に作る。フォルダでもよい。
-例: a.txt を落とすと、本文がそのパスで、#path と #file が付く。
-常時監視はしない。開くのは :help open 。中身を貼るのは :help filetag
-詳しくは :help register :help path",
-    },
-    Page {
         name: "cli",
         group: "other",
         summary: "ウィンドウを開かず式を実行する",
@@ -1658,8 +1647,11 @@ mod tests {
         assert!(render(Some("slots")).contains(":sel | snake"));
         assert!(render(Some("slots")).contains("#slot:n") || render(Some("complete")).contains("#slot") || render(Some("slottag")).contains("#slot"));
         assert!(render(Some("complete")).contains("一覧の Enter と同じく展開して貼る"));
+        assert!(render(Some("complete")).contains("打つ: Ctrl+8"));
         assert!(render(Some("complete")).contains("#work はタグ work"));
         assert!(render(Some("complete")).contains("本文に無くても #alias:x"));
+        assert!(!render(Some("complete")).contains("Ctrl+9"));
+        assert!(!render(None).contains(":help drop"));
         assert!(render(Some("alias")).contains("x y でも当たる"));
         assert!(render(Some("slash")).contains("x y でも当たる"));
         assert!(render(Some("slash")).contains("Tab は一覧へ"));

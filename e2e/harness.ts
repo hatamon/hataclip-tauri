@@ -4,6 +4,7 @@
 import { mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { describe } from "vitest";
 import { closeNotepad, closeSession, launchHataclip, launchNotepad, type Session } from "./driver";
+import { quitHataclipNvim } from "./nvim";
 import { containerPath, hataclipGuiPath, hostPath, winAppDriverHost } from "./paths";
 import { sleep, waitForDump, type DumpState } from "./dump";
 
@@ -36,11 +37,10 @@ export type Harness = {
   revealRow: (selected: string) => Promise<void>;
   colon: (line: string) => Promise<void>;
   expand: () => Promise<void>;
-  complete: () => Promise<void>;
   pickerKeys: (keys: string[]) => Promise<void>;
   waitDump: (predicate: (dump: DumpState) => boolean, timeoutMs?: number) => Promise<DumpState>;
   waitNote: (predicate: (text: string) => boolean, timeoutMs?: number) => Promise<string>;
-  dropPaths: (paths: string[]) => Promise<void>;
+  quitNvim: () => Promise<void>;
 };
 
 export function describeE2e(name: string, body: () => void): void {
@@ -192,20 +192,18 @@ export async function startHarness(options?: {
       await waitForDump(dumpPath, (dump) => dump.picker?.selected === selected);
     },
     async colon(line) {
-      await hataclip.keys([":", ...chars(line), "Enter"]);
+      await hataclip.keys([":"]);
+      await waitForDump(dumpPath, (dump) => dump.picker?.mode === "colon");
+      if (line.length > 0) {
+        await hataclip.keys([...chars(line)]);
+      }
+      await hataclip.keys(["Enter"]);
     },
     async expand() {
-      await notepad.clickNamed(noteName);
-      await sleep(300);
+      await notepad.openTab(noteName);
+      await sleep(400);
       await notepad.keys(["Control", "8", "Control"]);
-      await sleep(400);
-    },
-    async complete() {
-      await notepad.clickNamed(noteName);
-      await sleep(300);
-      await notepad.keys(["End", "Shift", "Home", "Shift"]);
-      await notepad.keys(["Control", "9", "Control"]);
-      await sleep(400);
+      await sleep(500);
     },
     async waitNote(predicate, timeoutMs = 8_000) {
       const deadline = Date.now() + timeoutMs;
@@ -225,9 +223,8 @@ export async function startHarness(options?: {
     waitDump(predicate, timeoutMs) {
       return waitForDump(dumpPath, predicate, timeoutMs);
     },
-    async dropPaths(paths) {
-      mkdirSync(testDirContainer, { recursive: true });
-      writeFileSync(`${testDirContainer}/drop-paths.json`, JSON.stringify(paths));
+    quitNvim() {
+      return quitHataclipNvim();
     },
   };
   return harness;

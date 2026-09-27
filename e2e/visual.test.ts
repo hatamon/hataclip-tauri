@@ -60,8 +60,8 @@ describeE2e("複数選択（TEST.md）", () => {
 
     await h.revealRow("vis-c");
     await h.pickerKeys(["y", "y"]);
-    await h.revealRow("bulk-a");
-    await h.pickerKeys(["V", "j", "d", "d"]);
+    await h.showPicker();
+    await h.pickerKeys(["g", "g", "V", "j", "d", "d"]);
     await h.waitDump(
       (state) =>
         !state.items.some((item) => item.text === "bulk-a") &&
@@ -76,7 +76,9 @@ describeE2e("複数選択（TEST.md）", () => {
     }
     await h.clearNote();
     await h.revealRow("vis-a");
-    await h.pickerKeys(["V", "j", "V", "Enter"]);
+    await h.pickerKeys(["V"]);
+    await sleep(200);
+    await h.pickerKeys(["V", "Enter"]);
     await h.waitDump((state) => state.picker?.open === false);
     expect(plain(await h.noteText())).toBe("vis-a");
   });

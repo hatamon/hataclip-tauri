@@ -1,8 +1,7 @@
 use crate::ctrl_gap::{self, Action, Chord};
 use crate::settings::Shortcuts;
 use crate::{
-    actions, complete_from_selection, paste_from_selection, register_from_clipboard, show_picker,
-    AppState,
+    actions, paste_from_selection, register_from_clipboard, show_picker, AppState,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
@@ -71,24 +70,6 @@ pub fn apply(app: &AppHandle, shortcuts: &Shortcuts) -> Result<(), String> {
         }
     }
 
-    if !shortcuts.complete.is_empty()
-        && shortcuts.complete != shortcuts.register
-        && shortcuts.complete != shortcuts.show
-        && shortcuts.complete != shortcuts.expand
-    {
-        if let Ok(complete) = actions::parse(&shortcuts.complete) {
-            let _ = global.on_shortcut(complete, |app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-                with_shortcut(|| {
-                    let state = app.state::<AppState>();
-                    complete_from_selection(app, &state);
-                });
-            });
-        }
-    }
-
     publish_gap(app, shortcuts);
     Ok(())
 }
@@ -116,7 +97,6 @@ fn dispatch(app: &AppHandle, action: Action) {
         Action::Register => register_from_clipboard(app, &state),
         Action::Show => show_picker(app, &state),
         Action::Expand => paste_from_selection(app, &state),
-        Action::Complete => complete_from_selection(app, &state),
         Action::Ranked(index) => crate::paste_ranked(index, app, &state),
     }
 }
@@ -127,9 +107,6 @@ fn gap_chords(shortcuts: &Shortcuts) -> Vec<Chord> {
     push_chord(&mut chords, &shortcuts.show, Action::Show);
     if !shortcuts.expand.is_empty() {
         push_chord(&mut chords, &shortcuts.expand, Action::Expand);
-    }
-    if !shortcuts.complete.is_empty() {
-        push_chord(&mut chords, &shortcuts.complete, Action::Complete);
     }
     if shortcuts.quick_paste {
         for digit in 1..=9 {

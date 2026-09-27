@@ -151,13 +151,20 @@ describeE2e("コマンド（TEST.md）", () => {
     for (let i = 1; i < count; i += 1) {
       await h.pickerKeys(["j"]);
     }
+    const before = listed.picker?.filtered ?? [];
     await h.colon("sort");
-    const sorted = await h.waitDump((state) => state.picker?.filtered?.[0] === "{{n}}");
+    const sorted = await h.waitDump((state) => {
+      const rows = state.picker?.filtered ?? [];
+      const copy = [...rows].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      return rows.length > 1 && rows.every((row, index) => row === copy[index]);
+    });
     const rows = sorted.picker?.filtered ?? [];
-    const copy = [...rows].sort((a, b) => a.localeCompare(b));
-    expect(rows[0]).toBe(copy[0]);
+    expect(rows).not.toEqual(before);
     await h.pickerKeys(["u"]);
-    await sleep(200);
+    await h.waitDump((state) => {
+      const rows = state.picker?.filtered ?? [];
+      return rows.length === before.length && rows.every((row, index) => row === before[index]);
+    });
     await h.hidePicker();
   });
 
@@ -263,7 +270,10 @@ describeE2e("コマンド（TEST.md）", () => {
     writeFileSync(path, "{");
     await h.showPicker();
     await h.colon("settings");
-    await sleep(600);
+    await sleep(400);
+    await h.quitNvim();
+    const opened = await h.waitDump((state) => typeof state.lastOpen === "string");
+    expect(opened.lastOpen ?? "").toContain("settings.json");
     writeFileSync(path, previous);
     await h.showPicker();
     expect((await h.waitDump(() => true)).picker?.open).toBe(true);
