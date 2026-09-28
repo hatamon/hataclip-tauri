@@ -383,6 +383,38 @@ fn hide_picker(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     hide_window(&app, &state);
 }
 
+/// タイトルバーのドラッグや枠のリサイズでは WebView だけが blur する。
+/// ウィンドウが前面のままなら隠さない。
+#[tauri::command]
+fn hide_picker_if_unfocused(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    hide_if_window_unfocused(&app, &state);
+}
+
+fn should_hide_on_unfocus(hold_picker: bool, picker_open: bool, window_focused: bool) -> bool {
+    picker_open && !hold_picker && !window_focused
+}
+
+fn picker_window_focused(app: &tauri::AppHandle) -> bool {
+    let tauri_focused = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false);
+    if tauri_focused {
+        return true;
+    }
+    platform::capture_foreground().is_some_and(|fg| picker_is_foreground(app, &fg))
+}
+
+fn hide_if_window_unfocused(app: &tauri::AppHandle, state: &AppState) {
+    let hold = *state.hold_picker.lock().expect("hold_picker");
+    let open = *state.picker_open.lock().expect("picker_open");
+    if !should_hide_on_unfocus(hold, open, picker_window_focused(app)) {
+        return;
+    }
+    *state.pending_expand.lock().expect("pending_expand") = None;
+    hide_window(app, state);
+}
+
 #[tauri::command]
 fn is_test_mode() -> bool {
     test_args::is_active()
@@ -3102,6 +3134,7 @@ fn run_with(launch: test_args::TestLaunch) {
             sort_items,
             edit_external,
             hide_picker,
+            hide_picker_if_unfocused,
             is_test_mode,
             report_test_ui,
             paste_items,
@@ -3171,12 +3204,38 @@ fn run_with(launch: test_args::TestLaunch) {
                     let _ = shortcuts::resume(app, &shortcuts);
                 }
             }
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Focused(false),
+                ..
+            } = &event
+            {
+                if label == "main" {
+                    let handle = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        let Some(state) = handle.try_state::<AppState>() else {
+                            return;
+                        };
+                        hide_if_window_unfocused(&handle, &state);
+                    });
+                }
+            }
         });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blur_keeps_picker_while_window_stays_focused() {
+        assert!(!should_hide_on_unfocus(false, true, true));
+        assert!(should_hide_on_unfocus(false, true, false));
+        assert!(!should_hide_on_unfocus(true, true, false));
+        assert!(!should_hide_on_unfocus(false, false, false));
+        assert!(!should_hide_on_unfocus(true, true, true));
+    }
 
     #[test]
     fn auto_line_expands_from_the_last_colon_or_braces() {

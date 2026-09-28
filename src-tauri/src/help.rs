@@ -1391,7 +1391,7 @@ Ubuntu はキーを送らない。1文字ずつ貼るコマンドは :help type
 打つ: Ctrl+矢印で 24px 移動。Ctrl+Shift+←→ で幅、Ctrl+Shift+↑↓ で高さ。
 変わるのは一覧ウィンドウ。下限 200×140。本文は変えない。閉じても位置と大きさは残る。
 例: Ctrl+→ で右へ 24px。
-ドラッグでも動く。ドラッグのあいだは隠さない。
+ドラッグでも動く。端をドラッグして大きさを変えられる。つかんでいるあいだは隠さない。
 詳しくは :help zoom :help blur",
     },
     Page {
@@ -1452,7 +1452,7 @@ Ubuntu はキーを送らない。1文字ずつ貼るコマンドは :help type
         group: "other",
         summary: "一覧から離れたら隠す",
         body: "\
-変わるのは一覧の表示。フォーカスが外れたら隠す。クリックで前面へ戻ったとき、別のアプリへ移ったときは隠す。編集、:、問い合わせ、ヘルプ、タグ入力のあいだは残る。E で外のエディタを開いているあいだは隠さない。ドラッグで動かしているあいだは隠さない。隠したあとは展開キーが前面に効く。Ubuntu も同じ。
+変わるのは一覧の表示。フォーカスが外れたら隠す。クリックで前面へ戻ったとき、別のアプリへ移ったときは隠す。編集、:、問い合わせ、ヘルプ、タグ入力のあいだは残る。E で外のエディタを開いているあいだは隠さない。ドラッグで動かしているあいだ、端をドラッグして大きさを変えているあいだは隠さない。隠したあとは展開キーが前面に効く。Ubuntu も同じ。
 例: 一覧を出したまま別のアプリをクリックすると、一覧は隠れる。
 Esc で閉じるのは :help esc
 詳しくは :help ctrl8 :help winmove",
@@ -1670,6 +1670,9 @@ mod tests {
         assert!(render(Some("ctrl8")).contains("8 は入らない"));
         assert!(render(Some("ctrl8")).contains("abc :echo 2+3"));
         assert!(render(Some("cut")).contains("送らない"));
+        assert!(render(Some("winmove")).contains("端をドラッグ"));
+        assert!(render(Some("winmove")).contains("つかんでいるあいだは隠さない"));
+        assert!(render(Some("blur")).contains("大きさを変えているあいだは隠さない"));
         assert!(!render(Some("tag")).contains("#here"));
         assert!(!render(None).contains("{{cred}}"));
         assert!(!render(None).contains("#once"));

@@ -1,4 +1,4 @@
-// TEST.md「一覧を出す」。端へのドラッグと画面外は dump に位置が無いので見ない。
+// TEST.md「一覧を出す」。タイトルバーと端のドラッグで閉じないことは dump に無いので見ない。
 
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";

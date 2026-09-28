@@ -92,7 +92,6 @@
   let previewText = $state("");
   let runConfirm = $state(false);
   let shConfirm = $state(false);
-  let dragging = $state(false);
   let pendingResolved = $state<string | null>(null);
   let tagCycle = $state(-1);
   let draftNewId = $state<string | null>(null);
@@ -1176,6 +1175,7 @@
       }
     }
     mode = "normal";
+    shConfirm = false;
     query = "";
     pending = "";
     editingId = null;
@@ -2393,21 +2393,11 @@
     const onKey = (event: KeyboardEvent) => onDocumentKeydown(event);
     window.addEventListener("keydown", onKey, true);
     const onBlur = () => {
-      if (dragging) {
-        return;
-      }
-      if (shConfirm) {
-        shConfirm = false;
-        helpText = "";
-        mode = "normal";
-        void invoke("cancel_selection_expand");
-        return;
-      }
       window.setTimeout(() => {
         if (document.hasFocus()) {
           return;
         }
-        void invoke("hide_picker");
+        void invoke("hide_picker_if_unfocused");
       }, 0);
     };
     window.addEventListener("blur", onBlur);
@@ -2451,13 +2441,7 @@
 </script>
 
 <div class="picker" style:font-size="{fontPx}px">
-  <div
-    class="drag"
-    data-tauri-drag-region
-    onpointerdown={() => (dragging = true)}
-    onpointerup={() => (dragging = false)}
-    onpointercancel={() => (dragging = false)}
-  ></div>
+  <div class="drag" data-tauri-drag-region></div>
   {#if mode === "editing"}
     <div class="edit">
       <textarea bind:this={editEl} bind:value={editText} rows="6"></textarea>
